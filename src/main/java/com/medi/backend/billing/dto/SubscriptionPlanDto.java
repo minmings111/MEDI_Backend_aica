@@ -1,18 +1,19 @@
 package com.medi.backend.billing.dto;
 
-import java.sql.Date;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 import lombok.Data;
 
 @Data
 public class SubscriptionPlanDto {
 
-    public int id;
-    public String planName;
-    public int price;
-    public int decimal;
-    public int channel_limit;
-    public Date createdAt;
-    public Date updateAt;
+    private int id;
+    private String planName;
+    private BigDecimal price;
+    private int channelLimit;
+    private String description;
+    private LocalDateTime createdAt;
+    private LocalDateTime updateAt;
 
 }

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.medi.backend.billing.mapper.BillingMapper">
+
+    <select id="getAllPlans" resultType="com.medi.backend.billing.dto.SubscriptionPlanDto">
+        SELECT 
+            id, plan_name, price, channel_limit, description, created_at, updated_at 
+            FROM subscription_plans
+    </select>
+
+    <select id="getOnePlanById" resultType="com.medi.backend.billing.dto.SubscriptionPlanDto" parameterType="int">
+        SELECT
+            id, plan_name, price, channel_limit, description, created_at, updated_at 
+        FROM subscription_plans
+            WHERE id = #{id}
+    </select>
+
+    <insert id="createPlan" parameterType="com.medi.backend.billing.dto.SubscriptionPlanDto">
+		INSERT INTO subscription_plans 
+            (`plan_name`, `price`, `channel_limit`, `description`)
+        VALUES
+            (#{planName}, #{price}, #{channelLimit}, #{description})
+	</insert>
+
+    <update id="updatePlan" parameterType="com.medi.backend.billing.dto.SubscriptionPlanDto">
+        UPDATE subscription_plans
+        SET
+            plan_name = #{planName},
+            price = #{price},
+            channel_limit = #{channelLimit},
+            description = #{description}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deletePlanById" parameterType="int">
+        DELETE FROM subscription_plans
+        WHERE id = #{id}
+    </delete>
+
+
+
+</mapper>
