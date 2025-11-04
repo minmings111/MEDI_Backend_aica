@@ -1,188 +1,757 @@
 package com.medi.backend.auth.controller;
 
-import com.medi.backend.auth.dto.EmailVerificationCheckRequest;
-import com.medi.backend.auth.dto.EmailVerificationRequest;
-import com.medi.backend.auth.dto.RegisterRequest;
-import com.medi.backend.auth.service.AuthService;
 import com.medi.backend.user.dto.UserDTO;
+import com.medi.backend.user.mapper.UserMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.web.bind.annotation.*;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 인증 관련 API 컨트롤러
+ * 세션 기반 인증 컨트롤러
+ * - Spring Security + HttpSession 사용
+ * - 표준적인 세션 로그인 방식
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
+
+    @Autowired
+    private AuthenticationManager authenticationManager;
     
     @Autowired
-    private AuthService authService;
+    private UserMapper userMapper;
     
+    @Autowired
+    private com.medi.backend.auth.service.AuthService authService;
+    
+    @Autowired
+    private org.springframework.security.core.session.SessionRegistry sessionRegistry;
+
     /**
-     * 1단계: 이메일 인증 코드 전송
-     * POST /api/auth/send-verification
+     * 로그인 API
+     * POST /api/auth/login
+     * 
+     * 요청 예시:
+     * {
+     *   "email": "user@example.com",
+     *   "password": "password123"
+     * }
      */
-    @PostMapping("/send-verification")
-    public ResponseEntity<?> sendVerificationCode(@RequestBody EmailVerificationRequest request) {
+    @PostMapping("/login")
+    public ResponseEntity<Map<String, Object>> login(
+            @RequestBody LoginRequest loginRequest,
+            HttpServletRequest request) {
+        
+        Map<String, Object> response = new HashMap<>();
+        
         try {
-            String email = request.getEmail();
+            log.info("로그인 시도: {}", loginRequest.getEmail());
             
-            // 1. 이메일 유효성 검증
-            if (email == null || email.isEmpty()) {
-                return ResponseEntity.badRequest()
-                    .body(createErrorResponse("이메일을 입력해주세요"));
-            }
+            // 1. Spring Security 인증 처리
+            UsernamePasswordAuthenticationToken authToken = 
+                new UsernamePasswordAuthenticationToken(
+                    loginRequest.getEmail(), 
+                    loginRequest.getPassword()
+                );
             
-            // 2. 이메일 중복 체크
-            if (authService.isEmailExists(email)) {
-                return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(createErrorResponse("이미 가입된 이메일입니다"));
-            }
+            Authentication authentication = authenticationManager.authenticate(authToken);
             
-            // 3. 인증 코드 생성 및 저장
-            String code = authService.sendVerificationCode(email);
+            // 2. SecurityContext에 인증 정보 저장
+            SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
+            securityContext.setAuthentication(authentication);
+            SecurityContextHolder.setContext(securityContext);
             
-            // (실제 배포 시 제거)
-            // ========== 여기부터 삭제 ========== ❌
-            // 4. 콘솔 출력 (MVP용 - 실제로는 이메일 전송)
-            System.out.println("================================");
-            System.out.println("📧 이메일 인증 코드 전송");
-            System.out.println("수신: " + email);
-            System.out.println("인증 코드: " + code);
-            System.out.println("유효 시간: 5분");
-            System.out.println("================================");
-            // ========== 여기까지 삭제 ========== ❌
+            // 3. HttpSession에 SecurityContext 저장 (세션 기반 인증의 핵심)
+            HttpSession session = request.getSession(true);
+            session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, securityContext);
+            
+            // 4. 사용자 정보 조회 (응답용)
+            UserDTO user = userMapper.findByEmail(loginRequest.getEmail());
+            
+            log.info("로그인 성공: {} (세션 ID: {})", loginRequest.getEmail(), session.getId());
             
             // 5. 성공 응답
-            Map<String, Object> response = new HashMap<>();
             response.put("success", true);
-            response.put("message", "인증 코드가 이메일로 전송되었습니다");
-            response.put("email", email);
-            response.put("expiresIn", 300);  // 5분 (초 단위)
-            response.put("code", code);       // <= MVP용 (실제 배포 시 제거)
+            response.put("message", "로그인 성공");
+            response.put("user", Map.of(
+                "id", user.getId(),
+                "email", user.getEmail(),
+                "name", user.getName(),
+                "role", user.getRole()
+            ));
+            response.put("sessionId", session.getId());
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (AuthenticationException e) {
+            log.warn("로그인 실패: {} - {}", loginRequest.getEmail(), e.getMessage());
+            
+            response.put("success", false);
+            response.put("message", "이메일 또는 비밀번호가 올바르지 않습니다");
+            response.put("error", "INVALID_CREDENTIALS");
+            
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+        } catch (Exception e) {
+            log.error("로그인 처리 중 오류 발생: {}", e.getMessage(), e);
+            
+            response.put("success", false);
+            response.put("message", "로그인 처리 중 오류가 발생했습니다");
+            response.put("error", "INTERNAL_ERROR");
+            
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    /**
+     * 로그아웃 API
+     * POST /api/auth/logout
+     */
+    @PostMapping("/logout")
+    public ResponseEntity<Map<String, Object>> logout(HttpServletRequest request) {
+        Map<String, Object> response = new HashMap<>();
+        
+        try {
+            HttpSession session = request.getSession(false);
+            String sessionId = session != null ? session.getId() : "없음";
+            
+            // 1. SecurityContext 클리어
+            SecurityContextHolder.clearContext();
+            
+            // 2. 세션 무효화
+            if (session != null) {
+                session.invalidate();
+            }
+            
+            log.info("로그아웃 완료 (세션 ID: {})", sessionId);
+            
+            response.put("success", true);
+            response.put("message", "로그아웃 되었습니다");
             
             return ResponseEntity.ok(response);
             
         } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(createErrorResponse("인증 코드 전송 실패"));
+            log.error("로그아웃 처리 중 오류 발생: {}", e.getMessage(), e);
+            
+            response.put("success", false);
+            response.put("message", "로그아웃 처리 중 오류가 발생했습니다");
+            
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
         }
     }
-    
+
     /**
-     * 2단계: 이메일 인증 코드 확인
-     * POST /api/auth/verify-email
+     * 현재 로그인 상태 확인 API
+     * GET /api/auth/me
      */
-    @PostMapping("/verify-email")
-    public ResponseEntity<?> verifyEmail(@RequestBody EmailVerificationCheckRequest request) {
+    @GetMapping("/me")
+    public ResponseEntity<Map<String, Object>> getCurrentUser(HttpServletRequest request) {
+        Map<String, Object> response = new HashMap<>();
+        
         try {
-            String email = request.getEmail();
-            String code = request.getCode();
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
             
-            // 1. 입력값 검증
-            if (email == null || email.isEmpty()) {
-                return ResponseEntity.badRequest()
-                    .body(createErrorResponse("이메일을 입력해주세요"));
-            }
-            
-            if (code == null || code.isEmpty()) {
-                return ResponseEntity.badRequest()
-                    .body(createErrorResponse("인증 코드를 입력해주세요"));
-            }
-            
-            // 2. 인증 코드 검증
-            boolean isValid = authService.verifyCode(email, code);
-            
-            // 3. 결과에 따라 응답
-            if (isValid) {
-                Map<String, Object> response = new HashMap<>();
+            if (authentication != null && authentication.isAuthenticated() 
+                && !"anonymousUser".equals(authentication.getName())) {
+                
+                // 로그인된 사용자 정보 조회
+                UserDTO user = userMapper.findByEmail(authentication.getName());
+                HttpSession session = request.getSession(false);
+                
                 response.put("success", true);
-                response.put("message", "이메일 인증이 완료되었습니다");
-                response.put("verified", true);
+                response.put("authenticated", true);
+                response.put("user", Map.of(
+                    "id", user.getId(),
+                    "email", user.getEmail(),
+                    "name", user.getName(),
+                    "role", user.getRole()
+                ));
+                response.put("sessionId", session != null ? session.getId() : null);
                 
                 return ResponseEntity.ok(response);
             } else {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(createErrorResponse("인증 코드가 올바르지 않거나 만료되었습니다"));
+                response.put("success", true);
+                response.put("authenticated", false);
+                response.put("message", "로그인되지 않음");
+                
+                return ResponseEntity.ok(response);
             }
             
         } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(createErrorResponse("인증 확인 실패"));
+            log.error("사용자 정보 조회 중 오류 발생: {}", e.getMessage(), e);
+            
+            response.put("success", false);
+            response.put("message", "사용자 정보 조회 중 오류가 발생했습니다");
+            
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
         }
     }
-    
+
     /**
-     * 3단계: 회원가입
+     * 회원탈퇴 API
+     * DELETE /api/auth/withdraw
+     * 
+     * 프론트엔드에서 비밀번호 확인 후 호출
+     */
+    @DeleteMapping("/withdraw")
+    public ResponseEntity<Map<String, Object>> withdrawUser(HttpServletRequest request) {
+        Map<String, Object> response = new HashMap<>();
+        String currentUserEmail = null;  // 변수 스코프 확장
+        
+        try {
+            // 1. 현재 로그인된 사용자 확인
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            
+            if (authentication == null || !authentication.isAuthenticated() 
+                || "anonymousUser".equals(authentication.getName())) {
+                
+                log.warn("비로그인 상태에서 회원탈퇴 시도");
+                response.put("success", false);
+                response.put("message", "로그인이 필요합니다");
+                response.put("error", "UNAUTHORIZED");
+                
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+            }
+            
+            currentUserEmail = authentication.getName();
+            
+            // 2. 이메일 유효성 검사
+            if (currentUserEmail == null || currentUserEmail.trim().isEmpty()) {
+                log.error("유효하지 않은 사용자 이메일: {}", currentUserEmail);
+                response.put("success", false);
+                response.put("message", "유효하지 않은 사용자 정보입니다");
+                response.put("error", "INVALID_USER");
+                
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+            }
+            
+            // 3. 사용자 존재 여부 확인
+            UserDTO existingUser = userMapper.findByEmail(currentUserEmail);
+            if (existingUser == null) {
+                log.error("탈퇴 시도한 사용자가 존재하지 않음: {}", currentUserEmail);
+                response.put("success", false);
+                response.put("message", "사용자 정보를 찾을 수 없습니다");
+                response.put("error", "USER_NOT_FOUND");
+                
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+            }
+            
+            log.info("회원탈퇴 시도: {} (ID: {})", currentUserEmail, existingUser.getId());
+            
+            // 4. 회원탈퇴 처리 (실제 삭제)
+            int result = userMapper.deleteUser(currentUserEmail);
+            
+            if (result > 0) {
+                // 5. 완전한 세션 무효화 처리
+                try {
+                    // SecurityContext 클리어
+                    SecurityContextHolder.clearContext();
+                    
+                    // 현재 세션 무효화
+                    HttpSession session = request.getSession(false);
+                    if (session != null) {
+                        String sessionId = session.getId();
+                        session.invalidate();
+                        log.debug("세션 무효화 완료: {}", sessionId);
+                    }
+                    
+                    // 응답 헤더에 세션 쿠키 삭제 지시
+                    // (브라우저에서 쿠키 완전 제거)
+                    
+                } catch (Exception sessionError) {
+                    log.warn("세션 무효화 중 오류 발생: {}", sessionError.getMessage());
+                    // 세션 오류가 있어도 탈퇴는 완료된 상태이므로 계속 진행
+                }
+                
+                log.info("회원탈퇴 완료: {}", currentUserEmail);
+                
+                response.put("success", true);
+                response.put("message", "회원탈퇴가 완료되었습니다");
+                response.put("sessionCleared", true);
+                
+                return ResponseEntity.ok(response);
+            } else {
+                log.error("회원탈퇴 DB 처리 실패: {} (삭제된 행 수: {})", currentUserEmail, result);
+                response.put("success", false);
+                response.put("message", "회원탈퇴 처리 중 오류가 발생했습니다");
+                response.put("error", "WITHDRAWAL_FAILED");
+                response.put("details", "데이터베이스 삭제 실패");
+                
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+            }
+            
+        } catch (org.springframework.dao.DataAccessException dbException) {
+            // 데이터베이스 관련 오류
+            log.error("회원탈퇴 DB 오류 발생: {} - {}", currentUserEmail, dbException.getMessage(), dbException);
+            
+            response.put("success", false);
+            response.put("message", "데이터베이스 처리 중 오류가 발생했습니다");
+            response.put("error", "DATABASE_ERROR");
+            
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+            
+        } catch (IllegalStateException stateException) {
+            // 세션 상태 관련 오류
+            log.error("회원탈퇴 세션 상태 오류: {} - {}", currentUserEmail, stateException.getMessage(), stateException);
+            
+            response.put("success", false);
+            response.put("message", "세션 처리 중 오류가 발생했습니다");
+            response.put("error", "SESSION_ERROR");
+            
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+            
+        } catch (Exception e) {
+            // 기타 예상치 못한 오류
+            log.error("회원탈퇴 처리 중 예상치 못한 오류 발생: {} - {}", 
+                     currentUserEmail != null ? currentUserEmail : "unknown", 
+                     e.getMessage(), e);
+            
+            response.put("success", false);
+            response.put("message", "회원탈퇴 처리 중 오류가 발생했습니다");
+            response.put("error", "INTERNAL_ERROR");
+            response.put("details", e.getClass().getSimpleName());
+            
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    /**
+     * 이메일 인증 코드 전송 API
+     * POST /api/auth/send-verification
+     */
+    @PostMapping("/send-verification")
+    public ResponseEntity<Map<String, Object>> sendVerificationCode(@RequestBody Map<String, String> request) {
+        Map<String, Object> response = new HashMap<>();
+        
+        try {
+            String email = request.get("email");
+            
+            if (email == null || email.trim().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "이메일을 입력해주세요");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            // 이메일 중복 체크
+            if (authService.isEmailExists(email)) {
+                response.put("success", false);
+                response.put("message", "이미 가입된 이메일입니다");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            String code = authService.sendVerificationCode(email);
+            log.info("인증 코드 전송: {} -> {}", email, code);
+            
+            response.put("success", true);
+            response.put("message", "인증 코드가 전송되었습니다");
+            response.put("expiresIn", 300); // 5분
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("인증 코드 전송 실패: {}", e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "인증 코드 전송에 실패했습니다");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    /**
+     * 이메일 인증 코드 확인 API
+     * POST /api/auth/verify-email
+     */
+    @PostMapping("/verify-email")
+    public ResponseEntity<Map<String, Object>> verifyEmail(@RequestBody Map<String, String> request) {
+        Map<String, Object> response = new HashMap<>();
+        
+        try {
+            String email = request.get("email");
+            String code = request.get("code");
+            
+            if (email == null || email.trim().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "이메일을 입력해주세요");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            if (code == null || code.trim().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "인증 코드를 입력해주세요");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            boolean isValid = authService.verifyCode(email, code);
+            
+            if (isValid) {
+                response.put("success", true);
+                response.put("message", "이메일 인증이 완료되었습니다");
+                return ResponseEntity.ok(response);
+            } else {
+                response.put("success", false);
+                response.put("message", "인증 코드가 올바르지 않거나 만료되었습니다");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+        } catch (Exception e) {
+            log.error("이메일 인증 실패: {}", e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "이메일 인증 처리 중 오류가 발생했습니다");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    /**
+     * 회원가입 API
      * POST /api/auth/register
      */
     @PostMapping("/register")
-    public ResponseEntity<?> register(@RequestBody RegisterRequest request) {
+    public ResponseEntity<Map<String, Object>> register(@RequestBody com.medi.backend.auth.dto.RegisterRequest registerRequest) {
+        Map<String, Object> response = new HashMap<>();
+        
         try {
-            // 1. 입력값 유효성 검증
-            if (request.getEmail() == null || request.getEmail().isEmpty()) {
-                return ResponseEntity.badRequest()
-                    .body(createErrorResponse("이메일을 입력해주세요"));
+            // 입력값 검증
+            if (registerRequest.getEmail() == null || registerRequest.getEmail().trim().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "이메일을 입력해주세요");
+                return ResponseEntity.badRequest().body(response);
             }
             
-            if (request.getPassword() == null || request.getPassword().length() < 8) {
-                return ResponseEntity.badRequest()
-                    .body(createErrorResponse("비밀번호는 8자 이상이어야 합니다"));
+            if (registerRequest.getPassword() == null || registerRequest.getPassword().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "비밀번호를 입력해주세요");
+                return ResponseEntity.badRequest().body(response);
             }
             
-            if (request.getName() == null || request.getName().isEmpty()) {
-                return ResponseEntity.badRequest()
-                    .body(createErrorResponse("이름을 입력해주세요"));
+            if (registerRequest.getName() == null || registerRequest.getName().trim().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "이름을 입력해주세요");
+                return ResponseEntity.badRequest().body(response);
             }
             
-            if (request.getPhone() == null || request.getPhone().isEmpty()) {
-                return ResponseEntity.badRequest()
-                    .body(createErrorResponse("전화번호를 입력해주세요"));
+            if (registerRequest.getIsTermsAgreed() == null || !registerRequest.getIsTermsAgreed()) {
+                response.put("success", false);
+                response.put("message", "약관에 동의해주세요");
+                return ResponseEntity.badRequest().body(response);
             }
             
-            if (request.getIsTermsAgreed() == null || !request.getIsTermsAgreed()) {
-                return ResponseEntity.badRequest()
-                    .body(createErrorResponse("약관에 동의해주세요"));
+            // 이메일 중복 체크
+            if (authService.isEmailExists(registerRequest.getEmail())) {
+                response.put("success", false);
+                response.put("message", "이미 가입된 이메일입니다");
+                return ResponseEntity.badRequest().body(response);
             }
             
-            // 2. 이메일 중복 체크 (재확인)
-            if (authService.isEmailExists(request.getEmail())) {
-                return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(createErrorResponse("이미 가입된 이메일입니다"));
-            }
+            // 회원가입 처리
+            UserDTO newUser = authService.register(registerRequest);
             
-            // 3. 회원가입 처리
-            UserDTO user = authService.register(request);
+            log.info("회원가입 완료: {} (ID: {})", newUser.getEmail(), newUser.getId());
             
-            // 4. 성공 응답 (201 Created)
-            Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("message", "회원가입이 완료되었습니다");
-            response.put("userId", user.getId());
+            response.put("user", Map.of(
+                "id", newUser.getId(),
+                "email", newUser.getEmail(),
+                "name", newUser.getName(),
+                "role", newUser.getRole()
+            ));
             
-            return ResponseEntity.status(HttpStatus.CREATED).body(response);
+            return ResponseEntity.ok(response);
             
         } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(createErrorResponse("회원가입 처리 중 오류가 발생했습니다"));
+            log.error("회원가입 실패: {}", e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "회원가입 처리 중 오류가 발생했습니다");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
         }
     }
-    
+
     /**
-     * 에러 응답 생성 헬퍼 메서드
+     * 비밀번호 찾기 - 인증 코드 전송 API
+     * POST /api/auth/send-password-reset
+     * 
+     * 📝 설명: 비밀번호를 잊었을 때 이메일로 인증 코드 전송 (비로그인 상태)
      */
-    private Map<String, Object> createErrorResponse(String message) {
+    @PostMapping("/send-password-reset")
+    public ResponseEntity<Map<String, Object>> sendPasswordResetCode(@RequestBody Map<String, String> request) {
         Map<String, Object> response = new HashMap<>();
-        response.put("success", false);
-        response.put("message", message);
-        return response;
+        
+        try {
+            String email = request.get("email");
+            
+            if (email == null || email.trim().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "이메일을 입력해주세요");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            String code = authService.sendPasswordResetCode(email);
+            log.info("비밀번호 재설정 코드 전송: {} -> {}", email, code);
+            
+            response.put("success", true);
+            response.put("message", "비밀번호 재설정 코드가 전송되었습니다");
+            response.put("expiresIn", 300); // 5분
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (RuntimeException e) {
+            // 사용자 존재하지 않음
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+            
+        } catch (Exception e) {
+            log.error("비밀번호 재설정 코드 전송 실패: {}", e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "비밀번호 재설정 코드 전송에 실패했습니다");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    /**
+     * 비밀번호 찾기 - 새 비밀번호 설정 API
+     * POST /api/auth/reset-password
+     * 
+     * 📝 설명: 인증 코드 확인 후 새 비밀번호로 재설정 (비로그인 상태)
+     */
+    @PostMapping("/reset-password")
+    public ResponseEntity<Map<String, Object>> resetPassword(
+            @RequestBody com.medi.backend.auth.dto.PasswordResetRequest resetRequest,
+            HttpServletRequest request) {
+        Map<String, Object> response = new HashMap<>();
+        
+        try {
+            // 입력값 검증
+            if (resetRequest.getEmail() == null || resetRequest.getEmail().trim().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "이메일을 입력해주세요");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            if (resetRequest.getCode() == null || resetRequest.getCode().trim().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "인증 코드를 입력해주세요");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            if (resetRequest.getNewPassword() == null || resetRequest.getNewPassword().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "새 비밀번호를 입력해주세요");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            // 비밀번호 길이 검증
+            if (resetRequest.getNewPassword().length() < 6) {
+                response.put("success", false);
+                response.put("message", "비밀번호는 6자리 이상이어야 합니다");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            // 비밀번호 재설정 처리
+            boolean success = authService.resetPassword(
+                resetRequest.getEmail(), 
+                resetRequest.getCode(), 
+                resetRequest.getNewPassword()
+            );
+            
+            if (success) {
+                // 🔒 보안: 비밀번호 변경 후 해당 사용자의 모든 세션 무효화
+                invalidateUserSessions(resetRequest.getEmail(), request);
+                
+                log.info("비밀번호 재설정 및 세션 무효화 완료: {}", resetRequest.getEmail());
+                
+                response.put("success", true);
+                response.put("message", "비밀번호가 성공적으로 변경되었습니다");
+                response.put("sessionInvalidated", true);
+                response.put("requireLogin", true);
+                
+                return ResponseEntity.ok(response);
+            } else {
+                response.put("success", false);
+                response.put("message", "인증 코드가 올바르지 않거나 만료되었습니다");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+        } catch (Exception e) {
+            log.error("비밀번호 재설정 실패: {}", e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "비밀번호 재설정 처리 중 오류가 발생했습니다");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    /**
+     * 비밀번호 재설정 (로그인 상태에서) API
+     * PUT /api/auth/change-password
+     * 
+     * 📝 설명: 현재 비밀번호 확인 후 새 비밀번호로 변경 (로그인 상태 필수)
+     */
+    @PutMapping("/change-password")
+    public ResponseEntity<Map<String, Object>> changePassword(
+            @RequestBody com.medi.backend.auth.dto.PasswordChangeRequest changeRequest,
+            HttpServletRequest request) {
+        
+        Map<String, Object> response = new HashMap<>();
+        
+        try {
+            // 1. 현재 로그인된 사용자 확인
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            
+            if (authentication == null || !authentication.isAuthenticated() 
+                || "anonymousUser".equals(authentication.getName())) {
+                
+                response.put("success", false);
+                response.put("message", "로그인이 필요합니다");
+                response.put("error", "UNAUTHORIZED");
+                
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+            }
+            
+            String currentUserEmail = authentication.getName();
+            
+            // 2. 입력값 검증
+            if (changeRequest.getCurrentPassword() == null || changeRequest.getCurrentPassword().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "현재 비밀번호를 입력해주세요");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            if (changeRequest.getNewPassword() == null || changeRequest.getNewPassword().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "새 비밀번호를 입력해주세요");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            if (changeRequest.getConfirmPassword() == null || changeRequest.getConfirmPassword().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "새 비밀번호 확인을 입력해주세요");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            // 3. 새 비밀번호 일치 확인
+            if (!changeRequest.getNewPassword().equals(changeRequest.getConfirmPassword())) {
+                response.put("success", false);
+                response.put("message", "새 비밀번호가 일치하지 않습니다");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            // 4. 비밀번호 길이 검증
+            if (changeRequest.getNewPassword().length() < 6) {
+                response.put("success", false);
+                response.put("message", "새 비밀번호는 6자리 이상이어야 합니다");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            // 5. 현재 비밀번호와 새 비밀번호 동일 여부 확인
+            if (changeRequest.getCurrentPassword().equals(changeRequest.getNewPassword())) {
+                response.put("success", false);
+                response.put("message", "새 비밀번호는 현재 비밀번호와 달라야 합니다");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            // 6. 비밀번호 변경 처리
+            boolean success = authService.changePassword(
+                currentUserEmail,
+                changeRequest.getCurrentPassword(),
+                changeRequest.getNewPassword()
+            );
+            
+            if (success) {
+                // 🔒 보안: 비밀번호 변경 후 해당 사용자의 모든 세션 무효화
+                invalidateUserSessions(currentUserEmail, request);
+                
+                log.info("비밀번호 변경 및 세션 무효화 완료: {}", currentUserEmail);
+                
+                response.put("success", true);
+                response.put("message", "비밀번호가 성공적으로 변경되었습니다");
+                response.put("sessionInvalidated", true);
+                response.put("requireLogin", true);
+                
+                return ResponseEntity.ok(response);
+            } else {
+                response.put("success", false);
+                response.put("message", "현재 비밀번호가 올바르지 않습니다");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+        } catch (Exception e) {
+            log.error("비밀번호 변경 실패: {}", e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "비밀번호 변경 처리 중 오류가 발생했습니다");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    /**
+     * 특정 사용자의 모든 세션 무효화 (비밀번호 변경 시)
+     */
+    private void invalidateUserSessions(String email, HttpServletRequest request) {
+        try {
+            // 1. 현재 요청의 세션도 무효화 (비밀번호 재설정 요청자도 재로그인 필요)
+            HttpSession currentSession = request.getSession(false);
+            if (currentSession != null) {
+                currentSession.invalidate();
+                log.debug("현재 세션 무효화: {}", currentSession.getId());
+            }
+            
+            // 2. SessionRegistry를 통해 해당 사용자의 모든 세션 무효화
+            sessionRegistry.getAllPrincipals().forEach(principal -> {
+                if (principal instanceof org.springframework.security.core.userdetails.User) {
+                    org.springframework.security.core.userdetails.User user = 
+                        (org.springframework.security.core.userdetails.User) principal;
+                    
+                    if (email.equals(user.getUsername())) {
+                        sessionRegistry.getAllSessions(principal, false).forEach(sessionInfo -> {
+                            sessionInfo.expireNow();
+                            log.debug("사용자 세션 무효화: {} - {}", email, sessionInfo.getSessionId());
+                        });
+                    }
+                }
+            });
+            
+            log.info("사용자 모든 세션 무효화 완료: {}", email);
+            
+        } catch (Exception e) {
+            log.warn("세션 무효화 중 오류 발생: {} - {}", email, e.getMessage());
+            // 세션 무효화 실패해도 비밀번호 변경은 성공으로 처리
+        }
+    }
+
+    /**
+     * 로그인 요청 DTO
+     */
+    public static class LoginRequest {
+        private String email;
+        private String password;
+
+        // Getters and Setters
+        public String getEmail() {
+            return email;
+        }
+
+        public void setEmail(String email) {
+            this.email = email;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+
+        public void setPassword(String password) {
+            this.password = password;
+        }
     }
 }

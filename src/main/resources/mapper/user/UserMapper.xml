@@ -49,5 +49,17 @@
     <select id="existsByEmail" resultType="int">
         SELECT COUNT(*) FROM users WHERE email = #{email}
     </select>
+    
+    <!-- 회원탈퇴 (사용자 삭제) -->
+    <delete id="deleteUser">
+        DELETE FROM users WHERE email = #{email}
+    </delete>
+    
+    <!-- 비밀번호 업데이트 (비밀번호 재설정) -->
+    <update id="updatePassword">
+        UPDATE users 
+        SET password = #{password}, updated_at = NOW()
+        WHERE email = #{email}
+    </update>
 
 </mapper>

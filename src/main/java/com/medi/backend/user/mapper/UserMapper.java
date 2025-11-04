@@ -25,4 +25,14 @@ public interface UserMapper {
      * 이메일 존재 여부 확인 (중복 체크용)
      */
     int existsByEmail(@Param("email") String email);
+    
+    /**
+     * 회원탈퇴 (사용자 삭제)
+     */
+    int deleteUser(@Param("email") String email);
+    
+    /**
+     * 비밀번호 업데이트 (비밀번호 재설정)
+     */
+    int updatePassword(@Param("email") String email, @Param("password") String password);
 }

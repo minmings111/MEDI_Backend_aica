@@ -6,15 +6,15 @@ spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/medi?serverTimezone=Asia/Seoul&characterEncoding=utf8
-    username: minjeong
+    username: admin
     password: 1234
     
   # 이메일 설정 (Gmail)
   mail:
     host: smtp.gmail.com
     port: 587
-    username: your-email@gmail.com
-    password: your-app-password  # Gmail 앱 비밀번호
+    username: als469519@gmail.com
+    password: gvnk shyx irwz fywy  # Gmail 앱 비밀번호
     properties:
       mail:
         smtp:
@@ -25,22 +25,33 @@ spring:
           connectiontimeout: 5000
           timeout: 5000
           writetimeout: 5000
+  
+  # Spring Boot 기본 HTTP 세션 사용 (메모리 기반)
+  # Spring Session을 사용하지 않고 서블릿 컨테이너의 기본 세션 사용
+  # 장점: 별도 의존성 불필요, 빠른 성능, 테이블 불필요
+  # 단점: 서버 재시작 시 세션 사라짐
 
+# 서버 설정
+server:
+  port: 8080
+  servlet:
+    session:
+      timeout: 30m        # 세션 타임아웃 30분
+      cookie:
+        name: MEDI_SESSION # 세션 쿠키 이름
+        http-only: true    # XSS 공격 방지
+        secure: false      # 개발환경에서는 false (HTTPS 배포시 true로 변경)
+        same-site: lax     # CSRF 공격 방지
+        max-age: 1800      # 쿠키 최대 수명 30분 (1800초)
 
 # MyBatis 설정 정보
 mybatis:
   mapper-locations: classpath:mapper/**/*.xml
   type-aliases-package: com.medi.backend
-  # snacke -> camel
   configuration:
     map-underscore-to-camel-case: true
 
-
-# JWT 설정
-jwt:
-  secret: your-very-long-secret-key-at-least-256-bits-for-hs512-algorithm-change-this-in-production
-  access-token-validity: 900000 #15분
-  refresh-token-validity: 604800000 #7일
+# 세션 기반 인증 사용 (JWT 설정 제거)
 
 # 이메일 인증 설정
 email:
@@ -49,17 +60,18 @@ email:
     expiration-minutes: 5
 
 # CORS 설정
-# cors:
-#   allowed-origins: http://localhost:3000,http://localhost:5173
+cors:
+  allowed-origins: http://localhost:3000,http://localhost:5173
 
-# 서버 설정
-server:
-  port: 8080
-  # 외부 접속 허용 (배포시)
-  # address: 0.0.0.0
+# 서버 설정 (기존 설정과 통합)
+# server:
+#   port: 8080
+#   # 외부 접속 허용 (배포시)
+#   # address: 0.0.0.0
 
 # 로깅 레벨
 logging:
   level:
     com.medi.backend: DEBUG
     org.springframework.security: DEBUG
+    org.springframework.session: DEBUG  # 세션 디버깅
