@@ -3,11 +3,18 @@ package com.medi.backend.billing.controller;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.medi.backend.billing.dto.PaymentMethodDto;
+import com.medi.backend.billing.dto.SubscriptionChange;
 import com.medi.backend.billing.dto.SubscriptionPlanDto;
+import com.medi.backend.billing.dto.UserSubscriptionDto;
+import com.medi.backend.billing.dto.UserSubscriptionFilterDto;
 import com.medi.backend.billing.service.BillingService;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -16,6 +23,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+
 
 
 
@@ -30,6 +39,7 @@ public class BillingController {
         this.billingService = billingService;
     }
 
+    // SubscriptionPlanDto.java
     @GetMapping("/plans")
     public ResponseEntity<List<SubscriptionPlanDto>> getAllPlans() {
 
@@ -49,18 +59,28 @@ public class BillingController {
         return ResponseEntity.ok(subscriptionPlanDto);
     }
 
-    @PostMapping("/create")
+    @PostMapping("/plans")
     public ResponseEntity<String> createPlan(@RequestBody SubscriptionPlanDto subscriptionPlanDto) {
         int createCount = billingService.createPlan(subscriptionPlanDto);
         
-        return createCount == 1 ?
-            new ResponseEntity<String>("success", HttpStatus.OK)
-            :
-            new ResponseEntity<String>(HttpStatus.INTERNAL_SERVER_ERROR);
+        // return createCount == 1 ?
+        //     new ResponseEntity<String>("success", HttpStatus.OK)
+        //     :
+        //     new ResponseEntity<String>(HttpStatus.INTERNAL_SERVER_ERROR);
+
+        if (createCount == 1) {
+            return ResponseEntity.status(HttpStatus.CREATED).body("Subscription plan created successfully");
+        } else if (createCount == -1) {
+            // duplicated error(-1): "409 Conflict"
+            return ResponseEntity.status(HttpStatus.CONFLICT).body("Subscription plan already exists.");
+        } else {
+            // other error(0 or unexpected value): "500 Internal Server Error"
+            return new ResponseEntity<>("Failed to create subscription plan due to unexpected error", HttpStatus.INTERNAL_SERVER_ERROR);
+        }
         
     }
 
-    @PutMapping("plans/{id}")
+    @PutMapping("/plans/{id}")
     public ResponseEntity<String> updatePlan(@PathVariable int id, @RequestBody SubscriptionPlanDto subscriptionPlanDto) {
         subscriptionPlanDto.setId(id);
         int updateCount = billingService.updatePlan(subscriptionPlanDto);
@@ -70,7 +90,6 @@ public class BillingController {
         } 
         // 500 server error -> 404 Not Found
         return new ResponseEntity<>("Update Failed: Plan not found", HttpStatus.NOT_FOUND);
-
     }
     
     @DeleteMapping("/plans/{id}")
@@ -84,4 +103,141 @@ public class BillingController {
     }
 
     
+    // PaymentMethodDto.java
+    @GetMapping("/payment-methods")
+    public ResponseEntity<List<PaymentMethodDto>> getPaymentMethodsByUserId() {
+        int userId = 1; // check and change!! 나중에 1 대신 실제 로그인 ID 코드로 변경 필요!!!
+        List<PaymentMethodDto> paymentMethodDtos = billingService.getPaymentMethodsByUserId(userId);
+        
+        return ResponseEntity.ok(paymentMethodDtos);
+    }
+
+    @PostMapping("/payment-methods")
+    public ResponseEntity<String> createPaymentMethod(@RequestBody PaymentMethodDto paymentMethodDto) {
+        int userId = 1; // check and change!!
+        paymentMethodDto.setUserId(userId);
+
+        int createPaymentMethodResult = billingService.createPaymentMethod(paymentMethodDto);
+        
+        if (createPaymentMethodResult == 1) {
+            return ResponseEntity.status(HttpStatus.CREATED).body("Payment method created successfully");
+        } else if (createPaymentMethodResult == -1) {
+            // duplicated error(-1): "409 Conflict"
+            return ResponseEntity.status(HttpStatus.CONFLICT).body("Payment method already exists.");
+        } else {
+            // other error(0 or unexpected value): "500 Internal Server Error"
+            return new ResponseEntity<>("Failed to create payment method due to unexpected error", HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+    
+    @DeleteMapping("/payment-methods/{id}")
+    public ResponseEntity<String> deletePaymentMethodByIdAndUserId(@PathVariable int id){
+        int userId = 1; // check and change!!
+        int deleteCount = billingService.deletePaymentMethodByIdAndUserId(id, userId);
+        
+        if (deleteCount == 1) {
+            return ResponseEntity.ok("Delete Success"); 
+        }
+        return new ResponseEntity<>("Delete Failed: No card found or not your card", HttpStatus.NOT_FOUND);
+    }
+
+    @PutMapping("/payment-methods/{id}/set-default")
+    public ResponseEntity<String> setAsDefaultPaymentMethod(@PathVariable int id){
+        int userId = 1; // check and change!!
+        try {
+            billingService.setAsDefaultPaymentMethod(id, userId);
+            return ResponseEntity.ok("Default payment method has been set.");
+
+        } catch (Exception e) {
+            return new ResponseEntity<>("Failed to set default method: Card not found or permission denied.", HttpStatus.NOT_FOUND);
+        }
+    }
+
+
+    // UserSubscriptionDto.java
+    @GetMapping("/subscriptions/my-active")
+    public ResponseEntity<UserSubscriptionDto> getActiveSubscriptionByUserId() {
+        int userId = 1; // check and change!!
+        UserSubscriptionDto userSubscriptionDto = billingService.getActiveSubscriptionByUserId(userId);
+        
+        if (userSubscriptionDto == null) {
+            return ResponseEntity.noContent().build();  // 204 No Content
+        }
+        return ResponseEntity.ok(userSubscriptionDto);  // 200 OK
+    }
+    
+    @GetMapping("/subscriptions/my-history")
+    public ResponseEntity<List<UserSubscriptionDto>> getSubscriptionHistoryByUserId() {
+        int userId = 1;
+        List<UserSubscriptionDto> userSubscriptionDtos = billingService.getSubscriptionHistoryByUserId(userId);
+        return ResponseEntity.ok(userSubscriptionDtos);
+    }
+    
+    @GetMapping("/admin/subscriptions")
+    public ResponseEntity<List<UserSubscriptionDto>> getAllSubscriptions(
+        @RequestParam(required = false) String status,
+        @RequestParam(required = false) Integer planId,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime after
+    ) {
+        UserSubscriptionFilterDto subscriptionFilterDto = new UserSubscriptionFilterDto();
+        subscriptionFilterDto.setStatus(status);
+        subscriptionFilterDto.setPlanId(planId);
+        subscriptionFilterDto.setStartDateAfter(after);
+
+        List<UserSubscriptionDto> userSubscriptionDtos = billingService.getAllSubscriptions(subscriptionFilterDto);
+        return ResponseEntity.ok(userSubscriptionDtos);
+    }
+    
+    @PostMapping("/subscriptions")
+    public ResponseEntity<String> createUserSubscription(@RequestBody Map<String, Integer> request) {
+        int userId = 1; // check and change!!
+        int planId = request.get("planId");
+
+        int result = billingService.createUserSubscription(userId, planId);
+
+        if (result == 1) {
+            return ResponseEntity.status(HttpStatus.CREATED).body("Subscription created successfully");
+        } else if (result == -1) {
+            // Duplicate active subscriptions error
+            return ResponseEntity.status(HttpStatus.CONFLICT).body("User already has an active subscription.");
+        } else {
+            // other error
+            return new ResponseEntity<>("Failed to create subscription due to unexpected error", HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    @PutMapping("/subscriptions/{subscriptionId}/cancel")
+    public ResponseEntity<String> cancelSubscription(@PathVariable int subscriptionId) {
+        int userId = 1; // check and change!!
+        
+        int updateCount = billingService.cancelSubscriptionByIdAndUserId(subscriptionId, userId);
+        
+        if (updateCount == 1) {
+            return ResponseEntity.ok("Subscription cancelled successfully."); 
+        }
+        // The subscriptionId does not exist, has already been cancelled, or does not belong to user.
+        return new ResponseEntity<>("Cancellation failed: Subscription not found or already inactive.", HttpStatus.NOT_FOUND);
+    }
+
+
+    @PutMapping("/subscriptions/change-plan")
+    public ResponseEntity<String> changeSubscriptionPlan(@RequestBody SubscriptionChange subscriptionChange) {
+        int userId = 1; // check and change!!
+        
+        int result = billingService.changeSubscriptionPlan(userId, subscriptionChange.getNewPlanId());
+        
+        if (result == -1) {
+            return ResponseEntity.ok("No subscription plan.");  // 200 OK
+        } else if (result == 0) {
+            return ResponseEntity.ok("Already using that plan.");  // 200 OK
+        } else if (result == 1) {
+            return ResponseEntity.ok("The plan has been successfully changed.");  // 200 OK
+        }
+        
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .body("An error occurred while changing the plan.");
+    }
+
+
+
 }

@@ -4,7 +4,8 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
 <mapper namespace="com.medi.backend.billing.mapper.BillingMapper">
-
+    
+    <!-- // SubscriptionPlanDto.java -->
     <select id="getAllPlans" resultType="com.medi.backend.billing.dto.SubscriptionPlanDto">
         SELECT 
             id, plan_name, price, channel_limit, description, created_at, updated_at 
@@ -39,6 +40,110 @@
         DELETE FROM subscription_plans
         WHERE id = #{id}
     </delete>
+
+    <!-- // PaymentMethodDto.java -->
+    <select id="getPaymentMethodsByUserId" 
+            resultType="com.medi.backend.billing.dto.PaymentMethodDto"
+            parameterType="int">
+        SELECT 
+            id, user_id, pg_billing_key, card_type, card_last_four, is_default, created_at, updated_at
+        FROM payment_methods
+        WHERE user_id = #{userId}
+    </select>
+
+    <insert id="createPaymentMethod" parameterType="com.medi.backend.billing.dto.PaymentMethodDto">
+		INSERT INTO payment_methods
+            (user_id, pg_billing_key, card_type, card_last_four)
+        VALUES
+            (#{userId}, #{pgBillingKey}, #{cardType}, #{cardLastFour})
+	</insert>
+
+    <delete id="deletePaymentMethodByIdAndUserId" parameterType="int">
+        DELETE FROM payment_methods
+        WHERE id = #{id}
+        AND user_id #{userId}
+    </delete>
+
+    <update id="clearAllDefaultPaymentMethodsByUserId" parameterType="int">
+        UPDATE payment_methods
+        SET is_default = false
+        WHERE user_id = #{userId}
+    </update>
+
+    <update id="setDefaultMethodById" parameterType="int">
+        UPDATE payment_methods
+        SET is_default = true
+        WHERE id = #{id} and user_id = #{userId}
+    </update>
+
+    <!-- // UserSubscriptionDto.java -->
+    <select id="getActiveSubscriptionByUserId" 
+            resultType="com.medi.backend.billing.dto.UserSubscriptionDto"
+            parameterType="int">
+        SELECT 
+            id, user_id, plan_id, start_date, end_date, status, created_at, updated_at
+        FROM user_subscriptions
+        WHERE user_id = #{userId}
+        AND status = 'ACTIVE'
+    </select>
+
+    <select id="getSubscriptionHistoryByUserId" 
+            resultType="com.medi.backend.billing.dto.UserSubscriptionDto"
+            parameterType="int">
+        SELECT 
+            id, user_id, plan_id, start_date, end_date, status, created_at, updated_at
+        FROM user_subscriptions
+        WHERE user_id = #{userId}
+        ORDER BY start_date DESC
+    </select>
+
+    <select id="getAllSubscriptions" 
+            resultType="com.medi.backend.billing.dto.UserSubscriptionDto"
+            parameterType="com.medi.backend.billing.dto.UserSubscriptionFilterDto">
+
+        SELECT 
+            id, user_id, plan_id, start_date, end_date, status, created_at, updated_at
+        FROM user_subscriptions
+
+        <where>
+            <if test="status != null and status != ''">
+                AND status = #{status}
+            </if>
+            <if test="startDateAfter != null">
+                AND start_date &gt;= #{startDateAfter}
+            </if>
+            <if test="planId != null">
+                AND plan_id = #{planId}
+            </if>
+        </where>
+
+        ORDER BY
+            user_id ASC, start_date DESC
+
+    </select>
+
+    <insert id="createUserSubscription"
+            parameterType="com.medi.backend.billing.dto.UserSubscriptionDto">
+        INSERT 
+            INTO user_subscriptions 
+            (user_id, plan_id, start_date, end_date)
+        VALUES 
+            (#{userId}, #{planId}, #{startDate}, #{endDate})
+
+    </insert>
+
+    <update id="cancelSubscriptionByIdAndUserId">
+        UPDATE user_subscriptions
+        SET
+            status = 'CANCELLED',
+            updated_at = NOW()
+        WHERE
+            id = #{subscriptionId}
+        AND user_id = #{userId}
+        AND status = 'ACTIVE'   
+    </update>
+
+
 
 
 
