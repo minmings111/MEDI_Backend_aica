@@ -29,12 +29,15 @@
         <result property="role" column="role"/>
         <result property="createdAt" column="created_at"/>
         <result property="updatedAt" column="updated_at"/>
+        <result property="provider" column="provider"/>
+        <result property="providerId" column="provider_id"/>
+        <result property="profileImage" column="profile_image"/>
     </resultMap>
     
     <!-- 이메일로 사용자 조회 -->
     <select id="findByEmail" resultMap="UserResultMap">
         SELECT id, email, password, name, phone, is_terms_agreed, 
-               role, created_at, updated_at
+               role, created_at, updated_at, provider, provider_id, profile_image
         FROM users
         WHERE email = #{email}
     </select>
@@ -61,5 +64,27 @@
         SET password = #{password}, updated_at = NOW()
         WHERE email = #{email}
     </update>
+    
+    <!-- ===== OAuth2 관련 쿼리 ===== -->
+    
+    <!-- Provider와 Provider ID로 사용자 조회 -->
+    <select id="findByProviderAndProviderId" resultMap="UserResultMap">
+        SELECT id, email, password, name, phone, is_terms_agreed, 
+               role, created_at, updated_at, provider, provider_id, profile_image
+        FROM users
+        WHERE provider = #{provider} 
+        AND provider_id = #{providerId}
+    </select>
+    
+    <!-- OAuth2 사용자 정보 저장 (자동 회원가입) -->
+    <insert id="insertOAuth2User" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO users (
+            email, password, name, phone, is_terms_agreed, role,
+            provider, provider_id, profile_image
+        ) VALUES (
+            #{email}, #{password}, #{name}, #{phone}, #{isTermsAgreed}, #{role},
+            #{provider}, #{providerId}, #{profileImage}
+        )
+    </insert>
 
 </mapper>

@@ -1,6 +1,9 @@
 package com.medi.backend.global.config;
 
 import com.medi.backend.global.security.service.CustomUserDetailsService;
+import com.medi.backend.global.security.service.CustomOAuth2UserService;
+import com.medi.backend.global.security.handler.OAuth2AuthenticationSuccessHandler;
+import com.medi.backend.global.security.handler.OAuth2AuthenticationFailureHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -41,6 +44,15 @@ public class SecurityConfig {
     
     @Autowired
     private CustomUserDetailsService userDetailsService;  // 커스텀 사용자 인증 서비스
+    
+    @Autowired
+    private CustomOAuth2UserService customOAuth2UserService;  // OAuth2 사용자 서비스
+    
+    @Autowired
+    private OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler;  // OAuth2 성공 핸들러
+    
+    @Autowired
+    private OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler;  // OAuth2 실패 핸들러
     
     /**
      * 비밀번호 암호화 Bean (BCrypt 알고리즘)
@@ -159,6 +171,9 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/verify-email").permitAll()      // 이메일 인증 확인
                 .requestMatchers("/api/auth/send-password-reset").permitAll() // 비밀번호 재설정 코드 전송
                 .requestMatchers("/api/auth/reset-password").permitAll()    // 비밀번호 재설정
+                .requestMatchers("/api/auth/oauth2/**").permitAll()         // OAuth2 API 엔드포인트
+                .requestMatchers("/oauth2/**").permitAll()                  // OAuth2 엔드포인트
+                .requestMatchers("/login/oauth2/**").permitAll()            // OAuth2 로그인 콜백
                 .requestMatchers("/swagger-ui/**").permitAll()              // Swagger UI
                 .requestMatchers("/v3/api-docs/**").permitAll()             // Swagger API Docs
                 .requestMatchers("/swagger-ui.html").permitAll()            // Swagger 메인
@@ -184,6 +199,19 @@ public class SecurityConfig {
                 .invalidateHttpSession(true)
                 .deleteCookies("JSESSIONID", "MEDI_SESSION")  // 세션 쿠키도 함께 삭제
                 .permitAll()
+            )
+            
+            // OAuth2 로그인 설정 (Google)
+            .oauth2Login(oauth2 -> oauth2
+                .loginPage("/oauth2/authorization/google")                    // OAuth2 로그인 페이지
+                .redirectionEndpoint(redirection -> redirection
+                    .baseUri("/login/oauth2/code/*")                         // OAuth2 리다이렉트 엔드포인트
+                )
+                .userInfoEndpoint(userInfo -> userInfo
+                    .userService(customOAuth2UserService)                    // 커스텀 OAuth2 사용자 서비스
+                )
+                .successHandler(oAuth2AuthenticationSuccessHandler)          // OAuth2 로그인 성공 핸들러
+                .failureHandler(oAuth2AuthenticationFailureHandler)          // OAuth2 로그인 실패 핸들러
             );
         
         return http.build();

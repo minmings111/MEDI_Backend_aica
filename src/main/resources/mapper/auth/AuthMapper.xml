@@ -20,16 +20,16 @@
     </insert>
     
     <!-- 이메일과 코드로 조회 (만료되지 않은 것만) -->
-<select id="findByEmailAndCode" resultMap="EmailVerificationResultMap">
-    <![CDATA[
-    SELECT id, email, code, expires_at, created_at
-    FROM email_verifications
-    WHERE email = #{email} 
-      AND code = #{code}
-      AND expires_at > NOW()
-    LIMIT 1
-    ]]>
-</select>
+    <select id="findByEmailAndCode" resultMap="EmailVerificationResultMap">
+        <![CDATA[
+        SELECT id, email, code, expires_at, created_at
+        FROM email_verifications
+        WHERE email = #{email} 
+        AND code = #{code}
+        AND expires_at > NOW()
+        LIMIT 1
+        ]]>
+    </select>
     
     <!-- 이메일 기존 인증 코드 삭제 (재인증을 위해서 ) -->
     <delete id="deleteByEmail">
