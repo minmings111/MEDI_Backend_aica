@@ -7,8 +7,8 @@ import lombok.Data;
 @Data
 public class PaymentMethodDto {
 
-    private int id;
-    private int userId;
+    private Integer id;
+    private Integer userId;
     private String pgBillingKey;
     private String cardType;
     private String cardLastFour;

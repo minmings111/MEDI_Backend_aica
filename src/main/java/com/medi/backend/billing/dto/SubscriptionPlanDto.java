@@ -7,10 +7,10 @@ import lombok.Data;
 
 @Data
 public class SubscriptionPlanDto {
-    private int id;
+    private Integer id;
     private String planName;
     private BigDecimal price;
-    private int channelLimit;
+    private Integer channelLimit;
     private String description;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

@@ -11,6 +11,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -37,6 +38,7 @@ import java.util.List;
  */
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity // Enable method-level security settings
 public class SecurityConfig {
     
     @Value("${cors.allowed-origins}")
@@ -165,6 +167,9 @@ public class SecurityConfig {
             
             // 인증 규칙 설정
             .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/api/billing/plans").permitAll() // 플랜 전체 조회
+                .requestMatchers("/api/billing/plans/{id}").permitAll() // 1개 플랜 조회
+
                 .requestMatchers("/api/auth/login").permitAll()             // 로그인
                 .requestMatchers("/api/auth/register").permitAll()          // 회원가입
                 .requestMatchers("/api/auth/send-verification").permitAll() // 이메일 인증 전송

@@ -4,5 +4,5 @@ import lombok.Data;
 
 @Data
 public class SubscriptionChange {
-    private int newPlanId;
+    private Integer newPlanId;
 }

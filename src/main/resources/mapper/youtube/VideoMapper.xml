@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.medi.backend.youtube.mapper.VideoMapper">
+
+    <select id="getVideosByChannelIdAndUserId" 
+            resultType="com.medi.backend.youtube.dto.YoutubeVideoDto"
+            parameterType="int">
+        SELECT
+            id, channel_id, youtube_video_id, 
+            title, view_count, published_at, thumbnail_url, 
+            created_at, updated_at
+        FROM youtube_videos
+        WHERE channel_id = #{channelId}
+    </select>
+
+    <!-- Get one video by ID (Admin or internal use) -->
+    <select id="getVideoById" 
+            resultType="com.medi.backend.youtube.dto.YoutubeVideoDto"
+            parameterType="int">
+        SELECT
+            id, channel_id, youtube_video_id, 
+            title, view_count, published_at, thumbnail_url, 
+            created_at, updated_at
+        FROM youtube_videos
+        WHERE id = #{id}
+    </select>
+
+    <!-- Get one video by ID with ownership check -->
+    <select id="getVideoByIdAndUserId" 
+            resultType="com.medi.backend.youtube.dto.YoutubeVideoDto">
+        SELECT
+            v.id, v.channel_id, v.youtube_video_id, 
+            v.title, v.view_count, v.published_at, v.thumbnail_url, 
+            v.created_at, v.updated_at
+        FROM youtube_videos v
+        INNER JOIN youtube_channels c ON v.channel_id = c.id
+        WHERE 
+            v.id = #{id} AND 
+            c.user_id = #{userId}
+    </select>
+
+    <!-- Get all videos of the user's channels -->
+    <select id="getVideosByUserId" 
+            resultType="com.medi.backend.youtube.dto.YoutubeVideoDto"
+            parameterType="int">
+        SELECT
+            v.id, v.channel_id, v.youtube_video_id, 
+            v.title, v.view_count, v.published_at, v.thumbnail_url, 
+            v.created_at, v.updated_at
+        FROM youtube_videos v
+        INNER JOIN youtube_channels c ON v.channel_id = c.id
+        WHERE c.user_id = #{userId}
+        ORDER BY v.published_at DESC
+    </select>
+
+    <!-- Get all videos (Admin only) -->
+    <select id="getAllVideosForAdmin" 
+            resultType="com.medi.backend.youtube.dto.YoutubeVideoDto">
+        SELECT
+            id, channel_id, youtube_video_id, 
+            title, view_count, published_at, thumbnail_url, 
+            created_at, updated_at
+        FROM youtube_videos
+        ORDER BY published_at DESC
+    </select>
+
+</mapper>

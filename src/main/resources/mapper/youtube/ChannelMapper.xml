@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.medi.backend.youtube.mapper.ChannelMapper">
+
+    <select id="getChannelsByUserId" 
+            resultType="com.medi.backend.youtube.dto.YoutubeChannelDto"
+            parameterType="int">
+        SELECT
+            id, user_id, oauth_token_id, 
+            youtube_channel_id, channel_name, channel_handle, thumbnail_url, 
+            created_at, updated_at
+        FROM youtube_channels
+        WHERE user_id = #{userId}
+    </select>
+
+    <select id="getOneChannelByIdAndUserId" 
+            resultType="com.medi.backend.youtube.dto.YoutubeChannelDto">
+        SELECT
+            id, user_id, oauth_token_id, 
+            youtube_channel_id, channel_name, channel_handle, thumbnail_url, 
+            created_at, updated_at
+        FROM youtube_channels
+        WHERE 
+            id = #{id} AND 
+            user_id = #{userId}
+    </select>
+
+
+    <select id="getAllChannelsForAdmin" 
+            resultType="com.medi.backend.youtube.dto.YoutubeChannelDto">
+        SELECT
+            id, user_id, oauth_token_id, 
+            youtube_channel_id, channel_name, channel_handle, thumbnail_url, 
+            created_at, updated_at
+        FROM youtube_channels
+    </select>
+
+
+
+
+
+
+    <delete id="deleteChannelById">
+        DELETE FROM youtube_channels
+        WHERE 
+            id = #{id} AND
+            user_id = #{userId}
+    </delete>
+
+
+
+
+
+
+
+</mapper>

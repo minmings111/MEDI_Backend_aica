@@ -9,6 +9,7 @@ import com.medi.backend.billing.dto.SubscriptionPlanDto;
 import com.medi.backend.billing.dto.UserSubscriptionDto;
 import com.medi.backend.billing.dto.UserSubscriptionFilterDto;
 import com.medi.backend.billing.service.BillingService;
+import com.medi.backend.global.util.AuthUtil;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -17,6 +18,7 @@ import java.util.Map;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,17 +28,16 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
 
-
-
-
 @RestController
 @RequestMapping("/api/billing")
 public class BillingController {
 
     private BillingService billingService;
+    private AuthUtil authUtil;
 
-    public BillingController(BillingService billingService){
+    public BillingController(BillingService billingService, AuthUtil authUtil){
         this.billingService = billingService;
+        this.authUtil = authUtil;
     }
 
     // SubscriptionPlanDto.java
@@ -48,7 +49,7 @@ public class BillingController {
     }
 
     @GetMapping("/plans/{id}")
-    public ResponseEntity<SubscriptionPlanDto> getOnePlanById(@PathVariable int id) {
+    public ResponseEntity<SubscriptionPlanDto> getOnePlanById(@PathVariable("id") Integer id) {
         // return new ResponseEntity<>(billingService.getOnePlanById(id), HttpStatus.OK);
 
         SubscriptionPlanDto subscriptionPlanDto = billingService.getOnePlanById(id);
@@ -59,6 +60,7 @@ public class BillingController {
         return ResponseEntity.ok(subscriptionPlanDto);
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/plans")
     public ResponseEntity<String> createPlan(@RequestBody SubscriptionPlanDto subscriptionPlanDto) {
         int createCount = billingService.createPlan(subscriptionPlanDto);
@@ -80,8 +82,9 @@ public class BillingController {
         
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @PutMapping("/plans/{id}")
-    public ResponseEntity<String> updatePlan(@PathVariable int id, @RequestBody SubscriptionPlanDto subscriptionPlanDto) {
+    public ResponseEntity<String> updatePlan(@PathVariable("id") Integer id, @RequestBody SubscriptionPlanDto subscriptionPlanDto) {
         subscriptionPlanDto.setId(id);
         int updateCount = billingService.updatePlan(subscriptionPlanDto);
         
@@ -92,8 +95,9 @@ public class BillingController {
         return new ResponseEntity<>("Update Failed: Plan not found", HttpStatus.NOT_FOUND);
     }
     
+    @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/plans/{id}")
-    public ResponseEntity<String> deletePlanById(@PathVariable int id){
+    public ResponseEntity<String> deletePlanById(@PathVariable("id") Integer id){
         int deleteCount = billingService.deletePlanById(id);
 
         if (deleteCount == 1) {
@@ -104,17 +108,20 @@ public class BillingController {
 
     
     // PaymentMethodDto.java
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/payment-methods")
-    public ResponseEntity<List<PaymentMethodDto>> getPaymentMethodsByUserId() {
-        int userId = 1; // check and change!! 나중에 1 대신 실제 로그인 ID 코드로 변경 필요!!!
-        List<PaymentMethodDto> paymentMethodDtos = billingService.getPaymentMethodsByUserId(userId);
+    public ResponseEntity<?> getPaymentMethodsByUserId() {
+        Integer userId = authUtil.getCurrentUserId();
         
+        List<PaymentMethodDto> paymentMethodDtos = billingService.getPaymentMethodsByUserId(userId);
         return ResponseEntity.ok(paymentMethodDtos);
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PostMapping("/payment-methods")
     public ResponseEntity<String> createPaymentMethod(@RequestBody PaymentMethodDto paymentMethodDto) {
-        int userId = 1; // check and change!!
+        Integer userId = authUtil.getCurrentUserId();
+        
         paymentMethodDto.setUserId(userId);
 
         int createPaymentMethodResult = billingService.createPaymentMethod(paymentMethodDto);
@@ -130,9 +137,11 @@ public class BillingController {
         }
     }
     
+    @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/payment-methods/{id}")
-    public ResponseEntity<String> deletePaymentMethodByIdAndUserId(@PathVariable int id){
-        int userId = 1; // check and change!!
+    public ResponseEntity<String> deletePaymentMethodByIdAndUserId(@PathVariable("id") Integer id){
+        Integer userId = authUtil.getCurrentUserId();
+        
         int deleteCount = billingService.deletePaymentMethodByIdAndUserId(id, userId);
         
         if (deleteCount == 1) {
@@ -141,9 +150,11 @@ public class BillingController {
         return new ResponseEntity<>("Delete Failed: No card found or not your card", HttpStatus.NOT_FOUND);
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/payment-methods/{id}/set-default")
-    public ResponseEntity<String> setAsDefaultPaymentMethod(@PathVariable int id){
-        int userId = 1; // check and change!!
+    public ResponseEntity<String> setAsDefaultPaymentMethod(@PathVariable("id") Integer id){
+        Integer userId = authUtil.getCurrentUserId();
+        
         try {
             billingService.setAsDefaultPaymentMethod(id, userId);
             return ResponseEntity.ok("Default payment method has been set.");
@@ -155,9 +166,11 @@ public class BillingController {
 
 
     // UserSubscriptionDto.java
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/subscriptions/my-active")
-    public ResponseEntity<UserSubscriptionDto> getActiveSubscriptionByUserId() {
-        int userId = 1; // check and change!!
+    public ResponseEntity<?> getActiveSubscriptionByUserId() {
+        Integer userId = authUtil.getCurrentUserId();
+        
         UserSubscriptionDto userSubscriptionDto = billingService.getActiveSubscriptionByUserId(userId);
         
         if (userSubscriptionDto == null) {
@@ -166,15 +179,18 @@ public class BillingController {
         return ResponseEntity.ok(userSubscriptionDto);  // 200 OK
     }
     
+    @PreAuthorize("isAuthenticated()")
     @GetMapping("/subscriptions/my-history")
-    public ResponseEntity<List<UserSubscriptionDto>> getSubscriptionHistoryByUserId() {
-        int userId = 1;
+    public ResponseEntity<?> getSubscriptionHistoryByUserId() {
+        Integer userId = authUtil.getCurrentUserId();
+        
         List<UserSubscriptionDto> userSubscriptionDtos = billingService.getSubscriptionHistoryByUserId(userId);
         return ResponseEntity.ok(userSubscriptionDtos);
     }
     
+    @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/admin/subscriptions")
-    public ResponseEntity<List<UserSubscriptionDto>> getAllSubscriptions(
+    public ResponseEntity<?> getAllSubscriptions(
         @RequestParam(required = false) String status,
         @RequestParam(required = false) Integer planId,
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime after
@@ -188,9 +204,11 @@ public class BillingController {
         return ResponseEntity.ok(userSubscriptionDtos);
     }
     
+    @PreAuthorize("isAuthenticated()")
     @PostMapping("/subscriptions")
     public ResponseEntity<String> createUserSubscription(@RequestBody Map<String, Integer> request) {
-        int userId = 1; // check and change!!
+        Integer userId = authUtil.getCurrentUserId();
+        
         int planId = request.get("planId");
 
         int result = billingService.createUserSubscription(userId, planId);
@@ -206,9 +224,10 @@ public class BillingController {
         }
     }
 
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/subscriptions/{subscriptionId}/cancel")
-    public ResponseEntity<String> cancelSubscription(@PathVariable int subscriptionId) {
-        int userId = 1; // check and change!!
+    public ResponseEntity<String> cancelSubscription(@PathVariable("subscriptionId") Integer subscriptionId) {
+        Integer userId = authUtil.getCurrentUserId();
         
         int updateCount = billingService.cancelSubscriptionByIdAndUserId(subscriptionId, userId);
         
@@ -220,9 +239,10 @@ public class BillingController {
     }
 
 
+    @PreAuthorize("isAuthenticated()")
     @PutMapping("/subscriptions/change-plan")
     public ResponseEntity<String> changeSubscriptionPlan(@RequestBody SubscriptionChange subscriptionChange) {
-        int userId = 1; // check and change!!
+        Integer userId = authUtil.getCurrentUserId();
         
         int result = billingService.changeSubscriptionPlan(userId, subscriptionChange.getNewPlanId());
         

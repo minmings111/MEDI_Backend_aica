@@ -6,9 +6,9 @@ import lombok.Data;
 
 @Data
 public class UserSubscriptionDto {
-    private int id;
-    private int userId;
-    private int planId;
+    private Integer id;
+    private Integer userId;
+    private Integer planId;
     private LocalDateTime startDate;
     private LocalDateTime endDate;
     private String status;
