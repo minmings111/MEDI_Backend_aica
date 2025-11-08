@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.medi.backend.youtube.mapper.YouTubeChannelMapper">
+
+    <resultMap id="ChannelResultMap" type="com.medi.backend.youtube.dto.YoutubeChannelDto">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="oauthTokenId" column="oauth_token_id"/>
+        <result property="youtubeChannelId" column="youtube_channel_id"/>
+        <result property="channelName" column="channel_name"/>
+        <result property="channelHandle" column="channel_handle"/>
+        <result property="thumbnailUrl" column="thumbnail_url"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+        <result property="lastSyncedAt" column="last_synced_at"/>
+        <result property="lastVideoPublishedAt" column="last_video_published_at"/>
+        <result property="uploadsPlaylistId" column="uploads_playlist_id"/>
+    </resultMap>
+
+    <insert id="upsert" parameterType="com.medi.backend.youtube.dto.YoutubeChannelDto">
+        INSERT INTO youtube_channels(
+            user_id, oauth_token_id, youtube_channel_id,
+            channel_name, channel_handle, thumbnail_url,
+            uploads_playlist_id, last_synced_at, last_video_published_at,
+            created_at
+        ) VALUES (
+            #{userId}, #{oauthTokenId}, #{youtubeChannelId},
+            #{channelName}, #{channelHandle}, #{thumbnailUrl},
+            #{uploadsPlaylistId}, #{lastSyncedAt}, #{lastVideoPublishedAt},
+            NOW()
+        )
+        ON DUPLICATE KEY UPDATE
+            oauth_token_id = VALUES(oauth_token_id),
+            channel_name = VALUES(channel_name),
+            channel_handle = VALUES(channel_handle),
+            thumbnail_url = VALUES(thumbnail_url),
+            uploads_playlist_id = VALUES(uploads_playlist_id),
+            last_synced_at = VALUES(last_synced_at),
+            last_video_published_at = VALUES(last_video_published_at),
+            updated_at = NOW()
+    </insert>
+
+    <select id="findByYoutubeChannelId" parameterType="string" resultMap="ChannelResultMap">
+        SELECT * FROM youtube_channels WHERE youtube_channel_id = #{youtubeChannelId}
+    </select>
+
+    <select id="findByUserId" parameterType="int" resultMap="ChannelResultMap">
+        SELECT * FROM youtube_channels WHERE user_id = #{userId} ORDER BY created_at DESC
+    </select>
+
+    <update id="updateSyncState">
+        UPDATE youtube_channels
+        SET
+            last_synced_at = #{lastSyncedAt},
+            last_video_published_at = #{lastVideoPublishedAt},
+            updated_at = NOW()
+        WHERE youtube_channel_id = #{youtubeChannelId}
+    </update>
+
+</mapper>
+
+

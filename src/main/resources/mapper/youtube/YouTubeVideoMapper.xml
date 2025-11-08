@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.medi.backend.youtube.mapper.YouTubeVideoMapper">
+
+    <resultMap id="VideoResultMap" type="com.medi.backend.youtube.dto.YoutubeVideoDto">
+        <id property="id" column="id"/>
+        <result property="channelId" column="channel_id"/>
+        <result property="youtubeVideoId" column="youtube_video_id"/>
+        <result property="title" column="title"/>
+        <result property="viewCount" column="view_count"/>
+        <result property="likeCount" column="like_count"/>
+        <result property="commentCount" column="comment_count"/>
+        <result property="publishedAt" column="published_at"/>
+        <result property="thumbnailUrl" column="thumbnail_url"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <insert id="upsert" parameterType="com.medi.backend.youtube.dto.YoutubeVideoDto">
+        INSERT INTO youtube_videos(
+            channel_id, youtube_video_id, title,
+            view_count, like_count, comment_count,
+            published_at, thumbnail_url, created_at
+        ) VALUES (
+            #{channelId}, #{youtubeVideoId}, #{title},
+            #{viewCount}, #{likeCount}, #{commentCount},
+            #{publishedAt}, #{thumbnailUrl}, NOW()
+        )
+        ON DUPLICATE KEY UPDATE
+            title = VALUES(title),
+            view_count = VALUES(view_count),
+            like_count = VALUES(like_count),
+            comment_count = VALUES(comment_count),
+            published_at = VALUES(published_at),
+            thumbnail_url = VALUES(thumbnail_url),
+            updated_at = NOW()
+    </insert>
+
+    <select id="findByYoutubeVideoId" parameterType="string" resultMap="VideoResultMap">
+        SELECT * FROM youtube_videos WHERE youtube_video_id = #{youtubeVideoId}
+    </select>
+
+    <select id="findByChannelId" parameterType="int" resultMap="VideoResultMap">
+        SELECT * FROM youtube_videos WHERE channel_id = #{channelId} ORDER BY published_at DESC
+    </select>
+
+</mapper>
+
+

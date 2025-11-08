@@ -1,0 +1,556 @@
+============================================================
+Medi Backend - API Endpoints (최신 버전)
+Updated: 2024-01
+Audience: Frontend engineers integrating YouTube flows
+Auth: Session-based (send credentials: 'include' 필수)
+Base URL: http://localhost:8080
+============================================================
+
+Legend
+- Auth: [Public] 세션 불필요, [Auth] 세션 쿠키 필수, [ADMIN] 관리자 권한 필요
+- Req: HTTP method + path, query/body schema
+- Res: JSON 응답 형식
+- Side effects: DB/Redis 쓰기, 외부 API 호출
+
+------------------------------------------------------------
+AuthController (/api/auth)
+------------------------------------------------------------
+
+1) POST /api/auth/login [Public]
+   Body: { "email": string, "password": string, "rememberMe"?: boolean }
+   Res: { success: boolean, message: string, user: { id, email, name, role }, sessionId?: string, error?: string }
+   Side effects: 세션 생성, JSESSIONID 쿠키 설정
+
+2) POST /api/auth/logout [Auth]
+   Body: none
+   Res: { success, message }
+
+3) GET /api/auth/me [Public]
+   Res: { success: boolean, authenticated: boolean, user?: { id, email, name, role }, sessionId?: string, message?: string }
+
+4) DELETE /api/auth/withdraw [Auth]
+   Res: { success, message, sessionCleared }
+
+5) POST /api/auth/send-verification [Public]
+   Body: { email }
+   Res: { success, message, expiresIn }
+
+6) POST /api/auth/verify-email [Public]
+   Body: { email, code }
+   Res: { success, message }
+
+7) POST /api/auth/register [Public]
+   Body: { email, password, name, isTermsAgreed }
+   Res: { success, message, user:{id,email,name,role} }
+
+8) POST /api/auth/send-password-reset [Public]
+   Body: { email }
+   Res: { success, message, expiresIn } | 400 with message
+
+9) POST /api/auth/reset-password [Public]
+   Body: { email, code, newPassword }
+   Res: { success, message, sessionInvalidated, requireLogin }
+
+10) PUT /api/auth/change-password [Auth]
+    Body: { currentPassword, newPassword, confirmPassword }
+    Res: { success, message, sessionInvalidated, requireLogin }
+
+------------------------------------------------------------
+OAuth2AuthController (/api/auth/oauth2)
+------------------------------------------------------------
+
+1) GET /api/auth/oauth2/google/url [Public]
+   Res: { url, message }
+
+2) GET /api/auth/oauth2/user [Public]
+   Res: { success, user } | 401
+
+3) GET /api/auth/oauth2/status [Public]
+   Res: { isLoggedIn, provider?, email?, name? }
+
+4) POST /api/auth/oauth2/logout [Public]
+   Res: { success, message }
+
+------------------------------------------------------------
+UserController (/api/users)
+------------------------------------------------------------
+
+1) GET /api/users [Auth]
+   Res: [ { id,email,name,phone,isTermsAgreed,role,createdAt,updatedAt, ... } ]
+
+------------------------------------------------------------
+BillingController (/api/billing)
+------------------------------------------------------------
+
+Plans
+1) GET /api/billing/plans [Public]
+   Res: SubscriptionPlanDto[]
+   Desc: 구독 플랜 목록 조회 (공개 API)
+
+2) GET /api/billing/plans/{id} [Public]
+   Res: SubscriptionPlanDto | 404
+   Desc: 특정 플랜 상세 조회 (공개 API)
+
+3) POST /api/billing/plans [Auth, ADMIN]
+   Body: SubscriptionPlanDto
+   Res: 201 Created | 409 Conflict | 500 Internal Server Error
+   Desc: 새 플랜 생성 (관리자 전용)
+
+4) PUT /api/billing/plans/{id} [Auth, ADMIN]
+   Body: SubscriptionPlanDto
+   Res: 200 OK | 404 Not Found
+   Desc: 플랜 수정 (관리자 전용)
+
+5) DELETE /api/billing/plans/{id} [Auth, ADMIN]
+   Res: 200 OK | 404 Not Found
+   Desc: 플랜 삭제 (관리자 전용)
+
+Payment Methods
+6) GET /api/billing/payment-methods [Auth]
+   Res: PaymentMethodDto[]
+   Desc: 내 결제 수단 목록 조회 (세션 기반, 현재 로그인한 사용자만)
+
+7) POST /api/billing/payment-methods [Auth]
+   Body: PaymentMethodDto (userId 제외, 자동 설정)
+   Res: 201 Created | 409 Conflict | 500 Internal Server Error
+   Desc: 결제 수단 추가
+
+8) DELETE /api/billing/payment-methods/{id} [Auth]
+   Res: 200 OK | 404 Not Found
+   Desc: 결제 수단 삭제
+
+9) PUT /api/billing/payment-methods/{id}/set-default [Auth]
+   Res: 200 OK | 404 Not Found
+   Desc: 기본 결제 수단 설정
+
+Subscriptions
+10) GET /api/billing/subscriptions/my-active [Auth]
+    Res: UserSubscriptionDto | 204 No Content
+    Desc: 내 활성 구독 조회 (세션 기반)
+
+11) GET /api/billing/subscriptions/my-history [Auth]
+    Res: UserSubscriptionDto[]
+    Desc: 내 구독 히스토리 조회 (세션 기반)
+
+12) GET /api/billing/admin/subscriptions [Auth, ADMIN]
+    Query: status?: string, planId?: number, after?: LocalDateTime (ISO format)
+    Res: UserSubscriptionDto[]
+    Desc: 전체 구독 목록 조회 (필터링 지원, 관리자 전용)
+
+13) POST /api/billing/subscriptions [Auth]
+    Body: { "planId": number }
+    Res: 201 Created | 409 Conflict | 500 Internal Server Error
+    Desc: 구독 생성 (세션 기반)
+
+14) PUT /api/billing/subscriptions/{subscriptionId}/cancel [Auth]
+    Res: 200 OK | 404 Not Found
+    Desc: 구독 취소
+
+15) PUT /api/billing/subscriptions/change-plan [Auth]
+    Body: { "newPlanId": number }
+    Res: 200 OK | 500 Internal Server Error
+    Desc: 구독 플랜 변경
+
+------------------------------------------------------------
+ChannelController (/api/youtube/channels)
+------------------------------------------------------------
+
+1) GET /api/youtube/channels/my [Auth]
+   Res: YoutubeChannelDto[]
+   Desc: 내 채널 목록 조회 (세션 기반, DB 조회)
+   Response: [
+     {
+       "id": number,
+       "userId": number,
+       "oauthTokenId": number | null,
+       "youtubeChannelId": string,
+       "channelName": string,
+       "channelHandle": string | null,
+       "thumbnailUrl": string | null,
+       "createdAt": "yyyy-MM-ddTHH:mm:ss",
+       "updatedAt": "yyyy-MM-ddTHH:mm:ss",
+       "lastSyncedAt": "yyyy-MM-ddTHH:mm:ss",
+       "lastVideoPublishedAt": "yyyy-MM-ddTHH:mm:ss" | null,
+       "uploadsPlaylistId": string | null
+     }
+   ]
+
+2) GET /api/youtube/channels/{id} [Auth]
+   Res: YoutubeChannelDto | 404
+   Desc: 특정 채널 조회 (내 채널만 조회 가능)
+
+3) GET /api/youtube/channels/all [Auth, ADMIN]
+   Res: YoutubeChannelDto[]
+   Desc: 전체 채널 목록 조회 (관리자 전용)
+
+4) GET /api/youtube/channels/user/{userId} [Auth, ADMIN]
+   Res: YoutubeChannelDto[]
+   Desc: 특정 사용자의 채널 목록 조회 (관리자 전용)
+
+5) DELETE /api/youtube/channels/{id} [Auth]
+   Res: 200 OK "Delete Success" | 404 Not Found
+   Desc: 채널 삭제 (내 채널만 삭제 가능)
+
+------------------------------------------------------------
+VideoController (/api/youtube/videos)
+------------------------------------------------------------
+
+1) GET /api/youtube/videos/my [Auth]
+   Res: YoutubeVideoDto[]
+   Desc: 내 영상 목록 조회 (모든 채널의 영상)
+   Response: [
+     {
+       "id": number,
+       "channelId": number,
+       "youtubeVideoId": string,
+       "title": string,
+       "viewCount": number | null,
+       "likeCount": number | null,
+       "commentCount": number | null,
+       "publishedAt": "yyyy-MM-ddTHH:mm:ss" | null,
+       "thumbnailUrl": string | null,
+       "createdAt": "yyyy-MM-ddTHH:mm:ss",
+       "updatedAt": "yyyy-MM-ddTHH:mm:ss"
+     }
+   ]
+
+2) GET /api/youtube/videos/channel/{channelId} [Auth]
+   Res: YoutubeVideoDto[]
+   Desc: 특정 채널의 영상 목록 조회
+   Note: channelId는 내 채널의 ID만 조회 가능
+
+3) GET /api/youtube/videos/{id} [Auth]
+   Res: YoutubeVideoDto | 404
+   Desc: 특정 영상 조회 (내 영상만 조회 가능)
+
+4) GET /api/youtube/videos/all [Auth, ADMIN]
+   Res: YoutubeVideoDto[]
+   Desc: 전체 영상 목록 조회 (관리자 전용)
+
+------------------------------------------------------------
+YouTube OAuth & Sync (참고: 구현 상태 확인 필요)
+------------------------------------------------------------
+
+참고: 다음 엔드포인트는 현재 구현 상태를 확인 필요
+- GET /api/youtube/connect [Auth] - YouTube OAuth 연결 시작
+- GET /api/youtube/oauth/callback [Public] - OAuth 콜백
+- GET /api/youtube/token/status [Auth] - 토큰 상태 확인
+- POST /api/youtube/channels/sync [Auth] - 채널 동기화
+- POST /api/youtube/videos/sync [Auth] - 영상 동기화
+- POST /api/youtube/comments/sync [Auth] - 댓글 동기화
+- 조회 전용 API 호출(playlistItems, videos.list)은 `youtube.data-api.api-keys` 설정을 순환 사용하며, 키가 없거나 소진되면 OAuth 토큰으로 자동 폴백합니다.
+
+------------------------------------------------------------
+공통 사항
+------------------------------------------------------------
+
+인증 방식
+- 세션 기반 인증 (Spring Security + HttpSession)
+- 모든 요청에 credentials: 'include' 필수
+- 일반 로그인과 OAuth2 로그인 모두 동일한 세션 방식 사용
+- CustomUserDetails를 세션에 저장하여 DB 조회 없이 사용자 정보 접근
+- 세션 쿠키명: JSESSIONID (Spring Security 기본)
+
+에러 처리
+- 401 Unauthorized: 세션 없음/만료 → 로그인 페이지로 유도
+- 403 Forbidden: 권한 부족 (관리자 전용 등)
+- 400 Bad Request: 필수 파라미터 누락/형식 오류
+- 404 Not Found: 리소스를 찾을 수 없음
+- 500 Internal Server Error: 서버 오류
+
+프론트엔드 체크리스트
+- ✅ 모든 요청에 credentials: 'include' 적용
+- ✅ 페이지 로딩 시 useEffect로 자동 데이터 fetch
+- ✅ 401 오류 시 로그인 페이지로 리다이렉트
+- ✅ 로딩 상태 및 에러 상태 관리
+- ✅ null 체크 및 방어 코드 작성
+
+------------------------------------------------------------
+Example fetch snippets (React/TS)
+------------------------------------------------------------
+
+// Start OAuth (redirects)
+// window.location.href = '/api/youtube/connect';
+
+// Sync channels
+// await fetch('/api/youtube/channels/sync', { method: 'POST', credentials: 'include' })
+
+// Sync videos
+// await fetch('/api/youtube/videos/sync', {
+//   method: 'POST',
+//   headers: { 'Content-Type': 'application/json' },
+//   credentials: 'include',
+//   body: JSON.stringify({ channelId: 123, maxResults: 50 })
+// })
+
+// Sync comments (Redis only)
+// await fetch('/api/youtube/comments/sync', {
+//   method: 'POST',
+//   headers: { 'Content-Type': 'application/json' },
+//   credentials: 'include',
+//   body: JSON.stringify({ videoId: 'dQw4w9WgXcQ', max: 100 })
+// })
+
+============================================================
+한글 상세 명세 (프론트엔드 연동 가이드)
+============================================================
+
+공통 안내
+- 인증 방식: 세션 기반(JSESSIONID 쿠키). 프론트 요청 시 반드시 fetch 옵션에 credentials: 'include'를 넣어주세요.
+- 기본 주소: http://localhost:8080
+- 성공/실패 시 상태코드와 JSON 메시지를 함께 반환합니다. 실패 시 message와 error 필드를 참고하세요.
+- 일반 로그인과 OAuth2 로그인 모두 동일한 세션 방식으로 작동합니다.
+
+------------------------------------------------------------
+AuthController (/api/auth)
+------------------------------------------------------------
+
+1) POST /api/auth/login  [비로그인 상태에서 호출]
+- 설명: 이메일/비밀번호로 로그인하고 세션 쿠키(JSESSIONID)를 발급받습니다.
+- 요청 Body(JSON): { email: string, password: string }
+- 응답(200): { success, message, user:{id,email,name,role}, sessionId }
+- 실패(401): { success:false, message:'이메일 또는 비밀번호가 올바르지 않습니다', error:'INVALID_CREDENTIALS' }
+- 프론트 사용 시나리오:
+  - 로그인 페이지에서 제출 → 성공 시 라우팅 전환(예: /dashboard) + 전역 상태에 user 저장
+
+2) POST /api/auth/logout  [로그인 상태에서 호출]
+- 설명: 현재 세션을 무효화합니다.
+- 요청: Body 없음
+- 응답(200): { success:true, message:'로그아웃 되었습니다' }
+- 프론트 시나리오: 헤더의 “로그아웃” 클릭 시 호출 후 로그인 화면으로 이동
+
+3) GET /api/auth/me  [누구나 호출 가능]
+- 설명: 현재 로그인 여부와 사용자 정보를 조회합니다.
+- 응답(200):
+  - 로그인됨: { success:true, authenticated:true, user:{id,email,name,role}, sessionId }
+  - 미로그인: { success:true, authenticated:false, message:'로그인되지 않음' }
+- 프론트 시나리오: 앱 초기 렌더링 시 호출하여 세션 복구 및 라우팅 가드에 활용
+
+4) DELETE /api/auth/withdraw  [로그인 상태에서 호출]
+- 설명: 현재 로그인 사용자를 탈퇴(삭제)합니다. 처리 후 세션도 무효화됩니다.
+- 응답(200): { success:true, message:'회원탈퇴가 완료되었습니다', sessionCleared:true }
+- 프론트 시나리오: 설정/계정 관리 화면의 “회원탈퇴” 확정 시 사용
+
+5) POST /api/auth/send-verification  [비로그인 상태에서 호출]
+- 설명: 회원가입 시 이메일 인증코드 발송
+- 요청 Body: { email }
+- 응답(200): { success:true, message:'인증 코드가 전송되었습니다', expiresIn:300 }
+
+6) POST /api/auth/verify-email  [비로그인 상태에서 호출]
+- 설명: 이메일 인증코드 검증
+- 요청 Body: { email, code }
+- 응답(200): { success:true, message:'이메일 인증이 완료되었습니다' }
+- 실패(400): { success:false, message:'인증 코드가 올바르지 않거나 만료되었습니다' }
+
+7) POST /api/auth/register  [비로그인 상태에서 호출]
+- 설명: 회원가입 처리(이메일/비밀번호/이름/약관동의)
+- 요청 Body: { email, password, name, isTermsAgreed }
+- 응답(200): { success:true, message:'회원가입이 완료되었습니다', user:{...} }
+
+8) POST /api/auth/send-password-reset  [비로그인 상태에서 호출]
+- 설명: 비밀번호 재설정용 인증코드 발송
+- 요청 Body: { email }
+- 응답(200): { success:true, message, expiresIn:300 } / 실패(400|500)
+
+9) POST /api/auth/reset-password  [비로그인 상태에서 호출]
+- 설명: 인증코드 검증 후 새 비밀번호로 변경, 기존 세션 무효화
+- 요청 Body: { email, code, newPassword }
+- 응답(200): { success:true, message, sessionInvalidated:true, requireLogin:true }
+
+10) PUT /api/auth/change-password  [로그인 상태에서 호출]
+- 설명: 현재 비밀번호 확인 후 새 비밀번호로 변경, 모든 세션 무효화
+- 요청 Body: { currentPassword, newPassword, confirmPassword }
+- 응답(200): { success:true, message, sessionInvalidated:true, requireLogin:true }
+
+프론트 주의사항
+- 모든 Auth 연동 요청은 credentials:'include' 필수
+- 로그인 성공 시 user/role을 전역 상태에 저장해 라우팅 가드 및 메뉴 제어에 활용
+
+------------------------------------------------------------
+OAuth2AuthController (/api/auth/oauth2)
+------------------------------------------------------------
+
+1) GET /api/auth/oauth2/google/url  [비로그인 상태에서 호출]
+- 설명: Google OAuth2 로그인 시작 URL을 제공합니다. 이 URL로 리다이렉트 하여 소셜로그인을 시작합니다.
+- 응답(200): { url:'/oauth2/authorization/google', message }
+
+2) GET /api/auth/oauth2/user  [누구나 호출]
+- 설명: OAuth2 로그인 사용자 정보를 세션에서 조회
+- 응답(200): { success:true, user:UserDTO } / 실패(401)
+
+3) GET /api/auth/oauth2/status  [누구나 호출]
+- 설명: OAuth2 로그인 여부 확인
+- 응답(200): { isLoggedIn:true, provider,email,name } 또는 { isLoggedIn:false }
+
+4) POST /api/auth/oauth2/logout  [누구나 호출]
+- 설명: OAuth2 세션 무효화
+- 응답(200): { success:true, message:'로그아웃 성공' }
+
+프론트 시나리오
+- 소셜 로그인 버튼 클릭 → /api/auth/oauth2/google/url 호출 후 받은 url로 이동
+- 로그인 완료 후 /api/auth/me 또는 /api/auth/oauth2/user 로 사용자 정보 동기화
+
+------------------------------------------------------------
+UserController (/api/users)
+------------------------------------------------------------
+
+1) GET /api/users  [로그인 상태에서 호출]
+- 설명: 전체 사용자 목록 조회(관리/개발용). 운영에선 관리자 권한 가드 권장.
+- 응답(200): UserDTO[]
+
+프론트 시나리오
+- 관리자 화면에서 사용자 목록 관리/검색 등 기본 데이터 확인용
+
+------------------------------------------------------------
+BillingController (/api/billing)
+------------------------------------------------------------
+
+플랜(Plans)
+1) GET /api/billing/plans  [공개]
+- 설명: 구독 플랜 목록 조회 (로그인 불필요)
+- 응답(200): [{ id, planName, price, channelLimit, description, createdAt, updatedAt }]
+
+2) GET /api/billing/plans/{id}  [공개]
+- 설명: 특정 플랜 상세 조회 (로그인 불필요)
+- 응답(200) or 404
+
+3) POST /api/billing/plans  [Auth, ADMIN]
+- 설명: 새 플랜 생성(관리자 전용)
+- 요청 Body: SubscriptionPlanDto
+- 응답: 201|409|500 메시지
+
+4) PUT /api/billing/plans/{id}  [Auth, ADMIN]
+- 설명: 플랜 수정(관리자 전용)
+- 요청 Body: SubscriptionPlanDto
+- 응답: 200 또는 404
+
+5) DELETE /api/billing/plans/{id}  [Auth, ADMIN]
+- 설명: 플랜 삭제(관리자 전용)
+- 응답: 200 또는 404
+
+결제수단(Payment Methods)
+※ 세션 기반으로 현재 로그인한 사용자의 결제 수단만 조회/관리
+6) GET /api/billing/payment-methods [Auth]
+   - 설명: 내 결제 수단 목록 조회
+   - 응답(200): PaymentMethodDto[]
+7) POST /api/billing/payment-methods [Auth]
+   - 설명: 결제 수단 추가 (userId는 자동 설정)
+   - 요청 Body: PaymentMethodDto (userId 제외)
+   - 응답: 201|409|500
+8) DELETE /api/billing/payment-methods/{id} [Auth]
+   - 설명: 결제 수단 삭제
+   - 응답: 200 또는 404
+9) PUT /api/billing/payment-methods/{id}/set-default [Auth]
+   - 설명: 기본 결제 수단 설정
+   - 응답: 200 또는 404
+
+구독(Subscriptions)
+※ 세션 기반으로 현재 로그인한 사용자의 구독만 조회/관리
+10) GET /api/billing/subscriptions/my-active [Auth]
+    - 설명: 내 활성 구독 조회
+    - 응답(200): UserSubscriptionDto | 204 No Content
+11) GET /api/billing/subscriptions/my-history [Auth]
+    - 설명: 내 구독 히스토리 조회
+    - 응답(200): UserSubscriptionDto[]
+12) GET /api/billing/admin/subscriptions [Auth, ADMIN]
+    - 설명: 전체 구독 목록 조회 (필터링 지원, 관리자 전용)
+    - Query: status?, planId?, after? (ISO date-time)
+    - 응답(200): UserSubscriptionDto[]
+13) POST /api/billing/subscriptions [Auth]
+    - 설명: 구독 생성
+    - 요청 Body: { planId }
+    - 응답: 201|409|500
+14) PUT /api/billing/subscriptions/{subscriptionId}/cancel [Auth]
+    - 설명: 구독 취소
+    - 응답: 200 또는 404
+15) PUT /api/billing/subscriptions/change-plan [Auth]
+    - 설명: 구독 플랜 변경
+    - 요청 Body: { newPlanId }
+    - 응답: 200 또는 500
+
+프론트 시나리오
+- 가격/플랜 화면: /plans 로 표시 → 선택 시 /subscriptions 생성
+- 결제수단 관리 화면: /payment-methods CRUD
+- 마이페이지: /subscriptions/my-active, /my-history 조회
+
+------------------------------------------------------------
+ChannelController (/api/youtube/channels)
+------------------------------------------------------------
+
+1) GET /api/youtube/channels/my [Auth]
+   - 설명: 내 채널 목록 조회 (세션 기반, DB 조회)
+   - 응답(200): YoutubeChannelDto[]
+   - 프론트 시나리오: 채널 목록 페이지 로딩 시 useEffect로 자동 호출
+
+2) GET /api/youtube/channels/{id} [Auth]
+   - 설명: 특정 채널 조회 (내 채널만 조회 가능)
+   - 응답(200): YoutubeChannelDto | 404
+
+3) GET /api/youtube/channels/all [Auth, ADMIN]
+   - 설명: 전체 채널 목록 조회 (관리자 전용)
+   - 응답(200): YoutubeChannelDto[]
+
+4) GET /api/youtube/channels/user/{userId} [Auth, ADMIN]
+   - 설명: 특정 사용자의 채널 목록 조회 (관리자 전용)
+   - 응답(200): YoutubeChannelDto[]
+
+5) DELETE /api/youtube/channels/{id} [Auth]
+   - 설명: 채널 삭제 (내 채널만 삭제 가능)
+   - 응답(200): "Delete Success" | 404
+
+6) POST /api/youtube/channels/sync [Auth]
+   - 설명: YouTube API 호출로 내 채널 목록을 최신 상태로 동기화
+   - 응답(200): YoutubeChannelDto[] (동기화된 채널 리스트)
+   - 프론트 시나리오: "채널 동기화" 버튼 클릭 시 호출
+
+------------------------------------------------------------
+VideoController (/api/youtube/videos)
+------------------------------------------------------------
+
+1) GET /api/youtube/videos/my [Auth]
+   - 설명: 내 영상 목록 조회 (모든 채널의 영상)
+   - 응답(200): YoutubeVideoDto[]
+   - 프론트 시나리오: 대시보드 페이지 로딩 시 useEffect로 자동 호출
+
+2) GET /api/youtube/videos/channel/{channelId} [Auth]
+   - 설명: 특정 채널의 영상 목록 조회
+   - 응답(200): YoutubeVideoDto[]
+   - Note: channelId는 내 채널의 ID만 조회 가능
+   - 프론트 시나리오: 채널 상세 페이지 로딩 시 useEffect로 자동 호출
+
+3) GET /api/youtube/videos/{id} [Auth]
+   - 설명: 특정 영상 조회 (내 영상만 조회 가능)
+   - 응답(200): YoutubeVideoDto | 404
+
+4) GET /api/youtube/videos/all [Auth, ADMIN]
+   - 설명: 전체 영상 목록 조회 (관리자 전용)
+   - 응답(200): YoutubeVideoDto[]
+
+5) POST /api/youtube/videos/sync [Auth]
+   - Body: { "channelId": number, "maxResults"?: number }
+   - 설명: 지정한 채널의 영상을 YouTube API에서 가져와 DB에 저장/갱신
+   - 응답(200): YoutubeVideoDto[] (동기화된 영상 리스트)
+   - 프론트 시나리오: 채널 상세 화면에서 "영상 동기화" 버튼 클릭 시 호출
+
+------------------------------------------------------------
+YouTube OAuth & Sync (참고: 구현 상태 확인 필요)
+------------------------------------------------------------
+
+참고: 다음 엔드포인트는 현재 구현 상태를 확인 필요 (OAuth 연결 흐름)
+- GET /api/youtube/connect [Auth] - YouTube OAuth 연결 시작
+- GET /api/youtube/oauth/callback [Public] - OAuth 콜백
+- GET /api/youtube/token/status [Auth] - 토큰 상태 확인
+- POST /api/youtube/comments/sync [Auth] - 댓글 동기화 (Redis 저장)
+
+오류/예외 핸들링 가이드(공통)
+- 401 Unauthorized: 세션 없음/만료 → 로그인 페이지로 유도
+- 403 Forbidden: 권한 부족(관리자 전용 엔드포인트 등)
+- 400 Bad Request: 필수 파라미터 누락/형식 오류
+- 500 Internal Server Error: 일시적 서버 오류, 사용자에게 재시도 안내
+
+프론트 체크리스트
+- 모든 요청에 credentials:'include' 적용
+- OAuth 콜백 후 필요한 초기 동기화 API 순서대로 호출(채널 → 영상 → 댓글)
+- 댓글은 Redis에만 저장되므로, 장기 보관/검색이 필요하면 별도 UX/다운스트림 설계 필요
+
+

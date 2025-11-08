@@ -1,7 +1,14 @@
 package com.medi.backend.auth.controller;
 
+import com.medi.backend.auth.dto.LoginRequest;
+import com.medi.backend.auth.dto.LoginResponse;
+import com.medi.backend.global.security.dto.CustomUserDetails;
+import com.medi.backend.global.util.AuthUtil;
 import com.medi.backend.user.dto.UserDTO;
 import com.medi.backend.user.mapper.UserMapper;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -13,10 +20,9 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpSession;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -41,6 +47,9 @@ public class AuthController {
     
     @Autowired
     private org.springframework.security.core.session.SessionRegistry sessionRegistry;
+    
+    @Autowired
+    private AuthUtil authUtil;
 
     /**
      * 로그인 API
@@ -51,18 +60,32 @@ public class AuthController {
      *   "email": "user@example.com",
      *   "password": "password123"
      * }
+     * 
+     * @param loginRequest 로그인 요청 (이메일, 비밀번호)
+     * @param bindingResult 검증 결과
+     * @param request HTTP 요청
+     * @return 로그인 응답 (성공/실패)
      */
     @PostMapping("/login")
-    public ResponseEntity<Map<String, Object>> login(
-            @RequestBody LoginRequest loginRequest,
+    public ResponseEntity<LoginResponse> login(
+            @Valid @RequestBody LoginRequest loginRequest,
+            BindingResult bindingResult,
             HttpServletRequest request) {
         
-        Map<String, Object> response = new HashMap<>();
+        // 1. 입력값 검증
+        if (bindingResult.hasErrors()) {
+            String errorMessage = bindingResult.getFieldError().getDefaultMessage();
+            log.warn("로그인 입력값 검증 실패: {}", errorMessage);
+            
+            return ResponseEntity
+                .badRequest()
+                .body(LoginResponse.failure(errorMessage, "VALIDATION_ERROR"));
+        }
         
         try {
             log.info("로그인 시도: {}", loginRequest.getEmail());
             
-            // 1. Spring Security 인증 처리
+            // 2. Spring Security 인증 처리
             UsernamePasswordAuthenticationToken authToken = 
                 new UsernamePasswordAuthenticationToken(
                     loginRequest.getEmail(), 
@@ -71,49 +94,53 @@ public class AuthController {
             
             Authentication authentication = authenticationManager.authenticate(authToken);
             
-            // 2. SecurityContext에 인증 정보 저장
+            // 3. SecurityContext에 인증 정보 저장
             SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
             securityContext.setAuthentication(authentication);
             SecurityContextHolder.setContext(securityContext);
             
-            // 3. HttpSession에 SecurityContext 저장 (세션 기반 인증의 핵심)
+            // 4. HttpSession에 SecurityContext 저장 (세션 기반 인증의 핵심)
             HttpSession session = request.getSession(true);
-            session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, securityContext);
+            session.setAttribute(
+                HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, 
+                securityContext
+            );
             
-            // 4. 사용자 정보 조회 (응답용)
+            // 5. 사용자 정보 조회 (응답용)
             UserDTO user = userMapper.findByEmail(loginRequest.getEmail());
+            
+            if (user == null) {
+                log.error("인증 성공했으나 사용자 정보 없음: {}", loginRequest.getEmail());
+                return ResponseEntity
+                    .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(LoginResponse.failure("사용자 정보를 찾을 수 없습니다", "USER_NOT_FOUND"));
+            }
             
             log.info("로그인 성공: {} (세션 ID: {})", loginRequest.getEmail(), session.getId());
             
-            // 5. 성공 응답
-            response.put("success", true);
-            response.put("message", "로그인 성공");
-            response.put("user", Map.of(
-                "id", user.getId(),
-                "email", user.getEmail(),
-                "name", user.getName(),
-                "role", user.getRole()
-            ));
-            response.put("sessionId", session.getId());
-            
+            // 6. 성공 응답 반환 (DTO 사용)
+            LoginResponse response = LoginResponse.success(user, session.getId());
             return ResponseEntity.ok(response);
             
         } catch (AuthenticationException e) {
             log.warn("로그인 실패: {} - {}", loginRequest.getEmail(), e.getMessage());
             
-            response.put("success", false);
-            response.put("message", "이메일 또는 비밀번호가 올바르지 않습니다");
-            response.put("error", "INVALID_CREDENTIALS");
+            return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(LoginResponse.failure(
+                    "이메일 또는 비밀번호가 올바르지 않습니다", 
+                    "INVALID_CREDENTIALS"
+                ));
             
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
         } catch (Exception e) {
             log.error("로그인 처리 중 오류 발생: {}", e.getMessage(), e);
             
-            response.put("success", false);
-            response.put("message", "로그인 처리 중 오류가 발생했습니다");
-            response.put("error", "INTERNAL_ERROR");
-            
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+            return ResponseEntity
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(LoginResponse.failure(
+                    "로그인 처리 중 오류가 발생했습니다", 
+                    "INTERNAL_ERROR"
+                ));
         }
     }
 
@@ -163,25 +190,24 @@ public class AuthController {
         Map<String, Object> response = new HashMap<>();
         
         try {
-            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            // AuthUtil을 사용하여 DB 조회 없이 사용자 정보 가져오기
+            CustomUserDetails user = authUtil.getCurrentUser();
             
-            if (authentication != null && authentication.isAuthenticated() 
-                && !"anonymousUser".equals(authentication.getName())) {
-                
-                // 로그인된 사용자 정보 조회
-                UserDTO user = userMapper.findByEmail(authentication.getName());
+            if (user != null) {
                 HttpSession session = request.getSession(false);
-                
+
                 response.put("success", true);
                 response.put("authenticated", true);
-                response.put("user", Map.of(
-                    "id", user.getId(),
-                    "email", user.getEmail(),
-                    "name", user.getName(),
-                    "role", user.getRole()
-                ));
+
+                Map<String, Object> userInfo = new HashMap<>();
+                userInfo.put("id", user.getId());
+                userInfo.put("email", user.getEmail());
+                userInfo.put("name", user.getName());
+                userInfo.put("role", user.getRole() != null ? user.getRole() : "USER");
+                response.put("user", userInfo);
+
                 response.put("sessionId", session != null ? session.getId() : null);
-                
+
                 return ResponseEntity.ok(response);
             } else {
                 response.put("success", true);
@@ -210,15 +236,13 @@ public class AuthController {
     @DeleteMapping("/withdraw")
     public ResponseEntity<Map<String, Object>> withdrawUser(HttpServletRequest request) {
         Map<String, Object> response = new HashMap<>();
-        String currentUserEmail = null;  // 변수 스코프 확장
+        String currentUserEmail = null;  // catch 블록에서도 사용 가능하도록 밖에 선언
         
         try {
-            // 1. 현재 로그인된 사용자 확인
-            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            // 1. 세션에서 현재 로그인한 사용자 정보 가져오기 (DB 조회 없음)
+            CustomUserDetails user = authUtil.getCurrentUser();
             
-            if (authentication == null || !authentication.isAuthenticated() 
-                || "anonymousUser".equals(authentication.getName())) {
-                
+            if (user == null) {
                 log.warn("비로그인 상태에서 회원탈퇴 시도");
                 response.put("success", false);
                 response.put("message", "로그인이 필요합니다");
@@ -227,32 +251,12 @@ public class AuthController {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
             }
             
-            currentUserEmail = authentication.getName();
+            currentUserEmail = user.getEmail();
+            Integer userId = user.getId();
             
-            // 2. 이메일 유효성 검사
-            if (currentUserEmail == null || currentUserEmail.trim().isEmpty()) {
-                log.error("유효하지 않은 사용자 이메일: {}", currentUserEmail);
-                response.put("success", false);
-                response.put("message", "유효하지 않은 사용자 정보입니다");
-                response.put("error", "INVALID_USER");
-                
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
-            }
+            log.info("회원탈퇴 시도: {} (ID: {})", currentUserEmail, userId);
             
-            // 3. 사용자 존재 여부 확인
-            UserDTO existingUser = userMapper.findByEmail(currentUserEmail);
-            if (existingUser == null) {
-                log.error("탈퇴 시도한 사용자가 존재하지 않음: {}", currentUserEmail);
-                response.put("success", false);
-                response.put("message", "사용자 정보를 찾을 수 없습니다");
-                response.put("error", "USER_NOT_FOUND");
-                
-                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
-            }
-            
-            log.info("회원탈퇴 시도: {} (ID: {})", currentUserEmail, existingUser.getId());
-            
-            // 4. 회원탈퇴 처리 (실제 삭제)
+            // 2. 회원탈퇴 처리 (실제 삭제)
             int result = userMapper.deleteUser(currentUserEmail);
             
             if (result > 0) {
@@ -607,12 +611,10 @@ public class AuthController {
         Map<String, Object> response = new HashMap<>();
         
         try {
-            // 1. 현재 로그인된 사용자 확인
-            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            // 1. 세션에서 현재 로그인한 사용자 정보 가져오기 (DB 조회 없음)
+            CustomUserDetails user = authUtil.getCurrentUser();
             
-            if (authentication == null || !authentication.isAuthenticated() 
-                || "anonymousUser".equals(authentication.getName())) {
-                
+            if (user == null) {
                 response.put("success", false);
                 response.put("message", "로그인이 필요합니다");
                 response.put("error", "UNAUTHORIZED");
@@ -620,7 +622,7 @@ public class AuthController {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
             }
             
-            String currentUserEmail = authentication.getName();
+            String currentUserEmail = user.getEmail();
             
             // 2. 입력값 검증
             if (changeRequest.getCurrentPassword() == null || changeRequest.getCurrentPassword().isEmpty()) {
@@ -730,28 +732,4 @@ public class AuthController {
         }
     }
 
-    /**
-     * 로그인 요청 DTO
-     */
-    public static class LoginRequest {
-        private String email;
-        private String password;
-
-        // Getters and Setters
-        public String getEmail() {
-            return email;
-        }
-
-        public void setEmail(String email) {
-            this.email = email;
-        }
-
-        public String getPassword() {
-            return password;
-        }
-
-        public void setPassword(String password) {
-            this.password = password;
-        }
-    }
 }

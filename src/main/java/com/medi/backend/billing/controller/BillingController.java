@@ -110,9 +110,11 @@ public class BillingController {
     // PaymentMethodDto.java
     @PreAuthorize("isAuthenticated()")
     @GetMapping("/payment-methods")
-    public ResponseEntity<?> getPaymentMethodsByUserId() {
+    public ResponseEntity<List<PaymentMethodDto>> getPaymentMethodsByUserId() {
         Integer userId = authUtil.getCurrentUserId();
-        
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
         List<PaymentMethodDto> paymentMethodDtos = billingService.getPaymentMethodsByUserId(userId);
         return ResponseEntity.ok(paymentMethodDtos);
     }
@@ -121,7 +123,9 @@ public class BillingController {
     @PostMapping("/payment-methods")
     public ResponseEntity<String> createPaymentMethod(@RequestBody PaymentMethodDto paymentMethodDto) {
         Integer userId = authUtil.getCurrentUserId();
-        
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("로그인이 필요합니다");
+        }
         paymentMethodDto.setUserId(userId);
 
         int createPaymentMethodResult = billingService.createPaymentMethod(paymentMethodDto);
@@ -139,9 +143,11 @@ public class BillingController {
     
     @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/payment-methods/{id}")
-    public ResponseEntity<String> deletePaymentMethodByIdAndUserId(@PathVariable("id") Integer id){
+    public ResponseEntity<String> deletePaymentMethodByIdAndUserId(@PathVariable int id){
         Integer userId = authUtil.getCurrentUserId();
-        
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("로그인이 필요합니다");
+        }
         int deleteCount = billingService.deletePaymentMethodByIdAndUserId(id, userId);
         
         if (deleteCount == 1) {
@@ -152,9 +158,11 @@ public class BillingController {
 
     @PreAuthorize("isAuthenticated()")
     @PutMapping("/payment-methods/{id}/set-default")
-    public ResponseEntity<String> setAsDefaultPaymentMethod(@PathVariable("id") Integer id){
+    public ResponseEntity<String> setAsDefaultPaymentMethod(@PathVariable int id){
         Integer userId = authUtil.getCurrentUserId();
-        
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("로그인이 필요합니다");
+        }
         try {
             billingService.setAsDefaultPaymentMethod(id, userId);
             return ResponseEntity.ok("Default payment method has been set.");
@@ -168,9 +176,11 @@ public class BillingController {
     // UserSubscriptionDto.java
     @PreAuthorize("isAuthenticated()")
     @GetMapping("/subscriptions/my-active")
-    public ResponseEntity<?> getActiveSubscriptionByUserId() {
+    public ResponseEntity<UserSubscriptionDto> getActiveSubscriptionByUserId() {
         Integer userId = authUtil.getCurrentUserId();
-        
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
         UserSubscriptionDto userSubscriptionDto = billingService.getActiveSubscriptionByUserId(userId);
         
         if (userSubscriptionDto == null) {
@@ -181,9 +191,11 @@ public class BillingController {
     
     @PreAuthorize("isAuthenticated()")
     @GetMapping("/subscriptions/my-history")
-    public ResponseEntity<?> getSubscriptionHistoryByUserId() {
+    public ResponseEntity<List<UserSubscriptionDto>> getSubscriptionHistoryByUserId() {
         Integer userId = authUtil.getCurrentUserId();
-        
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
         List<UserSubscriptionDto> userSubscriptionDtos = billingService.getSubscriptionHistoryByUserId(userId);
         return ResponseEntity.ok(userSubscriptionDtos);
     }
@@ -208,7 +220,9 @@ public class BillingController {
     @PostMapping("/subscriptions")
     public ResponseEntity<String> createUserSubscription(@RequestBody Map<String, Integer> request) {
         Integer userId = authUtil.getCurrentUserId();
-        
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("로그인이 필요합니다");
+        }
         int planId = request.get("planId");
 
         int result = billingService.createUserSubscription(userId, planId);
@@ -226,8 +240,11 @@ public class BillingController {
 
     @PreAuthorize("isAuthenticated()")
     @PutMapping("/subscriptions/{subscriptionId}/cancel")
-    public ResponseEntity<String> cancelSubscription(@PathVariable("subscriptionId") Integer subscriptionId) {
+    public ResponseEntity<String> cancelSubscription(@PathVariable int subscriptionId) {
         Integer userId = authUtil.getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("로그인이 필요합니다");
+        }
         
         int updateCount = billingService.cancelSubscriptionByIdAndUserId(subscriptionId, userId);
         
@@ -243,6 +260,9 @@ public class BillingController {
     @PutMapping("/subscriptions/change-plan")
     public ResponseEntity<String> changeSubscriptionPlan(@RequestBody SubscriptionChange subscriptionChange) {
         Integer userId = authUtil.getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("로그인이 필요합니다");
+        }
         
         int result = billingService.changeSubscriptionPlan(userId, subscriptionChange.getNewPlanId());
         

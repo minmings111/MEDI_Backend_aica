@@ -188,9 +188,7 @@ public class AuthServiceImpl implements AuthService {
             userInfo.setId(user.getId());
             userInfo.setEmail(user.getEmail());
             userInfo.setName(user.getName());
-            userInfo.setRole(user.getRole());
-            userInfo.setCreatedAt(user.getCreatedAt());
-            
+            userInfo.setRole(user.getRole());            
             response.setSuccess(true);
             response.setMessage("로그인 성공");
             response.setUser(userInfo);

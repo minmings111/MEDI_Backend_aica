@@ -11,10 +11,24 @@ public class YoutubeVideoDto {
     private Integer channelId;
     private String youtubeVideoId;
     private String title;
-    private Integer viewCount;
+    private Long viewCount;
+    private Long likeCount;
+    private Long commentCount;
     private LocalDateTime publishedAt;
     private String thumbnailUrl;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    public void setViewCount(Long viewCount) {
+        this.viewCount = viewCount;
+    }
+
+    public void setLikeCount(Long likeCount) {
+        this.likeCount = likeCount;
+    }
+
+    public void setCommentCount(Long commentCount) {
+        this.commentCount = commentCount;
+    }
 
 }

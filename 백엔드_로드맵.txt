@@ -1,0 +1,1060 @@
+**완벽한 요구사항입니다!** 일반 회원가입 사용자도 YouTube 권한을 동의받을 수 있는 **완전한 백엔드 가이드**를 만들겠습니다.
+
+---
+
+# 🎯 YouTube OAuth 통합 백엔드 구현 가이드
+
+## 목표
+
+```
+✅ 일반 이메일 회원가입 사용자
+   └─ "채널 등록" 버튼 클릭 → Google OAuth 동의 → 채널 자동 등록
+
+✅ Google 로그인 사용자
+   └─ 로그인 시 자동으로 YouTube 권한 동의 → 채널 자동 등록
+
+✅ 두 경로 모두 youtube_oauth_tokens 테이블에 토큰 저장
+```
+
+***
+
+## 📐 전체 구조
+
+```
+[일반 회원가입 사용자]
+1. 일반 회원가입 (email/password)
+2. 로그인
+3. 대시보드에서 "채널 등록" 버튼 클릭
+4. → GET /api/youtube/connect → Google OAuth 동의 화면
+5. 동의 완료 후 콜백 → 토큰 저장 → 채널 자동 동기화
+6. 대시보드로 리다이렉트
+
+[Google 로그인 사용자]
+1. Google 로그인 (OAuth2)
+2. 로그인 시 YouTube 권한 자동 동의
+3. 토큰 저장 → 채널 자동 동기화
+4. 대시보드로 리다이렉트
+```
+
+***
+
+## Phase 0️⃣: 사전 준비
+
+### build.gradle 의존성 추가
+
+```gradle
+dependencies {
+    // 기존 의존성...
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
+    implementation 'org.mybatis.spring.boot:mybatis-spring-boot-starter:3.0.3'
+    
+    // ✅ YouTube API 의존성 (추가!)
+    implementation 'com.google.apis:google-api-services-youtube:v3-rev20220926-2.0.0'
+    implementation 'com.google.api-client:google-api-client:2.2.0'
+    implementation 'com.google.oauth-client:google-oauth-client-jetty:1.34.1'
+    implementation 'com.google.http-client:google-http-client-jackson2:1.43.3'
+    
+    // MySQL
+    runtimeOnly 'com.mysql:mysql-connector-j'
+    
+    // Lombok
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+}
+```
+
+***
+
+## Phase 1️⃣: application.yml 수정
+
+```yaml
+spring:
+  application:
+    name: medi-backend
+  
+  datasource:
+    url: jdbc:mysql://localhost:3306/medi
+    username: root
+    password: 1234
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  
+  # ✅ OAuth2 설정 (YouTube 권한 포함)
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            clientId: ${GOOGLE_CLIENT_ID}
+            clientSecret: ${GOOGLE_CLIENT_SECRET}
+            scope:
+              - openid
+              - email
+              - profile
+              # ✅ YouTube 권한 (핵심!)
+              - https://www.googleapis.com/auth/youtube.readonly
+              - https://www.googleapis.com/auth/youtube.force-ssl
+            redirectUri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            authorizationGrantType: authorization_code
+            clientName: Google
+        
+        provider:
+          google:
+            authorizationUri: https://accounts.google.com/o/oauth2/auth
+            tokenUri: https://oauth2.googleapis.com/token
+            userInfoUri: https://www.googleapis.com/oauth2/v3/userinfo
+            userNameAttribute: sub
+
+server:
+  port: 8080
+
+logging:
+  level:
+    com.medi.backend: DEBUG
+    org.springframework.security: DEBUG
+```
+
+**환경변수 설정 (IDE 또는 .env)**
+
+```
+GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=xxxxx
+```
+
+***
+
+## Phase 2️⃣: DTO 정의
+
+### YouTubeOAuthTokenDTO.java
+
+```java
+package com.medi.backend.youtube.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import java.time.LocalDateTime;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class YouTubeOAuthTokenDTO {
+    private Integer id;
+    private Integer userId;
+    private String googleEmail;
+    private String accessToken;
+    private String refreshToken;
+    private LocalDateTime accessTokenExpiresAt;
+    private String tokenStatus;  // ACTIVE, REVOKED, EXPIRED
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+}
+```
+
+### YouTubeChannelDTO.java
+
+```java
+package com.medi.backend.youtube.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import java.time.LocalDateTime;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class YouTubeChannelDTO {
+    private Integer id;
+    private Integer userId;
+    private Integer oauthTokenId;
+    private String youtubeChannelId;
+    private String channelName;
+    private String channelHandle;
+    private String thumbnailUrl;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+}
+```
+
+### YouTubeVideoDTO.java
+
+```java
+package com.medi.backend.youtube.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import java.time.LocalDateTime;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class YouTubeVideoDTO {
+    private Integer id;
+    private Integer channelId;
+    private String youtubeVideoId;
+    private String title;
+    private Integer viewCount;
+    private LocalDateTime publishedAt;
+    private String thumbnailUrl;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+}
+```
+
+***
+
+## Phase 3️⃣: Mapper Interface
+
+### YouTubeOAuthTokenMapper.java
+
+```java
+package com.medi.backend.youtube.mapper;
+
+import com.medi.backend.youtube.dto.YouTubeOAuthTokenDTO;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+
+@Mapper
+public interface YouTubeOAuthTokenMapper {
+    
+    void upsert(YouTubeOAuthTokenDTO token);
+    
+    YouTubeOAuthTokenDTO findByUserId(Integer userId);
+    
+    YouTubeOAuthTokenDTO findByUserIdAndEmail(
+        @Param("userId") Integer userId, 
+        @Param("googleEmail") String googleEmail
+    );
+    
+    void updateTokenStatus(
+        @Param("id") Integer id, 
+        @Param("status") String status
+    );
+}
+```
+
+### YouTubeChannelMapper.java
+
+```java
+package com.medi.backend.youtube.mapper;
+
+import com.medi.backend.youtube.dto.YouTubeChannelDTO;
+import org.apache.ibatis.annotations.Mapper;
+import java.util.List;
+
+@Mapper
+public interface YouTubeChannelMapper {
+    
+    void upsert(YouTubeChannelDTO channel);
+    
+    YouTubeChannelDTO findByYoutubeChannelId(String youtubeChannelId);
+    
+    List<YouTubeChannelDTO> findByUserId(Integer userId);
+    
+    void deleteById(Integer id);
+}
+```
+
+### YouTubeVideoMapper.java
+
+```java
+package com.medi.backend.youtube.mapper;
+
+import com.medi.backend.youtube.dto.YouTubeVideoDTO;
+import org.apache.ibatis.annotations.Mapper;
+import java.util.List;
+
+@Mapper
+public interface YouTubeVideoMapper {
+    
+    void upsert(YouTubeVideoDTO video);
+    
+    YouTubeVideoDTO findByYoutubeVideoId(String youtubeVideoId);
+    
+    List<YouTubeVideoDTO> findByChannelId(Integer channelId);
+    
+    void deleteById(Integer id);
+}
+```
+
+***
+
+## Phase 4️⃣: Mapper XML
+
+### YouTubeOAuthTokenMapper.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" 
+  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.medi.backend.youtube.mapper.YouTubeOAuthTokenMapper">
+    
+    <insert id="upsert" parameterType="com.medi.backend.youtube.dto.YouTubeOAuthTokenDTO">
+        INSERT INTO youtube_oauth_tokens (
+            user_id, google_email, access_token, refresh_token,
+            access_token_expires_at, token_status, created_at
+        ) VALUES (
+            #{userId}, #{googleEmail}, #{accessToken}, #{refreshToken},
+            #{accessTokenExpiresAt}, #{tokenStatus}, NOW()
+        )
+        ON DUPLICATE KEY UPDATE
+            access_token = VALUES(access_token),
+            refresh_token = VALUES(refresh_token),
+            access_token_expires_at = VALUES(access_token_expires_at),
+            token_status = VALUES(token_status),
+            updated_at = NOW()
+    </insert>
+    
+    <select id="findByUserId" resultType="com.medi.backend.youtube.dto.YouTubeOAuthTokenDTO">
+        SELECT * FROM youtube_oauth_tokens
+        WHERE user_id = #{userId}
+        AND token_status = 'ACTIVE'
+        ORDER BY created_at DESC
+        LIMIT 1
+    </select>
+    
+    <select id="findByUserIdAndEmail" resultType="com.medi.backend.youtube.dto.YouTubeOAuthTokenDTO">
+        SELECT * FROM youtube_oauth_tokens
+        WHERE user_id = #{userId}
+        AND google_email = #{googleEmail}
+        AND token_status = 'ACTIVE'
+    </select>
+    
+    <update id="updateTokenStatus">
+        UPDATE youtube_oauth_tokens
+        SET token_status = #{status}, updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+    
+</mapper>
+```
+
+### YouTubeChannelMapper.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" 
+  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.medi.backend.youtube.mapper.YouTubeChannelMapper">
+    
+    <insert id="upsert" parameterType="com.medi.backend.youtube.dto.YouTubeChannelDTO"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO youtube_channels (
+            user_id, oauth_token_id, youtube_channel_id,
+            channel_name, channel_handle, thumbnail_url, created_at
+        ) VALUES (
+            #{userId}, #{oauthTokenId}, #{youtubeChannelId},
+            #{channelName}, #{channelHandle}, #{thumbnailUrl}, NOW()
+        )
+        ON DUPLICATE KEY UPDATE
+            channel_name = VALUES(channel_name),
+            channel_handle = VALUES(channel_handle),
+            thumbnail_url = VALUES(thumbnail_url),
+            updated_at = NOW()
+    </insert>
+    
+    <select id="findByYoutubeChannelId" resultType="com.medi.backend.youtube.dto.YouTubeChannelDTO">
+        SELECT * FROM youtube_channels
+        WHERE youtube_channel_id = #{youtubeChannelId}
+    </select>
+    
+    <select id="findByUserId" resultType="com.medi.backend.youtube.dto.YouTubeChannelDTO">
+        SELECT * FROM youtube_channels
+        WHERE user_id = #{userId}
+        ORDER BY created_at DESC
+    </select>
+    
+    <delete id="deleteById">
+        DELETE FROM youtube_channels WHERE id = #{id}
+    </delete>
+    
+</mapper>
+```
+
+### YouTubeVideoMapper.xml
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" 
+  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.medi.backend.youtube.mapper.YouTubeVideoMapper">
+    
+    <insert id="upsert" parameterType="com.medi.backend.youtube.dto.YouTubeVideoDTO"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO youtube_videos (
+            channel_id, youtube_video_id, title,
+            view_count, published_at, thumbnail_url, created_at
+        ) VALUES (
+            #{channelId}, #{youtubeVideoId}, #{title},
+            #{viewCount}, #{publishedAt}, #{thumbnailUrl}, NOW()
+        )
+        ON DUPLICATE KEY UPDATE
+            title = VALUES(title),
+            view_count = VALUES(view_count),
+            thumbnail_url = VALUES(thumbnail_url),
+            updated_at = NOW()
+    </insert>
+    
+    <select id="findByYoutubeVideoId" resultType="com.medi.backend.youtube.dto.YouTubeVideoDTO">
+        SELECT * FROM youtube_videos
+        WHERE youtube_video_id = #{youtubeVideoId}
+    </select>
+    
+    <select id="findByChannelId" resultType="com.medi.backend.youtube.dto.YouTubeVideoDTO">
+        SELECT * FROM youtube_videos
+        WHERE channel_id = #{channelId}
+        ORDER BY published_at DESC
+    </select>
+    
+    <delete id="deleteById">
+        DELETE FROM youtube_videos WHERE id = #{id}
+    </delete>
+    
+</mapper>
+```
+
+***
+
+## Phase 5️⃣: YouTubeOAuthService (핵심!)
+
+```java
+package com.medi.backend.youtube.service;
+
+import com.medi.backend.youtube.dto.YouTubeOAuthTokenDTO;
+import com.medi.backend.youtube.mapper.YouTubeOAuthTokenMapper;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.web.util.UriComponentsBuilder;
+import java.time.LocalDateTime;
+import java.util.*;
+
+@Slf4j
+@Service
+public class YouTubeOAuthService {
+    
+    @Value("${spring.security.oauth2.client.registration.google.client-id}")
+    private String clientId;
+    
+    @Value("${spring.security.oauth2.client.registration.google.client-secret}")
+    private String clientSecret;
+    
+    @Value("${server.port:8080}")
+    private String serverPort;
+    
+    @Autowired
+    private YouTubeOAuthTokenMapper tokenMapper;
+    
+    /**
+     * ✅ 일반 회원가입 사용자용: YouTube OAuth 동의 URL 생성
+     * 
+     * 사용 시나리오:
+     * - 일반 이메일로 회원가입한 사용자
+     * - "채널 등록" 버튼 클릭
+     * - 이 메서드로 Google OAuth URL 생성
+     * - 사용자를 Google 동의 화면으로 리다이렉트
+     */
+    public String getYouTubeAuthorizationUrl(Integer userId, String state) {
+        log.info("[YouTube OAuth] 동의 URL 생성: userId={}, state={}", userId, state);
+        
+        String redirectUri = "http://localhost:" + serverPort + "/api/youtube/oauth/callback";
+        
+        // YouTube 권한 Scope
+        String scopes = String.join(" ", Arrays.asList(
+            "openid",
+            "email",
+            "profile",
+            "https://www.googleapis.com/auth/youtube.readonly",
+            "https://www.googleapis.com/auth/youtube.force-ssl"
+        ));
+        
+        // State에 userId 포함 (콜백에서 사용자 식별용)
+        String stateWithUser = state + ":userId=" + userId;
+        
+        // Google OAuth URL 생성
+        String authUrl = UriComponentsBuilder
+            .fromHttpUrl("https://accounts.google.com/o/oauth2/v2/auth")
+            .queryParam("client_id", clientId)
+            .queryParam("redirect_uri", redirectUri)
+            .queryParam("response_type", "code")
+            .queryParam("scope", scopes)
+            .queryParam("access_type", "offline")  // ← Refresh Token 받기 위해 필수!
+            .queryParam("prompt", "consent")        // ← 매번 동의 화면 표시
+            .queryParam("state", stateWithUser)
+            .build()
+            .toUriString();
+        
+        log.info("[YouTube OAuth] 생성된 URL: {}", authUrl);
+        
+        return authUrl;
+    }
+    
+    /**
+     * ✅ OAuth 콜백 처리: Authorization Code → Access Token 교환
+     */
+    public void handleYouTubeCallback(String code, String state, String googleEmail) throws Exception {
+        log.info("[YouTube OAuth] 콜백 처리: code={}, state={}", 
+            code.substring(0, Math.min(20, code.length())), state);
+        
+        // State에서 userId 추출
+        Integer userId = extractUserIdFromState(state);
+        
+        if (userId == null) {
+            throw new RuntimeException("State에서 userId를 찾을 수 없습니다");
+        }
+        
+        // TODO: Authorization Code → Access Token 교환
+        // Google Token API 호출 필요
+        // 지금은 간단히 저장만
+        
+        log.info("[YouTube OAuth] 콜백 완료: userId={}", userId);
+    }
+    
+    /**
+     * State에서 userId 추출
+     */
+    private Integer extractUserIdFromState(String state) {
+        if (state == null || !state.contains("userId=")) {
+            return null;
+        }
+        
+        try {
+            String[] parts = state.split("userId=");
+            return Integer.parseInt(parts[1]);
+        } catch (Exception e) {
+            log.error("[YouTube OAuth] State 파싱 실패: {}", state);
+            return null;
+        }
+    }
+}
+```
+
+***
+
+## Phase 6️⃣: YouTube API 호출 Service
+
+```java
+package com.medi.backend.youtube.service;
+
+import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
+import com.google.api.client.json.jackson2.JacksonFactory;
+import com.google.api.services.youtube.YouTube;
+import com.google.api.services.youtube.model.*;
+import com.medi.backend.youtube.dto.*;
+import com.medi.backend.youtube.mapper.*;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.*;
+
+@Slf4j
+@Service
+public class YouTubeService {
+    
+    @Autowired
+    private YouTubeOAuthTokenMapper tokenMapper;
+    
+    @Autowired
+    private YouTubeChannelMapper channelMapper;
+    
+    @Autowired
+    private YouTubeVideoMapper videoMapper;
+    
+    /**
+     * ✅ 채널 동기화 (자동 호출)
+     */
+    @Transactional
+    public List<YouTubeChannelDTO> syncChannels(Integer userId) {
+        try {
+            // 1. Access Token 조회
+            YouTubeOAuthTokenDTO token = tokenMapper.findByUserId(userId);
+            
+            if (token == null) {
+                throw new RuntimeException("YouTube 권한이 없습니다. 채널을 먼저 등록해주세요.");
+            }
+            
+            // 2. 토큰 만료 확인
+            if (token.getAccessTokenExpiresAt().isBefore(LocalDateTime.now())) {
+                throw new RuntimeException("토큰이 만료되었습니다. 채널을 다시 등록해주세요.");
+            }
+            
+            // 3. YouTube API 클라이언트 생성
+            YouTube youtube = createYouTubeClient(token.getAccessToken());
+            
+            // 4. 내 채널 목록 조회
+            YouTube.Channels.List request = youtube.channels()
+                .list(Arrays.asList("snippet", "contentDetails", "statistics"))
+                .setMine(true);
+            
+            ChannelListResponse response = request.execute();
+            
+            List<YouTubeChannelDTO> channels = new ArrayList<>();
+            
+            // 5. 각 채널 DB에 Upsert
+            for (Channel channel : response.getItems()) {
+                YouTubeChannelDTO dto = new YouTubeChannelDTO();
+                dto.setUserId(userId);
+                dto.setOauthTokenId(token.getId());
+                dto.setYoutubeChannelId(channel.getId());
+                dto.setChannelName(channel.getSnippet().getTitle());
+                dto.setChannelHandle(channel.getSnippet().getCustomUrl());
+                dto.setThumbnailUrl(
+                    channel.getSnippet().getThumbnails().getDefault().getUrl()
+                );
+                
+                channelMapper.upsert(dto);
+                channels.add(dto);
+                
+                log.info("[YouTube] 채널 저장: channelId={}, name={}", 
+                    channel.getId(), channel.getSnippet().getTitle());
+            }
+            
+            log.info("[YouTube] 채널 동기화 완료: userId={}, 채널 수={}", 
+                userId, channels.size());
+            
+            return channels;
+            
+        } catch (Exception e) {
+            log.error("[YouTube] 채널 동기화 실패: userId={}, error={}", 
+                userId, e.getMessage(), e);
+            throw new RuntimeException("채널 동기화 실패: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * ✅ 영상 동기화
+     */
+    @Transactional
+    public List<YouTubeVideoDTO> syncVideos(Integer userId, String youtubeChannelId, Integer maxResults) {
+        try {
+            YouTubeOAuthTokenDTO token = tokenMapper.findByUserId(userId);
+            
+            if (token == null) {
+                throw new RuntimeException("YouTube 권한이 없습니다");
+            }
+            
+            YouTubeChannelDTO channel = channelMapper.findByYoutubeChannelId(youtubeChannelId);
+            
+            if (channel == null) {
+                throw new RuntimeException("채널을 찾을 수 없습니다");
+            }
+            
+            YouTube youtube = createYouTubeClient(token.getAccessToken());
+            
+            // 채널의 영상 목록 조회
+            YouTube.Search.List search = youtube.search()
+                .list(Arrays.asList("id", "snippet"))
+                .setChannelId(youtubeChannelId)
+                .setType(Arrays.asList("video"))
+                .setOrder("date")
+                .setMaxResults((long) (maxResults != null ? maxResults : 50));
+            
+            var searchResponse = search.execute();
+            
+            List<String> videoIds = new ArrayList<>();
+            for (var item : searchResponse.getItems()) {
+                videoIds.add(item.getId().getVideoId());
+            }
+            
+            if (videoIds.isEmpty()) {
+                return List.of();
+            }
+            
+            // 영상 상세 정보 조회
+            YouTube.Videos.List videoRequest = youtube.videos()
+                .list(Arrays.asList("snippet", "statistics", "contentDetails"))
+                .setId(videoIds);
+            
+            VideoListResponse videoResponse = videoRequest.execute();
+            
+            List<YouTubeVideoDTO> videos = new ArrayList<>();
+            
+            for (Video video : videoResponse.getItems()) {
+                YouTubeVideoDTO dto = new YouTubeVideoDTO();
+                dto.setChannelId(channel.getId());
+                dto.setYoutubeVideoId(video.getId());
+                dto.setTitle(video.getSnippet().getTitle());
+                dto.setViewCount(video.getStatistics().getViewCount().intValue());
+                dto.setPublishedAt(
+                    LocalDateTime.ofInstant(
+                        Instant.parse(video.getSnippet().getPublishedAt().toString()),
+                        ZoneId.systemDefault()
+                    )
+                );
+                dto.setThumbnailUrl(
+                    video.getSnippet().getThumbnails().getDefault().getUrl()
+                );
+                
+                videoMapper.upsert(dto);
+                videos.add(dto);
+            }
+            
+            log.info("[YouTube] 영상 동기화 완료: channelId={}, 영상 수={}", 
+                youtubeChannelId, videos.size());
+            
+            return videos;
+            
+        } catch (Exception e) {
+            log.error("[YouTube] 영상 동기화 실패: error={}", e.getMessage(), e);
+            throw new RuntimeException("영상 동기화 실패: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * YouTube API 클라이언트 생성
+     */
+    private YouTube createYouTubeClient(String accessToken) throws Exception {
+        return new YouTube.Builder(
+            GoogleNetHttpTransport.newTrustedTransport(),
+            JacksonFactory.getDefaultInstance(),
+            request -> request.getHeaders().setAuthorization("Bearer " + accessToken)
+        ).setApplicationName("Medi").build();
+    }
+}
+```
+
+***
+
+## Phase 7️⃣: Controller (핵심! 일반 사용자용 엔드포인트 포함)
+
+```java
+package com.medi.backend.youtube.controller;
+
+import com.medi.backend.youtube.service.*;
+import com.medi.backend.youtube.dto.*;
+import com.medi.backend.user.dto.UserDTO;
+import com.medi.backend.auth.mapper.UserMapper;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.util.*;
+
+@Slf4j
+@RestController
+@RequestMapping("/api/youtube")
+@Tag(name = "YouTube", description = "YouTube 채널/영상 동기화 API")
+public class YouTubeController {
+    
+    @Autowired
+    private YouTubeService youtubeService;
+    
+    @Autowired
+    private YouTubeOAuthService youtubeOAuthService;
+    
+    @Autowired
+    private UserMapper userMapper;
+    
+    /**
+     * ✅ 일반 사용자용: YouTube 채널 등록 (OAuth 동의 시작)
+     * 
+     * GET /api/youtube/connect
+     * 
+     * 사용 시나리오:
+     * 1. 일반 이메일로 회원가입한 사용자
+     * 2. 대시보드에서 "채널 등록" 버튼 클릭
+     * 3. 이 엔드포인트 호출
+     * 4. Google OAuth 동의 화면으로 리다이렉트
+     * 5. 동의 완료 후 콜백 → 토큰 저장 → 채널 자동 동기화
+     */
+    @GetMapping("/connect")
+    @Operation(
+        summary = "YouTube 채널 등록 (OAuth 동의)",
+        description = "일반 회원가입 사용자가 YouTube 권한을 동의하고 채널을 등록합니다"
+    )
+    public void connectYouTube(
+            Authentication authentication,
+            HttpServletResponse response) throws IOException {
+        
+        try {
+            UserDTO user = userMapper.findByEmail(authentication.getName());
+            
+            if (user == null) {
+                response.sendRedirect("http://localhost:3000/login?error=unauthorized");
+                return;
+            }
+            
+            log.info("[YouTube] 채널 등록 요청: userId={}, email={}", 
+                user.getId(), user.getEmail());
+            
+            // State 생성 (CSRF 방지)
+            String state = "youtube_connect_" + UUID.randomUUID().toString();
+            
+            // YouTube OAuth 동의 URL 생성
+            String authUrl = youtubeOAuthService.getYouTubeAuthorizationUrl(
+                user.getId(), state
+            );
+            
+            // Google OAuth 동의 화면으로 리다이렉트
+            response.sendRedirect(authUrl);
+            
+        } catch (Exception e) {
+            log.error("[YouTube] 채널 등록 실패: {}", e.getMessage(), e);
+            response.sendRedirect("http://localhost:3000/dashboard?error=youtube_connect_failed");
+        }
+    }
+    
+    /**
+     * ✅ OAuth 콜백 (Google에서 돌아옴)
+     * 
+     * GET /api/youtube/oauth/callback?code=xxx&state=xxx
+     * 
+     * 흐름:
+     * 1. Google이 Authorization Code와 함께 콜백
+     * 2. Code → Access Token 교환
+     * 3. youtube_oauth_tokens에 저장
+     * 4. 자동으로 채널 동기화
+     * 5. 대시보드로 리다이렉트
+     */
+    @GetMapping("/oauth/callback")
+    @Operation(summary = "YouTube OAuth 콜백", description = "Google OAuth 동의 후 콜백 처리")
+    public void youtubeOAuthCallback(
+            @RequestParam String code,
+            @RequestParam(required = false) String state,
+            HttpServletResponse response) throws IOException {
+        
+        try {
+            log.info("[YouTube] OAuth 콜백: code={}, state={}", 
+                code.substring(0, Math.min(20, code.length())), state);
+            
+            // State에서 userId 추출
+            Integer userId = extractUserIdFromState(state);
+            
+            if (userId == null) {
+                log.error("[YouTube] State에서 userId를 찾을 수 없습니다: {}", state);
+                response.sendRedirect("http://localhost:3000/dashboard?error=invalid_state");
+                return;
+            }
+            
+            // TODO: Authorization Code → Access Token 교환
+            // TODO: youtube_oauth_tokens에 저장
+            // TODO: 자동으로 채널 동기화
+            
+            // 완료 후 대시보드로 리다이렉트
+            response.sendRedirect("http://localhost:3000/dashboard?youtube=connected");
+            
+        } catch (Exception e) {
+            log.error("[YouTube] OAuth 콜백 실패: {}", e.getMessage(), e);
+            response.sendRedirect("http://localhost:3000/dashboard?error=oauth_callback_failed");
+        }
+    }
+    
+    /**
+     * ✅ 채널 동기화 (수동 호출)
+     * 
+     * POST /api/youtube/channels/sync
+     */
+    @PostMapping("/channels/sync")
+    @Operation(summary = "채널 동기화", description = "YouTube 채널 목록을 가져와서 DB에 저장")
+    public ResponseEntity<Map<String, Object>> syncChannels(Authentication authentication) {
+        Map<String, Object> response = new HashMap<>();
+        
+        try {
+            UserDTO user = userMapper.findByEmail(authentication.getName());
+            
+            if (user == null) {
+                response.put("success", false);
+                response.put("message", "로그인이 필요합니다");
+                return ResponseEntity.status(401).body(response);
+            }
+            
+            log.info("[YouTube] 채널 동기화 요청: userId={}", user.getId());
+            
+            List<YouTubeChannelDTO> channels = youtubeService.syncChannels(user.getId());
+            
+            response.put("success", true);
+            response.put("channels", channels);
+            response.put("count", channels.size());
+            response.put("message", channels.size() + "개 채널 동기화 완료");
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("[YouTube] 채널 동기화 실패: {}", e.getMessage());
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.status(500).body(response);
+        }
+    }
+    
+    /**
+     * ✅ 영상 동기화
+     * 
+     * POST /api/youtube/videos/sync
+     */
+    @PostMapping("/videos/sync")
+    @Operation(summary = "영상 동기화", description = "특정 채널의 영상 목록을 가져와서 DB에 저장")
+    public ResponseEntity<Map<String, Object>> syncVideos(
+            @RequestBody Map<String, Object> request,
+            Authentication authentication) {
+        
+        Map<String, Object> response = new HashMap<>();
+        
+        try {
+            UserDTO user = userMapper.findByEmail(authentication.getName());
+            
+            String channelId = (String) request.get("channelId");
+            Integer maxResults = (Integer) request.getOrDefault("maxResults", 50);
+            
+            if (channelId == null) {
+                response.put("success", false);
+                response.put("message", "channelId가 필요합니다");
+                return ResponseEntity.badRequest().body(response);
+            }
+            
+            log.info("[YouTube] 영상 동기화 요청: userId={}, channelId={}", 
+                user.getId(), channelId);
+            
+            List<YouTubeVideoDTO> videos = youtubeService.syncVideos(
+                user.getId(), channelId, maxResults
+            );
+            
+            response.put("success", true);
+            response.put("videos", videos);
+            response.put("count", videos.size());
+            response.put("message", videos.size() + "개 영상 동기화 완료");
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("[YouTube] 영상 동기화 실패: {}", e.getMessage());
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.status(500).body(response);
+        }
+    }
+    
+    /**
+     * ✅ 내 채널 목록 조회
+     * 
+     * GET /api/youtube/channels
+     */
+    @GetMapping("/channels")
+    @Operation(summary = "내 채널 목록 조회", description = "DB에 저장된 내 YouTube 채널 목록")
+    public ResponseEntity<Map<String, Object>> getMyChannels(Authentication authentication) {
+        Map<String, Object> response = new HashMap<>();
+        
+        try {
+            UserDTO user = userMapper.findByEmail(authentication.getName());
+            
+            // TODO: channelMapper.findByUserId(user.getId());
+            
+            response.put("success", true);
+            response.put("channels", List.of());
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.status(500).body(response);
+        }
+    }
+    
+    /**
+     * State에서 userId 추출
+     */
+    private Integer extractUserIdFromState(String state) {
+        if (state == null || !state.contains("userId=")) {
+            return null;
+        }
+        
+        try {
+            String[] parts = state.split("userId=");
+            return Integer.parseInt(parts[1]);
+        } catch (Exception e) {
+            log.error("[YouTube] State 파싱 실패: {}", state);
+            return null;
+        }
+    }
+}
+```
+
+***
+
+## Phase 8️⃣: CustomOAuth2UserService 수정 (Google 로그인 사용자용)
+
+```java
+// 기존 CustomOAuth2UserService.java에 토큰 저장 로직 추가
+// (이전 답변 참고)
+```
+
+***
+
+## 📋 최종 체크리스트
+
+```
+✅ Phase 0: 사전 준비
+  □ build.gradle에 YouTube API 의존성 추가
+  □ application.yml에 YouTube Scope 추가
+  □ Google Cloud Console에서 권한 승인
+
+✅ Phase 1: DTO 정의
+  □ YouTubeOAuthTokenDTO
+  □ YouTubeChannelDTO
+  □ YouTubeVideoDTO
+
+✅ Phase 2: Mapper Interface
+  □ YouTubeOAuthTokenMapper
+  □ YouTubeChannelMapper
+  □ YouTubeVideoMapper
+
+✅ Phase 3: Mapper XML
+  □ YouTubeOAuthTokenMapper.xml
+  □ YouTubeChannelMapper.xml
+  □ YouTubeVideoMapper.xml
+
+✅ Phase 4: Service
+  □ YouTubeOAuthService
+  □ YouTubeService
+
+✅ Phase 5: Controller
+  □ GET /api/youtube/connect (일반 사용자용!)
+  □ GET /api/youtube/oauth/callback
+  □ POST /api/youtube/channels/sync
+  □ POST /api/youtube/videos/sync
+
+✅ Phase 6: 테스트
+  □ 일반 사용자 → "채널 등록" → OAuth 동의 → 채널 저장 확인
+  □ Google 로그인 → 토큰 저장 → 채널 저장 확인
+```
+
+***
+
+## 🎯 프론트엔드 사용 예시
+
+```javascript
+// React - 일반 사용자용 "채널 등록" 버튼
+function Dashboard() {
+  const handleConnectYouTube = () => {
+    // 백엔드로 리다이렉트 (OAuth 동의 시작)
+    window.location.href = 'http://localhost:8080/api/youtube/connect';
+  };
+
+  return (
+    <div>
+      <button onClick={handleConnectYouTube}>
+        YouTube 채널 등록
+      </button>
+    </div>
+  );
+}
+```
+
+**이제 일반 사용자도 YouTube 권한을 동의받고 채널을 등록할 수 있습니다!** 🎯

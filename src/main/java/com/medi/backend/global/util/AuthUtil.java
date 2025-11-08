@@ -4,47 +4,57 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
-import com.medi.backend.user.dto.UserDTO;
-import com.medi.backend.user.mapper.UserMapper;
+import com.medi.backend.global.security.dto.CustomUserDetails;
 
+/**
+ * 인증 관련 유틸리티 클래스
+ * - 세션에서 현재 로그인한 사용자 정보 조회
+ * - DB 조회 없이 메모리에서 바로 접근 (CustomUserDetails 사용)
+ */
 @Component
 public class AuthUtil {
-    
-    private final UserMapper userMapper;
 
-    public AuthUtil(UserMapper userMapper) {
-        this.userMapper = userMapper;
+    /**
+     * 현재 로그인한 사용자의 CustomUserDetails 반환
+     * @return CustomUserDetails, 로그인하지 않은 경우 null
+     */
+    public CustomUserDetails getCurrentUser() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return null;
+        }
+        
+        Object principal = authentication.getPrincipal();
+        
+        // anonymousUser인 경우
+        if ("anonymousUser".equals(principal)) {
+            return null;
+        }
+        
+        // CustomUserDetails 타입인 경우
+        if (principal instanceof CustomUserDetails) {
+            return (CustomUserDetails) principal;
+        }
+        
+        return null;
     }
 
+    /**
+     * 현재 로그인한 사용자 ID 반환 (DB 조회 없이 세션에서 가져옴)
+     * @return 사용자 ID, 로그인하지 않은 경우 null
+     */
     public Integer getCurrentUserId() {
-        // get Authentication information(login) from HttpSession of Spring Security
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-
-        // no login or anonymousUser
-        if (authentication == null || !authentication.isAuthenticated() 
-            || "anonymousUser".equals(authentication.getName())) {
-            return null;  // not logged in
-        }
-
-        // get email(name) from login and find UserDto
-        String email = authentication.getName();
-        UserDTO user = userMapper.findByEmail(email);
-
-        return user != null ? user.getId() : null;  // user found → return ID, not found → null
+        CustomUserDetails user = getCurrentUser();
+        return user != null ? user.getId() : null;
     }
 
+    /**
+     * 현재 로그인한 사용자가 관리자인지 확인 (DB 조회 없이 세션에서 가져옴)
+     * @return 관리자면 true, 아니면 false
+     */
     public boolean isAdmin() {
-        // get Authentication information
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        
-        // no login or anonymousUser
-        if (authentication == null || !authentication.isAuthenticated() 
-            || "anonymousUser".equals(authentication.getName())) {
-            return false;
-        }
-        
-        // Check if user has ROLE_ADMIN authority
-        return authentication.getAuthorities().stream()
-            .anyMatch(auth -> auth.getAuthority().equals("ROLE_ADMIN"));
+        CustomUserDetails user = getCurrentUser();
+        return user != null && "ADMIN".equals(user.getRole());
     }
 }
