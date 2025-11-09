@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.medi.backend.admin.mapper.AdminMapper">
+
+    <select id="getTotalUserCount">
+        SELECT 
+            COUNT(id) 
+        FROM users
+        where role='USER';
+    </select>
+
+    <select id="getActiveSubscriberCount">
+        SELECT 
+            COUNT(*)
+        FROM 
+            user_subscriptions
+        WHERE 
+            status = 'ACTIVE';
+    </select>
+
+    <select id="getPlanDistribution">
+        SELECT 
+            plan_id, 
+            COUNT(*) as count
+        FROM 
+            user_subscriptions
+        WHERE 
+            status = 'ACTIVE'
+        GROUP BY 
+            plan_id;
+    </select>
+
+
+
+
+</mapper>
