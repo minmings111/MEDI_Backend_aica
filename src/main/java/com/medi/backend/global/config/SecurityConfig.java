@@ -25,6 +25,7 @@ import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.security.oauth2.client.web.HttpSessionOAuth2AuthorizationRequestRepository;
 
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -172,6 +173,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/billing/plans/{id}").permitAll() // 1개 플랜 조회
 
                 .requestMatchers("/api/auth/login").permitAll()             // 로그인
+                .requestMatchers("/api/auth/check-email").permitAll()       // 이메일 중복 확인
                 .requestMatchers("/api/auth/register").permitAll()          // 회원가입
                 .requestMatchers("/api/auth/send-verification").permitAll() // 이메일 인증 전송
                 .requestMatchers("/api/auth/verify-email").permitAll()      // 이메일 인증 확인
@@ -218,6 +220,9 @@ public class SecurityConfig {
                 .redirectionEndpoint(redirection -> redirection
                     .baseUri("/login/oauth2/code/*")                         // OAuth2 리다이렉트 엔드포인트
                 )
+                .authorizationEndpoint(authorization -> authorization
+                    .authorizationRequestRepository(authorizationRequestRepository())  // OAuth2 인증 요청 저장소 명시적 설정
+                )
                 .userInfoEndpoint(userInfo -> userInfo
                     .userService(customOAuth2UserService)                    // 커스텀 OAuth2 사용자 서비스
                 )
@@ -257,5 +262,16 @@ public class SecurityConfig {
         source.registerCorsConfiguration("/**", configuration);
         
         return source;
+    }
+    
+    /**
+     * OAuth2 인증 요청 저장소 Bean
+     * 세션 기반으로 OAuth2 인증 요청을 저장하여 authorization_request_not_found 에러 방지
+     * 
+     * @return HttpSessionOAuth2AuthorizationRequestRepository
+     */
+    @Bean
+    public HttpSessionOAuth2AuthorizationRequestRepository authorizationRequestRepository() {
+        return new HttpSessionOAuth2AuthorizationRequestRepository();
     }
 }

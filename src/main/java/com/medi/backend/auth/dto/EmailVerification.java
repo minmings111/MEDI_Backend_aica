@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
  */
 @Data
 public class EmailVerification {
-    private Integer id;                  // PK (DB 자동 생성)
+    private Integer id;                  // PK (DB 자동 생성) //여
     private String email;                // 이메일
     private String code;                 // 6자리 인증 코드
     private LocalDateTime expiresAt;     // 만료 시간 (5분 후)
