@@ -11,27 +11,24 @@ import com.medi.backend.admin.dto.UserTrendPointDto;
 
 public interface AdminService {
 
-    // ADM-01: 총 사용자 수
+    // ADM-01: total user count
     Integer getTotalUserCount();
 
-    // ADM-02: 활성 사용자 수
+    // ADM-02: active subscriber count
     Integer getActiveSubscriberCount();
 
-    // ADM-03: 총 필터링 수
-    Integer getTotalFilteringCount();
-
-    // ADM-04: 전월 대비 증감률
+    // ADM-03: month over month delta
     MonthOverMonthDeltaDto getMonthOverMonthDelta();
 
-    // ADM-05: 사용자 변화 추이 그래프
+    // ADM-04: user trend graph (date range selection)
     List<UserTrendPointDto> getUserTrendByDateRange(LocalDate from, LocalDate to);
 
-    // ADM-06: 요금제 구독 분포
+    // ADM-05: plan distribution
     List<PlanDistributionDto> getPlanDistribution();
 
-    // ADM-07: 플랫폼 사용 분포
+    // ADM-06: platform usage distribution
     List<PlatformUsageDto> getPlatformUsageDistribution();
 
-    // 통합 통계 조회 (선택적)
+    // ADM-07: total statistics (optional)
     AdminStatisticsDto getStatisticsSummary(LocalDate from, LocalDate to);
 }

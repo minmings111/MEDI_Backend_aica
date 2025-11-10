@@ -10,32 +10,40 @@ import com.medi.backend.admin.dto.MonthOverMonthDeltaDto;
 import com.medi.backend.admin.dto.PlanDistributionDto;
 import com.medi.backend.admin.dto.PlatformUsageDto;
 import com.medi.backend.admin.dto.UserTrendPointDto;
+import com.medi.backend.admin.dto.HarmfulnessLevelDistributionDto;
+import com.medi.backend.admin.dto.DetectionSourceDistributionDto;
+import com.medi.backend.admin.dto.CategoryDistributionDto;
 
 @Mapper
 public interface AdminMapper {
 
-    // ADM-01: 총 사용자 수
+    // ADM-01: total user count
     Integer getTotalUserCount();
 
-    // ADM-02: 활성 사용자 수 (현재 구독 중인 사용자)
+    // ADM-02: active subscriber count (currently subscribed users)
     Integer getActiveSubscriberCount();
 
-    // ADM-03: 총 필터링 수 (모든 등록된 채널의 누적 필터링 댓글 수)
+    // ADM-03: total filtering count
     Integer getTotalFilteringCount();
 
-    // ADM-04: 전월 대비 증감률
+    // ADM-04: detailed filtering statistics distribution
+    List<HarmfulnessLevelDistributionDto> getHarmfulnessLevelDistribution();
+    List<DetectionSourceDistributionDto> getDetectionSourceDistribution();
+    List<CategoryDistributionDto> getCategoryDistribution();
+
+    // ADM-05: month over month delta
     MonthOverMonthDeltaDto getMonthOverMonthDelta();
 
-    // ADM-05: 사용자 변화 추이 그래프 (기간 선택)
+    // ADM-06: user trend graph (date range selection)
     List<UserTrendPointDto> getUserTrendByDateRange(
         @Param("from") LocalDate from, 
         @Param("to") LocalDate to
     );
 
-    // ADM-06: 요금제 구독 분포
+    // ADM-07: plan distribution
     List<PlanDistributionDto> getPlanDistribution();
 
-    // ADM-07: 플랫폼 사용 분포
+    // ADM-08: platform usage distribution
     List<PlatformUsageDto> getPlatformUsageDistribution();
 
 }

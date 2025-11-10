@@ -22,17 +22,70 @@
             status = 'ACTIVE'
     </select>
 
-    <!-- ADM-03: 총 필터링 수 (모든 등록된 채널의 누적 필터링 댓글 수) -->
-    <!-- TODO: 필터링 관련 테이블이 추가되면 쿼리 수정 필요 -->
+    <!-- ADM-03: 총 필터링 수 (status = 'HIDE'인 댓글 수) -->
     <select id="getTotalFilteringCount" resultType="java.lang.Integer">
         SELECT 
-            COALESCE(SUM(filtered_count), 0)
+            COUNT(*) 
         FROM 
-            youtube_channels
-        <!-- 임시로 0 반환, 필터링 테이블 추가 후 수정 필요 -->
+            ai_comment_analysis_result
+        WHERE 
+            status = 'HIDE'
     </select>
 
-    <!-- ADM-04: 전월 대비 증감률 -->
+    <!-- ADM-04-1: 해로움 수준별 분포 -->
+    <select id="getHarmfulnessLevelDistribution" 
+            resultType="com.medi.backend.admin.dto.HarmfulnessLevelDistributionDto">
+        SELECT 
+            harmfulness_level AS harmfulnessLevel,
+            COUNT(*) AS count
+        FROM 
+            ai_comment_analysis_result
+        WHERE 
+            status = 'HIDE'
+        GROUP BY 
+            harmfulness_level
+        ORDER BY 
+            CASE harmfulness_level
+                WHEN 'HIGH' THEN 1
+                WHEN 'MEDIUM' THEN 2
+                WHEN 'LOW' THEN 3
+                ELSE 4
+            END
+    </select>
+
+    <!-- ADM-04-2: 필터링 로직별 분포 (detection_source) -->
+    <select id="getDetectionSourceDistribution" 
+            resultType="com.medi.backend.admin.dto.DetectionSourceDistributionDto">
+        SELECT 
+            detection_source AS detectionSource,
+            COUNT(*) AS count
+        FROM 
+            ai_comment_analysis_result
+        WHERE 
+            status = 'HIDE'
+        GROUP BY 
+            detection_source
+        ORDER BY 
+            count DESC
+    </select>
+
+    <!-- ADM-04-3: 카테고리별 분포 -->
+    <select id="getCategoryDistribution" 
+            resultType="com.medi.backend.admin.dto.CategoryDistributionDto">
+        SELECT 
+            COALESCE(detected_category, 'UNKNOWN') AS category,
+            COUNT(*) AS count
+        FROM 
+            ai_comment_analysis_result
+        WHERE 
+            status = 'HIDE'
+        GROUP BY 
+            detected_category
+        ORDER BY 
+            count DESC
+    </select>
+
+    <!-- ADM-05: 전월 대비 증감률 -->
     <select id="getMonthOverMonthDelta"
         resultType="com.medi.backend.admin.dto.MonthOverMonthDeltaDto">
         SELECT
@@ -67,7 +120,7 @@
         ) AS delta
     </select>
 
-    <!-- ADM-05: 사용자 변화 추이 그래프 (기간 선택) -->
+    <!-- ADM-06: 사용자 변화 추이 그래프 (기간 선택) -->
     <select id="getUserTrendByDateRange" 
             resultType="com.medi.backend.admin.dto.UserTrendPointDto">
         SELECT 
@@ -80,7 +133,7 @@
         ORDER BY date ASC
     </select>
 
-    <!-- ADM-06: 요금제 구독 분포 -->
+    <!-- ADM-07: 요금제 구독 분포 -->
     <select id="getPlanDistribution" 
             resultType="com.medi.backend.admin.dto.PlanDistributionDto">
         SELECT 
@@ -99,7 +152,7 @@
             subscriberCount DESC
     </select>
 
-    <!-- ADM-07: 플랫폼 사용 분포 -->
+    <!-- ADM-08: 플랫폼 사용 분포 -->
     <select id="getPlatformUsageDistribution" 
             resultType="com.medi.backend.admin.dto.PlatformUsageDto">
         SELECT 
@@ -107,14 +160,15 @@
             COUNT(DISTINCT user_id) as userCount
         FROM 
             youtube_channels
+        <!-- Instagram 테이블이 추가되면 아래 주석 해제 -->
+        <!--
         UNION ALL
         SELECT 
             'INSTAGRAM' as platform,
             COUNT(DISTINCT user_id) as userCount
         FROM 
             instagram_channels
-        <!-- Instagram 테이블이 없을 경우를 대비해 임시로 0 반환 -->
-        <!-- 실제 Instagram 테이블이 추가되면 수정 필요 -->
+        -->
     </select>
 
 </mapper>

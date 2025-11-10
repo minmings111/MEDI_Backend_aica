@@ -47,16 +47,8 @@ public class AdminController {
         return ResponseEntity.ok(activeSubscriberCount);
     }
 
-    // ADM-03: total filtering count
-    // not yet...
-    // @PreAuthorize("hasRole('ADMIN')")
-    // @GetMapping("/total-filtering")
-    // public ResponseEntity<Integer> getTotalFilteringCount() {
-    //     Integer totalFilteringCount = adminService.getTotalFilteringCount();
-    //     return ResponseEntity.ok(totalFilteringCount);
-    // }
 
-    // ADM-04: month over month delta
+    // ADM-03: month over month delta
     // userGrowRate - 100%, filteringCountGrowRate - 100% and raw data
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/month-over-month-delta")
@@ -65,7 +57,7 @@ public class AdminController {
         return ResponseEntity.ok(delta);
     }
 
-    // ADM-05: user trend graph 
+    // ADM-04: user trend graph 
     // (date range required, default: 1 month's day by day data)
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/user-trend")
@@ -78,7 +70,7 @@ public class AdminController {
         return ResponseEntity.ok(userTrend);
     }
 
-    // ADM-06: plan distribution
+    // ADM-05: plan distribution
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/plan-distribution")
     public ResponseEntity<List<PlanDistributionDto>> getPlanDistribution() {
@@ -86,7 +78,7 @@ public class AdminController {
         return ResponseEntity.ok(planDistribution);
     }
 
-    // ADM-07: 플랫폼 사용 분포
+    // ADM-06: platform usage distribution
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/platform-usage")
     public ResponseEntity<List<PlatformUsageDto>> getPlatformUsageDistribution() {
@@ -94,13 +86,16 @@ public class AdminController {
         return ResponseEntity.ok(platformUsage);
     }
 
-    // 통합 통계 조회 (모든 통계를 한 번에)
+    // total statistics - 01, 02, 03, 05, 06, 07, 08
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/summary")
     public ResponseEntity<AdminStatisticsDto> getStatisticsSummary(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        @RequestParam(name = "from", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+        @RequestParam(name = "to", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         AdminStatisticsDto adminStatisticsDto = adminService.getStatisticsSummary(from, to);
         return ResponseEntity.ok(adminStatisticsDto);
     }
+
 }
