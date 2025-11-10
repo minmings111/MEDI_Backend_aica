@@ -203,9 +203,10 @@ public class BillingController {
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/admin/subscriptions")
     public ResponseEntity<?> getAllSubscriptions(
-        @RequestParam(required = false) String status,
-        @RequestParam(required = false) Integer planId,
-        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime after
+        @RequestParam(name = "status", required = false) String status,
+        @RequestParam(name = "planId",required = false) Integer planId,
+        @RequestParam(name = "after", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime after
     ) {
         UserSubscriptionFilterDto subscriptionFilterDto = new UserSubscriptionFilterDto();
         subscriptionFilterDto.setStatus(status);
