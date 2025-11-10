@@ -5,6 +5,7 @@
 <mapper namespace="com.medi.backend.auth.mapper.AuthMapper">
     
     <!-- ResultMap: DB 컬럼명 → DTO 필드명 매핑 -->
+    <!-- 우리 로그인과 소셜로그인 resultmap 을 나눠야함 -->
     <resultMap id="EmailVerificationResultMap" type="com.medi.backend.auth.dto.EmailVerification">
         <id property="id" column="id"/>
         <result property="email" column="email"/>

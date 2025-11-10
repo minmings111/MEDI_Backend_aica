@@ -337,6 +337,42 @@ public class AuthController {
      * 이메일 인증 코드 전송 API
      * POST /api/auth/send-verification
      */
+    @PostMapping("/check-email")
+    public ResponseEntity<Map<String, Object>> checkEmailDuplicate(@RequestBody Map<String, String> request) {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            String email = request.get("email");
+
+            if (email == null || email.trim().isEmpty()) {
+                response.put("available", false);
+                response.put("message", "이메일을 입력해주세요");
+                return ResponseEntity.badRequest().body(response);
+            }
+
+            boolean exists = authService.isEmailExists(email);
+
+            if (exists) {
+                response.put("available", false);
+                response.put("message", "이미 사용 중인 이메일입니다");
+            } else {
+                response.put("available", true);
+                response.put("message", "사용 가능한 이메일입니다");
+            }
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("이메일 중복 확인 중 오류 발생: {}", e.getMessage(), e);
+            response.put("available", false);
+            response.put("message", "이메일 중복 확인 중 오류가 발생했습니다");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+    }
+
+    /**
+     * 이메일 인증 코드 전송 API
+     * POST /api/auth/send-verification
+     */
     @PostMapping("/send-verification")
     public ResponseEntity<Map<String, Object>> sendVerificationCode(@RequestBody Map<String, String> request) {
         Map<String, Object> response = new HashMap<>();

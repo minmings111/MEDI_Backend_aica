@@ -172,6 +172,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/billing/plans/{id}").permitAll() // 1개 플랜 조회
 
                 .requestMatchers("/api/auth/login").permitAll()             // 로그인
+                .requestMatchers("/api/auth/check-email").permitAll()       // 이메일 중복 확인
                 .requestMatchers("/api/auth/register").permitAll()          // 회원가입
                 .requestMatchers("/api/auth/send-verification").permitAll() // 이메일 인증 전송
                 .requestMatchers("/api/auth/verify-email").permitAll()      // 이메일 인증 확인
