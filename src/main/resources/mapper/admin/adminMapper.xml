@@ -4,35 +4,111 @@
 
 <mapper namespace="com.medi.backend.admin.mapper.AdminMapper">
 
-    <select id="getTotalUserCount">
+    <!-- ADM-01: 총 사용자 수 -->
+    <select id="getTotalUserCount" resultType="java.lang.Integer">
         SELECT 
             COUNT(id) 
         FROM users
-        where role='USER';
+        WHERE role = 'USER'
     </select>
 
-    <select id="getActiveSubscriberCount">
+    <!-- ADM-02: 활성 사용자 수 (현재 구독 중인 사용자) -->
+    <select id="getActiveSubscriberCount" resultType="java.lang.Integer">
         SELECT 
-            COUNT(*)
-        FROM 
-            user_subscriptions
-        WHERE 
-            status = 'ACTIVE';
-    </select>
-
-    <select id="getPlanDistribution">
-        SELECT 
-            plan_id, 
-            COUNT(*) as count
+            COUNT(DISTINCT user_id)
         FROM 
             user_subscriptions
         WHERE 
             status = 'ACTIVE'
-        GROUP BY 
-            plan_id;
     </select>
 
+    <!-- ADM-03: 총 필터링 수 (모든 등록된 채널의 누적 필터링 댓글 수) -->
+    <!-- TODO: 필터링 관련 테이블이 추가되면 쿼리 수정 필요 -->
+    <select id="getTotalFilteringCount" resultType="java.lang.Integer">
+        SELECT 
+            COALESCE(SUM(filtered_count), 0)
+        FROM 
+            youtube_channels
+        <!-- 임시로 0 반환, 필터링 테이블 추가 후 수정 필요 -->
+    </select>
 
+    <!-- ADM-04: 전월 대비 증감률 -->
+    <select id="getMonthOverMonthDelta" 
+            resultType="com.medi.backend.admin.dto.MonthOverMonthDeltaDto">
+        SELECT 
+            CASE 
+                WHEN last_month_users > 0 
+                THEN ROUND(((this_month_users - last_month_users) * 100.0 / last_month_users), 2)
+                ELSE 0.0
+            END as userGrowthRate,
+            CASE 
+                WHEN last_month_filtering > 0 
+                THEN ROUND(((this_month_filtering - last_month_filtering) * 100.0 / last_month_filtering), 2)
+                ELSE 0.0
+            END as filteringGrowthRate
+        FROM (
+            SELECT 
+                (SELECT COUNT(*) FROM users 
+                 WHERE role = 'USER' 
+                 AND DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')) as this_month_users,
+                (SELECT COUNT(*) FROM users 
+                 WHERE role = 'USER' 
+                 AND DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) as last_month_users,
+                (SELECT COALESCE(SUM(filtered_count), 0) FROM youtube_channels 
+                 WHERE DATE_FORMAT(updated_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')) as this_month_filtering,
+                (SELECT COALESCE(SUM(filtered_count), 0) FROM youtube_channels 
+                 WHERE DATE_FORMAT(updated_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) as last_month_filtering
+        ) as delta
+    </select>
 
+    <!-- ADM-05: 사용자 변화 추이 그래프 (기간 선택) -->
+    <select id="getUserTrendByDateRange" 
+            resultType="com.medi.backend.admin.dto.UserTrendPointDto">
+        SELECT 
+            DATE(created_at) as date,
+            COUNT(*) as userCount
+        FROM users
+        WHERE role = 'USER'
+        AND DATE(created_at) BETWEEN #{from} AND #{to}
+        GROUP BY DATE(created_at)
+        ORDER BY date ASC
+    </select>
+
+    <!-- ADM-06: 요금제 구독 분포 -->
+    <select id="getPlanDistribution" 
+            resultType="com.medi.backend.admin.dto.PlanDistributionDto">
+        SELECT 
+            us.plan_id as planId,
+            sp.plan_name as planName,
+            COUNT(DISTINCT us.user_id) as subscriberCount
+        FROM 
+            user_subscriptions us
+        INNER JOIN 
+            subscription_plans sp ON us.plan_id = sp.id
+        WHERE 
+            us.status = 'ACTIVE'
+        GROUP BY 
+            us.plan_id, sp.plan_name
+        ORDER BY 
+            subscriberCount DESC
+    </select>
+
+    <!-- ADM-07: 플랫폼 사용 분포 -->
+    <select id="getPlatformUsageDistribution" 
+            resultType="com.medi.backend.admin.dto.PlatformUsageDto">
+        SELECT 
+            'YOUTUBE' as platform,
+            COUNT(DISTINCT user_id) as userCount
+        FROM 
+            youtube_channels
+        UNION ALL
+        SELECT 
+            'INSTAGRAM' as platform,
+            COUNT(DISTINCT user_id) as userCount
+        FROM 
+            instagram_channels
+        <!-- Instagram 테이블이 없을 경우를 대비해 임시로 0 반환 -->
+        <!-- 실제 Instagram 테이블이 추가되면 수정 필요 -->
+    </select>
 
 </mapper>
