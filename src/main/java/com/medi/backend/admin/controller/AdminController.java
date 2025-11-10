@@ -31,7 +31,7 @@ public class AdminController {
         this.adminService = adminService;
     }
 
-    // ADM-01: 총 사용자 수
+    // ADM-01: total users count
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/total-users")
     public ResponseEntity<Integer> getTotalUserCount() {
@@ -39,7 +39,7 @@ public class AdminController {
         return ResponseEntity.ok(totalUserCount);
     }
 
-    // ADM-02: 활성 사용자 수 (현재 구독 중인 사용자)
+    // ADM-02: active users count
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/active-subscribers")
     public ResponseEntity<Integer> getActiveSubscriberCount() {
@@ -47,7 +47,8 @@ public class AdminController {
         return ResponseEntity.ok(activeSubscriberCount);
     }
 
-    // ADM-03: 총 필터링 수
+    // ADM-03: total filtering count
+    // not yet...
     // @PreAuthorize("hasRole('ADMIN')")
     // @GetMapping("/total-filtering")
     // public ResponseEntity<Integer> getTotalFilteringCount() {
@@ -55,7 +56,8 @@ public class AdminController {
     //     return ResponseEntity.ok(totalFilteringCount);
     // }
 
-    // ADM-04: 전월 대비 증감률
+    // ADM-04: month over month delta
+    // userGrowRate - 100%, filteringCountGrowRate - 100% and raw data
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/month-over-month-delta")
     public ResponseEntity<MonthOverMonthDeltaDto> getMonthOverMonthDelta() {
@@ -63,17 +65,20 @@ public class AdminController {
         return ResponseEntity.ok(delta);
     }
 
-    // ADM-05: 사용자 변화 추이 그래프 (기간 선택)
+    // ADM-05: user trend graph 
+    // (date range required, default: 1 month's day by day data)
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/user-trend")
     public ResponseEntity<List<UserTrendPointDto>> getUserTrend(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        @RequestParam(name = "from", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+        @RequestParam(name = "to", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         List<UserTrendPointDto> userTrend = adminService.getUserTrendByDateRange(from, to);
         return ResponseEntity.ok(userTrend);
     }
 
-    // ADM-06: 요금제 구독 분포
+    // ADM-06: plan distribution
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/plan-distribution")
     public ResponseEntity<List<PlanDistributionDto>> getPlanDistribution() {

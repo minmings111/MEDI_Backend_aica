@@ -33,32 +33,38 @@
     </select>
 
     <!-- ADM-04: 전월 대비 증감률 -->
-    <select id="getMonthOverMonthDelta" 
-            resultType="com.medi.backend.admin.dto.MonthOverMonthDeltaDto">
-        SELECT 
-            CASE 
-                WHEN last_month_users > 0 
+    <select id="getMonthOverMonthDelta"
+        resultType="com.medi.backend.admin.dto.MonthOverMonthDeltaDto">
+        SELECT
+            CASE
+                WHEN last_month_users > 0
                 THEN ROUND(((this_month_users - last_month_users) * 100.0 / last_month_users), 2)
                 ELSE 0.0
-            END as userGrowthRate,
-            CASE 
-                WHEN last_month_filtering > 0 
+            END AS userGrowthRate,
+            CASE
+                WHEN last_month_filtering > 0
                 THEN ROUND(((this_month_filtering - last_month_filtering) * 100.0 / last_month_filtering), 2)
                 ELSE 0.0
-            END as filteringGrowthRate
+            END AS filteringGrowthRate,
+            this_month_users       AS thisMonthUserCount,
+            last_month_users       AS lastMonthUserCount,
+            this_month_filtering   AS thisMonthFilteringCount,
+            last_month_filtering   AS lastMonthFilteringCount
         FROM (
-            SELECT 
-                (SELECT COUNT(*) FROM users 
-                 WHERE role = 'USER' 
-                 AND DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')) as this_month_users,
-                (SELECT COUNT(*) FROM users 
-                 WHERE role = 'USER' 
-                 AND DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) as last_month_users,
-                (SELECT COALESCE(SUM(filtered_count), 0) FROM youtube_channels 
-                 WHERE DATE_FORMAT(updated_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')) as this_month_filtering,
-                (SELECT COALESCE(SUM(filtered_count), 0) FROM youtube_channels 
-                 WHERE DATE_FORMAT(updated_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) as last_month_filtering
-        ) as delta
+            SELECT
+                (SELECT COUNT(*) FROM users
+                WHERE role = 'USER'
+                AND DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')) AS this_month_users,
+                (SELECT COUNT(*) FROM users
+                WHERE role = 'USER'
+                AND DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) AS last_month_users,
+                (SELECT COUNT(*) FROM ai_comment_analysis_result
+                WHERE status = 'HIDE'
+                AND DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')) AS this_month_filtering,
+                (SELECT COUNT(*) FROM ai_comment_analysis_result
+                WHERE status = 'HIDE'
+                AND DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) AS last_month_filtering
+        ) AS delta
     </select>
 
     <!-- ADM-05: 사용자 변화 추이 그래프 (기간 선택) -->
