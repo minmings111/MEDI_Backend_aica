@@ -235,6 +235,9 @@ YouTube OAuth & Sync (참고: 구현 상태 확인 필요)
 - GET /api/youtube/connect [Auth] - YouTube OAuth 연결 시작
 - GET /api/youtube/oauth/callback [Public] - OAuth 콜백
 - GET /api/youtube/token/status [Auth] - 토큰 상태 확인
+- NOTE: 일반 Google 로그인은 기본 프로필 스코프만 요청하며,
+        채널 등록 버튼을 통해 /api/youtube/connect 를 호출할 때만
+        youtube.readonly / youtube.force-ssl 스코프를 요청한다.
 - POST /api/youtube/channels/sync [Auth] - 채널 동기화
 - POST /api/youtube/videos/sync [Auth] - 영상 동기화
 - POST /api/youtube/comments/sync [Auth] - 댓글 동기화
