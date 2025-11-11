@@ -37,11 +37,13 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	implementation 'org.springframework.boot:spring-boot-starter-mail'
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
 	// OAuth2 Client 의존성
 	implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
 
 	// Redis
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+	
 	// YouTube API 및 Google 클라이언트 의존성
 	implementation 'com.google.apis:google-api-services-youtube:v3-rev20220926-2.0.0'
 	implementation 'com.google.api-client:google-api-client:2.2.0'
