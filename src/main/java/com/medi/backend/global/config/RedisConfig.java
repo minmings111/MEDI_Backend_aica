@@ -22,8 +22,7 @@ public class RedisConfig {
         RedisTemplate<String, Object> t = new RedisTemplate<>();
         t.setConnectionFactory(cf);
         var keySer = new StringRedisSerializer();
-        var valSer = new Jackson2JsonRedisSerializer<>(Object.class);
-        valSer.setObjectMapper(om);
+        var valSer = new Jackson2JsonRedisSerializer<>(om,Object.class);
         t.setKeySerializer(keySer);
         t.setValueSerializer(valSer);
         t.setHashKeySerializer(keySer);

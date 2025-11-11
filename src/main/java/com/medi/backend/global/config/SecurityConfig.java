@@ -169,6 +169,8 @@ public class SecurityConfig {
             // 인증 규칙 설정
             //여기는 나중에 리스트로 관리
             .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/actuator/health").hasRole("ADMIN") // health check
+
                 .requestMatchers("/api/billing/plans").permitAll() // 플랜 전체 조회
                 .requestMatchers("/api/billing/plans/{id}").permitAll() // 1개 플랜 조회
 
