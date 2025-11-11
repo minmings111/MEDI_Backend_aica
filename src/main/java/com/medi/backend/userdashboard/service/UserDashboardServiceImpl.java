@@ -6,12 +6,12 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.medi.backend.userdashboard.dto.CategoryDistributionDto;
+import com.medi.backend.userdashboard.dto.CategoryDistributionForUserDto;
 import com.medi.backend.userdashboard.dto.ChannelFilteringRankingDto;
 import com.medi.backend.userdashboard.dto.ChannelFilteringStatisticsDto;
-import com.medi.backend.userdashboard.dto.DetectionSourceDistributionDto;
+import com.medi.backend.userdashboard.dto.UserDetectionSourceDistributionDto;
 import com.medi.backend.userdashboard.dto.FilteringTrendPointDto;
-import com.medi.backend.userdashboard.dto.HarmfulnessLevelDistributionDto;
+import com.medi.backend.userdashboard.dto.UserHarmfulnessLevelDistributionDto;
 import com.medi.backend.userdashboard.dto.UserDashboardSummaryDto;
 import com.medi.backend.userdashboard.dto.UserFilteringStatisticsDto;
 import com.medi.backend.userdashboard.dto.VideoFilteringRankingDto;
@@ -51,17 +51,17 @@ public class UserDashboardServiceImpl implements UserDashboardService {
         Integer totalCount = dashboardMapper.getTotalFilteringCountByUserId(userId);
         statistics.setTotalFilteredCount(totalCount);
 
-        List<HarmfulnessLevelDistributionDto> harmfulnessDistribution =
+        List<UserHarmfulnessLevelDistributionDto> harmfulnessDistribution =
             dashboardMapper.getHarmfulnessLevelDistributionByUserId(userId);
         calculatePercentageForHarmfulness(harmfulnessDistribution, totalCount);
         statistics.setHarmfulnessLevelDistribution(harmfulnessDistribution);
 
-        List<DetectionSourceDistributionDto> detectionSourceDistribution =
+        List<UserDetectionSourceDistributionDto> detectionSourceDistribution =
             dashboardMapper.getDetectionSourceDistributionByUserId(userId);
         calculatePercentageForDetectionSource(detectionSourceDistribution, totalCount);
         statistics.setDetectionSourceDistribution(detectionSourceDistribution);
 
-        List<CategoryDistributionDto> categoryDistribution =
+        List<CategoryDistributionForUserDto> categoryDistribution =
             dashboardMapper.getCategoryDistributionByUserId(userId);
         calculatePercentageForCategory(categoryDistribution, totalCount);
         statistics.setCategoryDistribution(categoryDistribution);
@@ -120,12 +120,12 @@ public class UserDashboardServiceImpl implements UserDashboardService {
 
         Integer totalCount = statistics.getTotalFilteredCount();
 
-        List<HarmfulnessLevelDistributionDto> harmfulnessDistribution =
+        List<UserHarmfulnessLevelDistributionDto> harmfulnessDistribution =
             dashboardMapper.getChannelHarmfulnessLevelDistribution(userId, channelId);
         calculatePercentageForHarmfulness(harmfulnessDistribution, totalCount);
         statistics.setHarmfulnessLevelDistribution(harmfulnessDistribution);
 
-        List<CategoryDistributionDto> categoryDistribution =
+        List<CategoryDistributionForUserDto> categoryDistribution =
             dashboardMapper.getChannelCategoryDistribution(userId, channelId);
         calculatePercentageForCategory(categoryDistribution, totalCount);
         statistics.setCategoryDistribution(categoryDistribution);
@@ -160,12 +160,12 @@ public class UserDashboardServiceImpl implements UserDashboardService {
 
         Integer totalCount = statistics.getTotalFilteredCount();
 
-        List<HarmfulnessLevelDistributionDto> harmfulnessDistribution =
+        List<UserHarmfulnessLevelDistributionDto> harmfulnessDistribution =
             dashboardMapper.getVideoHarmfulnessLevelDistribution(userId, videoId);
         calculatePercentageForHarmfulness(harmfulnessDistribution, totalCount);
         statistics.setHarmfulnessLevelDistribution(harmfulnessDistribution);
 
-        List<CategoryDistributionDto> categoryDistribution =
+        List<CategoryDistributionForUserDto> categoryDistribution =
             dashboardMapper.getVideoCategoryDistribution(userId, videoId);
         calculatePercentageForCategory(categoryDistribution, totalCount);
         statistics.setCategoryDistribution(categoryDistribution);
@@ -202,7 +202,7 @@ public class UserDashboardServiceImpl implements UserDashboardService {
     }
 
     private void calculatePercentageForHarmfulness(
-            List<HarmfulnessLevelDistributionDto> distribution, Integer totalCount) {
+            List<UserHarmfulnessLevelDistributionDto> distribution, Integer totalCount) {
         if (totalCount == null || totalCount == 0) {
             return;
         }
@@ -215,7 +215,7 @@ public class UserDashboardServiceImpl implements UserDashboardService {
     }
 
     private void calculatePercentageForDetectionSource(
-            List<DetectionSourceDistributionDto> distribution, Integer totalCount) {
+            List<UserDetectionSourceDistributionDto> distribution, Integer totalCount) {
         if (totalCount == null || totalCount == 0) {
             return;
         }
@@ -228,7 +228,7 @@ public class UserDashboardServiceImpl implements UserDashboardService {
     }
 
     private void calculatePercentageForCategory(
-            List<CategoryDistributionDto> distribution, Integer totalCount) {
+            List<CategoryDistributionForUserDto> distribution, Integer totalCount) {
         if (totalCount == null || totalCount == 0) {
             return;
         }

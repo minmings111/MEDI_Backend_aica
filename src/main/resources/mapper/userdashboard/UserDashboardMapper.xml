@@ -109,7 +109,7 @@
 
     <!-- UDB-06: 해로움 수준별 분포 (사용자별) -->
     <select id="getHarmfulnessLevelDistributionByUserId" 
-            resultType="com.medi.backend.userdashboard.dto.HarmfulnessLevelDistributionDto">
+            resultType="com.medi.backend.userdashboard.dto.UserHarmfulnessLevelDistributionDto">
         SELECT 
             acar.harmfulness_level AS harmfulnessLevel,
             COUNT(*) AS count
@@ -130,7 +130,7 @@
 
     <!-- UDB-07: 탐지 소스별 분포 (사용자별) -->
     <select id="getDetectionSourceDistributionByUserId" 
-            resultType="com.medi.backend.userdashboard.dto.DetectionSourceDistributionDto">
+            resultType="com.medi.backend.userdashboard.dto.UserDetectionSourceDistributionDto">
         SELECT 
             acar.detection_source AS detectionSource,
             COUNT(*) AS count
@@ -145,7 +145,7 @@
 
     <!-- UDB-08: 카테고리별 분포 (사용자별) -->
     <select id="getCategoryDistributionByUserId" 
-            resultType="com.medi.backend.userdashboard.dto.CategoryDistributionDto">
+            resultType="com.medi.backend.userdashboard.dto.CategoryDistributionForUserDto">
         SELECT 
             COALESCE(acar.detected_category, 'UNKNOWN') AS category,
             COUNT(*) AS count
@@ -191,7 +191,7 @@
 
     <!-- UDB-11: 채널별 해로움 수준 분포 -->
     <select id="getChannelHarmfulnessLevelDistribution" 
-            resultType="com.medi.backend.userdashboard.dto.HarmfulnessLevelDistributionDto">
+            resultType="com.medi.backend.userdashboard.dto.UserHarmfulnessLevelDistributionDto">
         SELECT 
             acar.harmfulness_level AS harmfulnessLevel,
             COUNT(*) AS count
@@ -212,7 +212,7 @@
 
     <!-- UDB-12: 채널별 카테고리 분포 -->
     <select id="getChannelCategoryDistribution" 
-            resultType="com.medi.backend.userdashboard.dto.CategoryDistributionDto">
+            resultType="com.medi.backend.userdashboard.dto.CategoryDistributionForUserDto">
         SELECT 
             COALESCE(acar.detected_category, 'UNKNOWN') AS category,
             COUNT(*) AS count
@@ -242,7 +242,7 @@
 
     <!-- UDB-14: 비디오별 해로움 수준 분포 -->
     <select id="getVideoHarmfulnessLevelDistribution" 
-            resultType="com.medi.backend.userdashboard.dto.HarmfulnessLevelDistributionDto">
+            resultType="com.medi.backend.userdashboard.dto.UserHarmfulnessLevelDistributionDto">
         SELECT 
             acar.harmfulness_level AS harmfulnessLevel,
             COUNT(*) AS count
@@ -263,7 +263,7 @@
 
     <!-- UDB-15: 비디오별 카테고리 분포 -->
     <select id="getVideoCategoryDistribution" 
-            resultType="com.medi.backend.userdashboard.dto.CategoryDistributionDto">
+            resultType="com.medi.backend.userdashboard.dto.CategoryDistributionForUserDto">
         SELECT 
             COALESCE(acar.detected_category, 'UNKNOWN') AS category,
             COUNT(*) AS count

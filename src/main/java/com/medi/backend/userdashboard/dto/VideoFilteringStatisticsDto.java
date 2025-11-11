@@ -16,9 +16,9 @@ public class VideoFilteringStatisticsDto {
     private Integer totalFilteredCount;
     
     // 해로움 수준별 분포
-    private List<HarmfulnessLevelDistributionDto> harmfulnessLevelDistribution;
+    private List<UserHarmfulnessLevelDistributionDto> harmfulnessLevelDistribution;
     
     // 카테고리별 분포
-    private List<CategoryDistributionDto> categoryDistribution;
+    private List<CategoryDistributionForUserDto> categoryDistribution;
 }
 

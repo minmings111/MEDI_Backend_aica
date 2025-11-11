@@ -10,12 +10,12 @@ public class UserFilteringStatisticsDto {
     private Integer totalFilteredCount;
     
     // 해로움 수준별 분포 (LOW, MEDIUM, HIGH)
-    private List<HarmfulnessLevelDistributionDto> harmfulnessLevelDistribution;
+    private List<UserHarmfulnessLevelDistributionDto> harmfulnessLevelDistribution;
     
     // 필터링 로직별 분포 (AI_MODEL, USER_KEYWORD, USER_CONTEXT)
-    private List<DetectionSourceDistributionDto> detectionSourceDistribution;
+    private List<UserDetectionSourceDistributionDto> detectionSourceDistribution;
     
     // 카테고리별 분포 (SPAM, HATE_SPEECH 등)
-    private List<CategoryDistributionDto> categoryDistribution;
+    private List<CategoryDistributionForUserDto> categoryDistribution;
 }
 

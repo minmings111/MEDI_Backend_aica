@@ -6,12 +6,12 @@ import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
-import com.medi.backend.userdashboard.dto.CategoryDistributionDto;
+import com.medi.backend.userdashboard.dto.CategoryDistributionForUserDto;
 import com.medi.backend.userdashboard.dto.ChannelFilteringRankingDto;
 import com.medi.backend.userdashboard.dto.ChannelFilteringStatisticsDto;
-import com.medi.backend.userdashboard.dto.DetectionSourceDistributionDto;
+import com.medi.backend.userdashboard.dto.UserDetectionSourceDistributionDto;
 import com.medi.backend.userdashboard.dto.FilteringTrendPointDto;
-import com.medi.backend.userdashboard.dto.HarmfulnessLevelDistributionDto;
+import com.medi.backend.userdashboard.dto.UserHarmfulnessLevelDistributionDto;
 import com.medi.backend.userdashboard.dto.UserDashboardSummaryDto;
 import com.medi.backend.userdashboard.dto.VideoFilteringRankingDto;
 import com.medi.backend.userdashboard.dto.VideoFilteringStatisticsDto;
@@ -35,13 +35,13 @@ public interface UserDashboardMapper {
     Integer getLastMonthFilteringCount(@Param("userId") Integer userId);
 
     // UDB-06: 해로움 수준별 분포 (사용자별)
-    List<HarmfulnessLevelDistributionDto> getHarmfulnessLevelDistributionByUserId(@Param("userId") Integer userId);
+    List<UserHarmfulnessLevelDistributionDto> getHarmfulnessLevelDistributionByUserId(@Param("userId") Integer userId);
 
     // UDB-07: 탐지 소스별 분포 (사용자별)
-    List<DetectionSourceDistributionDto> getDetectionSourceDistributionByUserId(@Param("userId") Integer userId);
+    List<UserDetectionSourceDistributionDto> getDetectionSourceDistributionByUserId(@Param("userId") Integer userId);
 
     // UDB-08: 카테고리별 분포 (사용자별)
-    List<CategoryDistributionDto> getCategoryDistributionByUserId(@Param("userId") Integer userId);
+    List<CategoryDistributionForUserDto> getCategoryDistributionByUserId(@Param("userId") Integer userId);
 
     // UDB-09: 기간별 필터링 추이
     List<FilteringTrendPointDto> getFilteringTrendByDateRange(
@@ -57,13 +57,13 @@ public interface UserDashboardMapper {
     );
 
     // UDB-11: 채널별 해로움 수준 분포
-    List<HarmfulnessLevelDistributionDto> getChannelHarmfulnessLevelDistribution(
+    List<UserHarmfulnessLevelDistributionDto> getChannelHarmfulnessLevelDistribution(
         @Param("userId") Integer userId,
         @Param("channelId") Integer channelId
     );
 
     // UDB-12: 채널별 카테고리 분포
-    List<CategoryDistributionDto> getChannelCategoryDistribution(
+    List<CategoryDistributionForUserDto> getChannelCategoryDistribution(
         @Param("userId") Integer userId,
         @Param("channelId") Integer channelId
     );
@@ -75,13 +75,13 @@ public interface UserDashboardMapper {
     );
 
     // UDB-14: 비디오별 해로움 수준 분포
-    List<HarmfulnessLevelDistributionDto> getVideoHarmfulnessLevelDistribution(
+    List<UserHarmfulnessLevelDistributionDto> getVideoHarmfulnessLevelDistribution(
         @Param("userId") Integer userId,
         @Param("videoId") Integer videoId
     );
 
     // UDB-15: 비디오별 카테고리 분포
-    List<CategoryDistributionDto> getVideoCategoryDistribution(
+    List<CategoryDistributionForUserDto> getVideoCategoryDistribution(
         @Param("userId") Integer userId,
         @Param("videoId") Integer videoId
     );
