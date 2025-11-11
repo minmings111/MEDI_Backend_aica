@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.medi.backend.admin.mapper.AdminMapper">
+
+    <!-- ADM-01: 총 사용자 수 -->
+    <select id="getTotalUserCount" resultType="java.lang.Integer">
+        SELECT 
+            COUNT(id) 
+        FROM users
+        WHERE role = 'USER'
+    </select>
+
+    <!-- ADM-02: 활성 사용자 수 (현재 구독 중인 사용자) -->
+    <select id="getActiveSubscriberCount" resultType="java.lang.Integer">
+        SELECT 
+            COUNT(DISTINCT user_id)
+        FROM 
+            user_subscriptions
+        WHERE 
+            status = 'ACTIVE'
+    </select>
+
+    <!-- ADM-03: 총 필터링 수 (status = 'HIDE'인 댓글 수) -->
+    <select id="getTotalFilteringCount" resultType="java.lang.Integer">
+        SELECT 
+            COUNT(*) 
+        FROM 
+            ai_comment_analysis_result
+        WHERE 
+            status = 'HIDE'
+    </select>
+
+    <!-- ADM-04-1: 해로움 수준별 분포 -->
+    <select id="getHarmfulnessLevelDistribution" 
+            resultType="com.medi.backend.admin.dto.HarmfulnessLevelDistributionDto">
+        SELECT 
+            harmfulness_level AS harmfulnessLevel,
+            COUNT(*) AS count
+        FROM 
+            ai_comment_analysis_result
+        WHERE 
+            status = 'HIDE'
+        GROUP BY 
+            harmfulness_level
+        ORDER BY 
+            CASE harmfulness_level
+                WHEN 'HIGH' THEN 1
+                WHEN 'MEDIUM' THEN 2
+                WHEN 'LOW' THEN 3
+                ELSE 4
+            END
+    </select>
+
+    <!-- ADM-04-2: 필터링 로직별 분포 (detection_source) -->
+    <select id="getDetectionSourceDistribution" 
+            resultType="com.medi.backend.admin.dto.DetectionSourceDistributionDto">
+        SELECT 
+            detection_source AS detectionSource,
+            COUNT(*) AS count
+        FROM 
+            ai_comment_analysis_result
+        WHERE 
+            status = 'HIDE'
+        GROUP BY 
+            detection_source
+        ORDER BY 
+            count DESC
+    </select>
+
+    <!-- ADM-04-3: 카테고리별 분포 -->
+    <select id="getCategoryDistribution" 
+            resultType="com.medi.backend.admin.dto.CategoryDistributionDto">
+        SELECT 
+            COALESCE(detected_category, 'UNKNOWN') AS category,
+            COUNT(*) AS count
+        FROM 
+            ai_comment_analysis_result
+        WHERE 
+            status = 'HIDE'
+        GROUP BY 
+            detected_category
+        ORDER BY 
+            count DESC
+    </select>
+
+    <!-- ADM-05: 전월 대비 증감률 -->
+    <select id="getMonthOverMonthDelta"
+        resultType="com.medi.backend.admin.dto.MonthOverMonthDeltaDto">
+        SELECT
+            CASE
+                WHEN last_month_users > 0
+                THEN ROUND(((this_month_users - last_month_users) * 100.0 / last_month_users), 2)
+                ELSE 0.0
+            END AS userGrowthRate,
+            CASE
+                WHEN last_month_filtering > 0
+                THEN ROUND(((this_month_filtering - last_month_filtering) * 100.0 / last_month_filtering), 2)
+                ELSE 0.0
+            END AS filteringGrowthRate,
+            this_month_users       AS thisMonthUserCount,
+            last_month_users       AS lastMonthUserCount,
+            this_month_filtering   AS thisMonthFilteringCount,
+            last_month_filtering   AS lastMonthFilteringCount
+        FROM (
+            SELECT
+                (SELECT COUNT(*) FROM users
+                WHERE role = 'USER'
+                AND DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')) AS this_month_users,
+                (SELECT COUNT(*) FROM users
+                WHERE role = 'USER'
+                AND DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) AS last_month_users,
+                (SELECT COUNT(*) FROM ai_comment_analysis_result
+                WHERE status = 'HIDE'
+                AND DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')) AS this_month_filtering,
+                (SELECT COUNT(*) FROM ai_comment_analysis_result
+                WHERE status = 'HIDE'
+                AND DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) AS last_month_filtering
+        ) AS delta
+    </select>
+
+    <!-- ADM-06: 사용자 변화 추이 그래프 (기간 선택) -->
+    <select id="getUserTrendByDateRange" 
+            resultType="com.medi.backend.admin.dto.UserTrendPointDto">
+        SELECT 
+            DATE(created_at) as date,
+            COUNT(*) as userCount
+        FROM users
+        WHERE role = 'USER'
+        AND DATE(created_at) BETWEEN #{from} AND #{to}
+        GROUP BY DATE(created_at)
+        ORDER BY date ASC
+    </select>
+
+    <!-- ADM-07: 요금제 구독 분포 -->
+    <select id="getPlanDistribution" 
+            resultType="com.medi.backend.admin.dto.PlanDistributionDto">
+        SELECT 
+            us.plan_id as planId,
+            sp.plan_name as planName,
+            COUNT(DISTINCT us.user_id) as subscriberCount
+        FROM 
+            user_subscriptions us
+        INNER JOIN 
+            subscription_plans sp ON us.plan_id = sp.id
+        WHERE 
+            us.status = 'ACTIVE'
+        GROUP BY 
+            us.plan_id, sp.plan_name
+        ORDER BY 
+            subscriberCount DESC
+    </select>
+
+    <!-- ADM-08: 플랫폼 사용 분포 -->
+    <select id="getPlatformUsageDistribution" 
+            resultType="com.medi.backend.admin.dto.PlatformUsageDto">
+        SELECT 
+            'YOUTUBE' as platform,
+            COUNT(DISTINCT user_id) as userCount
+        FROM 
+            youtube_channels
+        <!-- Instagram 테이블이 추가되면 아래 주석 해제 -->
+        <!--
+        UNION ALL
+        SELECT 
+            'INSTAGRAM' as platform,
+            COUNT(DISTINCT user_id) as userCount
+        FROM 
+            instagram_channels
+        -->
+    </select>
+
+</mapper>
