@@ -1,18 +1,18 @@
 package com.medi.backend.youtube.mapper;
 
-import com.medi.backend.youtube.dto.YouTubeOAuthTokenDTO;
+import com.medi.backend.youtube.dto.YoutubeOAuthTokenDto;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 @Mapper
-public interface YouTubeOAuthTokenMapper {
+public interface YoutubeOAuthTokenMapper {
 
-    void upsert(YouTubeOAuthTokenDTO token);
+    void upsert(YoutubeOAuthTokenDto token);
 
-    YouTubeOAuthTokenDTO findByUserId(@Param("userId") Integer userId);
+    YoutubeOAuthTokenDto findByUserId(@Param("userId") Integer userId);
 
-    YouTubeOAuthTokenDTO findByUserIdAndEmail(@Param("userId") Integer userId,
-                                               @Param("googleEmail") String googleEmail);
+    YoutubeOAuthTokenDto findByUserIdAndEmail(@Param("userId") Integer userId,
+                                              @Param("googleEmail") String googleEmail);
 
     void updateTokenStatus(@Param("id") Integer id, @Param("status") String status);
 

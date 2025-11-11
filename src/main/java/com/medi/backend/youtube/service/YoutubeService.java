@@ -5,15 +5,15 @@ import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.services.youtube.YouTube;
 import com.google.api.services.youtube.model.*;
 import com.medi.backend.youtube.config.YoutubeDataApiProperties;
-import com.medi.backend.youtube.dto.YouTubeOAuthTokenDTO;
+import com.medi.backend.youtube.dto.YoutubeOAuthTokenDto;
 import com.medi.backend.youtube.dto.YoutubeChannelDto;
 import com.medi.backend.youtube.dto.YoutubeVideoDto;
 import com.medi.backend.youtube.event.ChannelCacheEvent;
 import com.medi.backend.youtube.event.VideoCacheEvent;
 import com.medi.backend.youtube.exception.NoAvailableApiKeyException;
-import com.medi.backend.youtube.mapper.YouTubeChannelMapper;
-import com.medi.backend.youtube.mapper.YouTubeOAuthTokenMapper;
-import com.medi.backend.youtube.mapper.YouTubeVideoMapper;
+import com.medi.backend.youtube.mapper.YoutubeChannelMapper;
+import com.medi.backend.youtube.mapper.YoutubeOAuthTokenMapper;
+import com.medi.backend.youtube.mapper.YoutubeVideoMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
@@ -32,16 +32,16 @@ import java.util.*;
 public class YoutubeService {
 
     @Autowired
-    private YouTubeOAuthService youTubeOAuthService;
+    private YoutubeOAuthService youtubeOAuthService;
 
     @Autowired
-    private YouTubeChannelMapper channelMapper;
+    private YoutubeChannelMapper channelMapper;
 
     @Autowired
-    private YouTubeVideoMapper videoMapper;
+    private YoutubeVideoMapper videoMapper;
 
     @Autowired
-    private YouTubeOAuthTokenMapper tokenMapper;
+    private YoutubeOAuthTokenMapper tokenMapper;
 
     @Autowired
     private YoutubeDataApiClient youtubeDataApiClient;
@@ -56,7 +56,7 @@ public class YoutubeService {
 
 
     public boolean validateToken(Integer userId) {
-        String token = youTubeOAuthService.getValidAccessToken(userId);
+        String token = youtubeOAuthService.getValidAccessToken(userId);
         return token != null && !token.isBlank();
     }
 
@@ -75,12 +75,12 @@ public class YoutubeService {
     @Transactional
     public List<YoutubeChannelDto> syncChannels(Integer userId) {
         try {
-            YouTubeOAuthTokenDTO tokenDto = tokenMapper.findByUserId(userId);
+            YoutubeOAuthTokenDto tokenDto = tokenMapper.findByUserId(userId);
             if (tokenDto == null) {
                 throw new IllegalStateException("YouTube OAuth 토큰이 존재하지 않습니다. 다시 연결해 주세요.");
             }
 
-            String token = youTubeOAuthService.getValidAccessToken(userId);
+            String token = youtubeOAuthService.getValidAccessToken(userId);
             YouTube yt = buildClient(token);
             YouTube.Channels.List req = yt.channels().list(Arrays.asList("snippet","contentDetails","statistics"));
             req.setMine(true);
@@ -130,7 +130,7 @@ public class YoutubeService {
     @Transactional
     public List<YoutubeVideoDto> syncVideos(Integer userId, String youtubeChannelId, Integer maxResults) {
         try {
-            String token = youTubeOAuthService.getValidAccessToken(userId);
+            String token = youtubeOAuthService.getValidAccessToken(userId);
             YouTube yt = buildClient(token);
             YoutubeChannelDto channel = channelMapper.findByYoutubeChannelId(youtubeChannelId);
             if (channel == null || channel.getUploadsPlaylistId() == null) {
@@ -195,7 +195,7 @@ public class YoutubeService {
 
     public long syncComments(Integer userId, String youtubeVideoId, Integer max) {
         try {
-            String token = youTubeOAuthService.getValidAccessToken(userId);
+            String token = youtubeOAuthService.getValidAccessToken(userId);
             YouTube yt = buildClient(token);
             String listKey = "video:" + youtubeVideoId + ":comments";
             long count = 0;

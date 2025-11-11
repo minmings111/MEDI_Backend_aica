@@ -226,7 +226,7 @@ public class SecurityConfig {
                     .authorizationRequestRepository(authorizationRequestRepository())  // OAuth2 인증 요청 저장소 명시적 설정
                 )
                 .userInfoEndpoint(userInfo -> userInfo
-                    .userService(customOAuth2UserService)                    // 커스텀 OAuth2 사용자 서비스
+                    .oidcUserService(customOAuth2UserService)
                 )
                 .successHandler(oAuth2AuthenticationSuccessHandler)          // OAuth2 로그인 성공 핸들러
                 .failureHandler(oAuth2AuthenticationFailureHandler)          // OAuth2 로그인 실패 핸들러

@@ -1,9 +1,9 @@
 package com.medi.backend.youtube.controller;
 
 import com.medi.backend.global.util.AuthUtil;
-import com.medi.backend.youtube.dto.YouTubeOAuthTokenDTO;
-import com.medi.backend.youtube.mapper.YouTubeOAuthTokenMapper;
-import com.medi.backend.youtube.service.YouTubeOAuthService;
+import com.medi.backend.youtube.dto.YoutubeOAuthTokenDto;
+import com.medi.backend.youtube.mapper.YoutubeOAuthTokenMapper;
+import com.medi.backend.youtube.service.YoutubeOAuthService;
 import com.medi.backend.youtube.service.YoutubeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,13 +37,13 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/youtube")
 @RequiredArgsConstructor
-public class YouTubeOAuthController {
+public class YoutubeOAuthController {
 
     private static final DateTimeFormatter DF = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private final YouTubeOAuthService youTubeOAuthService;
+    private final YoutubeOAuthService youtubeOAuthService;
     private final YoutubeService youtubeService;
-    private final YouTubeOAuthTokenMapper tokenMapper;
+    private final YoutubeOAuthTokenMapper tokenMapper;
     private final AuthUtil authUtil;
 
     @Value("${cors.allowed-origins}")
@@ -70,7 +70,7 @@ public class YouTubeOAuthController {
             .toUriString();
 
         String state = "youtube_connect_" + UUID.randomUUID();
-        String authorizationUrl = youTubeOAuthService.buildAuthorizationUrl(userId, callbackUrl, state);
+        String authorizationUrl = youtubeOAuthService.buildAuthorizationUrl(userId, callbackUrl, state);
 
         log.info("[YouTube] connect 요청 - userId={}, redirect={}", userId, authorizationUrl);
         return ResponseEntity.status(HttpStatus.FOUND)
@@ -111,7 +111,7 @@ public class YouTubeOAuthController {
                 .build()
                 .toUriString();
 
-            Integer userId = youTubeOAuthService.handleCallback(code, callbackUrl, state);
+            Integer userId = youtubeOAuthService.handleCallback(code, callbackUrl, state);
             log.info("[YouTube] OAuth 콜백 처리 완료 - userId={}", userId);
 
             // Optional: 콜백 직후 채널을 즉시 동기화하여 UX 향상
@@ -145,7 +145,7 @@ public class YouTubeOAuthController {
         }
 
         Map<String, Object> body = new HashMap<>();
-        YouTubeOAuthTokenDTO token = tokenMapper.findByUserId(userId);
+        YoutubeOAuthTokenDto token = tokenMapper.findByUserId(userId);
 
         if (token == null) {
             body.put("success", false);

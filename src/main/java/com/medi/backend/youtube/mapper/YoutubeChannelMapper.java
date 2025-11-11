@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 @Mapper
-public interface YouTubeChannelMapper {
+public interface YoutubeChannelMapper {
     void upsert(YoutubeChannelDto channel);
     YoutubeChannelDto findByYoutubeChannelId(@Param("youtubeChannelId") String youtubeChannelId);
     List<YoutubeChannelDto> findByUserId(@Param("userId") Integer userId);

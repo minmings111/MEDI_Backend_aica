@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class YouTubeOAuthTokenDTO {
+public class YoutubeOAuthTokenDto {
     private Integer id;
     private Integer userId;
     private String googleEmail;
