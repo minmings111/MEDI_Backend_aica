@@ -5,8 +5,8 @@ import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeToken
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.client.googleapis.auth.oauth2.GoogleTokenResponse;
-import com.medi.backend.youtube.dto.YouTubeOAuthTokenDTO;
-import com.medi.backend.youtube.mapper.YouTubeOAuthTokenMapper;
+import com.medi.backend.youtube.dto.YoutubeOAuthTokenDto;
+import com.medi.backend.youtube.mapper.YoutubeOAuthTokenMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -18,7 +18,7 @@ import java.util.Arrays;
 import java.util.List;
 
 @Service
-public class YouTubeOAuthService {
+public class YoutubeOAuthService {
 
     @Value("${spring.security.oauth2.client.registration.google.client-id}")
     private String clientId;
@@ -27,7 +27,7 @@ public class YouTubeOAuthService {
     private String clientSecret;
 
     @Autowired
-    private YouTubeOAuthTokenMapper tokenMapper;
+    private YoutubeOAuthTokenMapper tokenMapper;
 
 
     /**
@@ -89,7 +89,7 @@ public class YouTubeOAuthService {
 
             // 저장 준비
             LocalDateTime expiresAt = LocalDateTime.now().plusSeconds(expiresIn);
-            YouTubeOAuthTokenDTO dto = new YouTubeOAuthTokenDTO();
+            YoutubeOAuthTokenDto dto = new YoutubeOAuthTokenDto();
             dto.setUserId(userId);
             dto.setGoogleEmail("unknown@googleuser");
             dto.setAccessToken(accessToken);
@@ -104,7 +104,7 @@ public class YouTubeOAuthService {
     }
 
     public String getValidAccessToken(Integer userId) {
-        YouTubeOAuthTokenDTO token = tokenMapper.findByUserId(userId);
+        YoutubeOAuthTokenDto token = tokenMapper.findByUserId(userId);
         if (token == null) throw new IllegalStateException("YouTube token not found");
 
         LocalDateTime now = LocalDateTime.now();

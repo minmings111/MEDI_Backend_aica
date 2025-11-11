@@ -9,8 +9,8 @@ import com.google.api.services.youtube.model.Video;
 import com.google.api.services.youtube.model.VideoListResponse;
 import com.medi.backend.youtube.dto.YoutubeChannelDto;
 import com.medi.backend.youtube.dto.YoutubeVideoDto;
-import com.medi.backend.youtube.mapper.YouTubeChannelMapper;
-import com.medi.backend.youtube.mapper.YouTubeVideoMapper;
+import com.medi.backend.youtube.mapper.YoutubeChannelMapper;
+import com.medi.backend.youtube.mapper.YoutubeVideoMapper;
 import com.medi.backend.youtube.service.YoutubeDataApiClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,8 +42,8 @@ import java.util.stream.Collectors;
 public class TestYoutubeController {
 
     private final YoutubeDataApiClient youtubeDataApiClient;
-    private final YouTubeChannelMapper channelMapper;
-    private final YouTubeVideoMapper videoMapper;
+    private final YoutubeChannelMapper channelMapper;
+    private final YoutubeVideoMapper videoMapper;
 
     @PostMapping("/save")
     public ResponseEntity<?> saveChannelAndVideos(

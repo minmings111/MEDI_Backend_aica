@@ -2,9 +2,9 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
-<mapper namespace="com.medi.backend.youtube.mapper.YouTubeOAuthTokenMapper">
+<mapper namespace="com.medi.backend.youtube.mapper.YoutubeOAuthTokenMapper">
 
-    <resultMap id="TokenResultMap" type="com.medi.backend.youtube.dto.YouTubeOAuthTokenDTO">
+    <resultMap id="TokenResultMap" type="com.medi.backend.youtube.dto.YoutubeOAuthTokenDto">
         <id property="id" column="id"/>
         <result property="userId" column="user_id"/>
         <result property="googleEmail" column="google_email"/>
@@ -18,7 +18,7 @@
         <result property="lastRefreshedAt" column="last_refreshed_at"/>
     </resultMap>
 
-    <insert id="upsert" parameterType="com.medi.backend.youtube.dto.YouTubeOAuthTokenDTO">
+    <insert id="upsert" parameterType="com.medi.backend.youtube.dto.YoutubeOAuthTokenDto">
         INSERT INTO youtube_oauth_tokens(
             user_id, google_email, access_token, refresh_token,
             access_token_expires_at, token_status, created_at

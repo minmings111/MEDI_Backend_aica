@@ -27,8 +27,8 @@ public class OAuth2AuthService {
      */
     @Transactional
     public UserDTO processOAuth2User(OAuth2UserInfo oauth2UserInfo) {
-        log.info("OAuth2 사용자 처리 시작: provider={}, email={}", 
-                oauth2UserInfo.getProvider(), oauth2UserInfo.getEmail());
+        log.info("[OAuth2][DEBUG] processOAuth2User start: provider={}, email={}, providerId={}",
+                oauth2UserInfo.getProvider(), oauth2UserInfo.getEmail(), oauth2UserInfo.getProviderId());
         
         // 1. Provider ID로 기존 사용자 확인
         UserDTO existingUser = userMapper.findByProviderAndProviderId(
@@ -37,20 +37,24 @@ public class OAuth2AuthService {
         );
         
         if (existingUser != null) {
-            // 기존 Google 사용자 → 로그인
-            log.info("기존 Google 사용자 로그인: email={}, userId={}", 
+            log.info("[OAuth2][DEBUG] existing user found by provider/providerId: id={}, provider={}, providerId={}",
+                    existingUser.getId(), existingUser.getProvider(), existingUser.getProviderId());
+            log.info("기존 Google 사용자 로그인: email={}, userId={}",
                     existingUser.getEmail(), existingUser.getId());
             return existingUser;
         }
-        
+
         // 2. 이메일로 기존 일반 사용자 확인 (이메일 중복 체크)
         UserDTO emailUser = userMapper.findByEmail(oauth2UserInfo.getEmail());
-        if (emailUser != null && "LOCAL".equals(emailUser.getProvider())) {
-            // 이미 일반 회원가입으로 가입된 이메일
-            log.warn("이미 일반 회원가입으로 가입된 이메일입니다: {}", oauth2UserInfo.getEmail());
-            throw new RuntimeException("이미 가입된 이메일입니다. 일반 로그인을 이용해주세요.");
+        if (emailUser != null) {
+            log.info("[OAuth2][DEBUG] existing user found by email: id={}, provider={}", emailUser.getId(), emailUser.getProvider());
+            if ("LOCAL".equals(emailUser.getProvider())) {
+                log.warn("이미 일반 회원가입으로 가입된 이메일입니다: {}", oauth2UserInfo.getEmail());
+                throw new RuntimeException("이미 가입된 이메일입니다. 일반 로그인을 이용해주세요.");
+            }
+            // OAuth 제공자가 다른 경우 덮어쓰기 위해 provider/providerId 업데이트할 수 있음 (TODO)
         }
-        
+
         // 3. 신규 Google 사용자 → 자동 회원가입
         UserDTO newUser = UserDTO.builder()
             .email(oauth2UserInfo.getEmail())
@@ -63,9 +67,11 @@ public class OAuth2AuthService {
             .isTermsAgreed(true)         // OAuth 로그인은 자동 약관 동의
             .role("USER")
             .build();
-        
+
+        log.info("[OAuth2][DEBUG] attempting insert: {}", newUser);
         // 데이터베이스에 저장
         int result = userMapper.insertOAuth2User(newUser);
+        log.info("[OAuth2][DEBUG] insertOAuth2User result={}, user={}", result, newUser); // TODO: remove after debugging
         
         if (result > 0) {
             log.info("Google OAuth2 회원가입 완료: email={}, userId={}", 
@@ -84,8 +90,8 @@ public class OAuth2AuthService {
      * @return OAuth2UserInfo 객체
      */
     public OAuth2UserInfo extractGoogleUserInfo(java.util.Map<String, Object> attributes) {
-        log.debug("Google 사용자 정보 추출: {}", attributes);
-        
+        log.debug("[OAuth2][DEBUG] raw Google attributes: {}", attributes);
+
         return OAuth2UserInfo.builder()
             .provider("GOOGLE")
             .providerId((String) attributes.get("sub"))           // Google 고유 ID
