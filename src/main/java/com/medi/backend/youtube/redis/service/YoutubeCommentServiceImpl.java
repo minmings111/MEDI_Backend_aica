@@ -1,6 +1,7 @@
 package com.medi.backend.youtube.redis.service;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +24,23 @@ import com.medi.backend.youtube.service.YoutubeOAuthService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+/**
+ * YouTube 댓글 동기화 서비스 구현체
+ * 
+ * 주요 기능:
+ * 1. 사용자의 채널별 조회수 상위 20개 영상의 댓글 조회
+ * 2. YouTube API를 통해 댓글 데이터 수집
+ * 3. Redis에 JSON 배열 형식으로 저장
+ * 
+ * Redis 저장 형식:
+ * - Key: video:{video_id}:comments:json
+ * - Type: String
+ * - Value: [{comment_id: "...", text_original: "...", ...}, ...]
+ * 
+ * 참고:
+ * - channel_comment_fetcher.py의 로직을 Java로 구현
+ * - AI 서버(Python/TypeScript)와의 데이터 호환성 보장
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -69,16 +87,16 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
                             continue;
                         }
                         
-                        String redisKey = "video:" + videoId + ":comments";
+                        // 변경: Redis Key 형식 변경
+                        // 기존: video:{videoId}:comments
+                        // 신규: video:{videoId}:comments:json
+                        String redisKey = "video:" + videoId + ":comments:json";
                         
-                        // 부분 실패 방지: 기존 댓글 백업
-                        List<String> existingComments = stringRedisTemplate.opsForList().range(redisKey, 0, -1);
+                        // 부분 실패 방지: 기존 댓글 백업 (String 타입으로 저장되어 있음)
+                        String existingComments = stringRedisTemplate.opsForValue().get(redisKey);
                         
                         long commentCount = 0;
                         try {
-                            // 기존 댓글 삭제 (덮어쓰기)
-                            stringRedisTemplate.delete(redisKey);
-
                             // 댓글 조회 및 저장
                             // Python 코드 참고: channel_comment_fetcher.py의 fetch_comments_for_video 메서드
                             // - 댓글이 비활성화된 경우(commentsDisabled) 처리
@@ -88,9 +106,7 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
                             // 부분 실패 처리: 새 댓글이 없고 기존 댓글이 있었으면 복구
                             if (commentCount == 0 && existingComments != null && !existingComments.isEmpty()) {
                                 log.warn("댓글 조회 실패 또는 댓글 없음. 기존 댓글 복구: {}", videoId);
-                                for (String comment : existingComments) {
-                                    stringRedisTemplate.opsForList().rightPush(redisKey, comment);
-                                }
+                                stringRedisTemplate.opsForValue().set(redisKey, existingComments);
                             }
                             
                             totalCommentCount += commentCount;
@@ -99,9 +115,7 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
                             // 부분 실패 처리: 저장 실패 시 기존 댓글 복구
                             if (existingComments != null && !existingComments.isEmpty()) {
                                 log.warn("댓글 저장 실패. 기존 댓글 복구: {}", videoId);
-                                for (String comment : existingComments) {
-                                    stringRedisTemplate.opsForList().rightPush(redisKey, comment);
-                                }
+                                stringRedisTemplate.opsForValue().set(redisKey, existingComments);
                             }
                             throw saveException;  // 예외를 다시 던져서 상위 catch에서 처리
                         }
@@ -144,6 +158,10 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
     /**
      * 영상의 댓글을 조회하여 Redis에 저장
      * 
+     * 변경사항:
+     * - 기존: List로 개별 저장 (각 댓글을 List의 요소로 추가)
+     * - 신규: 전체 댓글을 하나의 JSON 배열 문자열로 저장 (String 타입)
+     * 
      * 참고: channel_comment_fetcher.py의 fetch_comments_for_video 메서드 구조를 참고하여 구현
      * - Python 코드: backend/src/main/java/com/medi/backend/youtube/redis/channel_comment_fetcher.py
      * 
@@ -154,14 +172,20 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
      * 4. order: "time" 사용 (Python: "relevance" | "time" 선택 가능)
      * 5. part: "snippet,replies" 사용 (Python: part="snippet,replies")
      * 
+     * Redis 저장 형식:
+     * - Key: video:{video_id}:comments:json
+     * - Type: String
+     * - Value: [{comment_id: "...", text_original: "...", ...}, ...]
+     * 
      * @param yt YouTube API 클라이언트 객체
      * @param videoId YouTube 영상 ID
-     * @param redisKey Redis 저장 키 (예: "video:{videoId}:comments")
+     * @param redisKey Redis 저장 키 (예: "video:{videoId}:comments:json")
      * @return 저장된 댓글 개수
      * @throws Exception YouTube API 호출 실패 시
      */
     private long fetchAndSaveComments(YouTube yt, String videoId, String redisKey) throws Exception {
-        long count = 0;
+        // 변경: 댓글을 List로 수집 (나중에 한 번에 JSON 배열로 변환)
+        List<YoutubeComment> allComments = new ArrayList<>();
         String nextPageToken = null;
 
         // Python 코드 참고: while True 대신 do-while 사용 (최소 1번은 실행)
@@ -197,12 +221,11 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
                 for (CommentThread thread : resp.getItems()) {
                     Comment top = thread.getSnippet().getTopLevelComment();
                     
-                    // 최상위 댓글 변환 및 저장
+                    // 최상위 댓글 변환 및 리스트에 추가
                     // Python 코드 참고: extract_comment_info(thread)로 댓글 정보 추출
                     YoutubeComment topComment = redisMapper.toRedisComment(top, null);
                     if (topComment != null) {
-                        saveCommentToRedis(redisKey, topComment);
-                        count++;
+                        allComments.add(topComment);
                     }
 
                     // 대댓글 처리
@@ -214,8 +237,7 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
                                 reply, top.getId()
                             );
                             if (replyComment != null) {
-                                saveCommentToRedis(redisKey, replyComment);
-                                count++;
+                                allComments.add(replyComment);
                             }
                         }
                     }
@@ -229,39 +251,55 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
             // do-while의 조건문에서 처리됨
         } while (nextPageToken != null);
 
-        // TTL 설정 및 리스트 크기 제한
-        if (count > 0) {
-            stringRedisTemplate.expire(redisKey, Duration.ofDays(3));
-            stringRedisTemplate.opsForList().trim(redisKey, 0, 999);
+        // 변경: 전체 댓글을 하나의 JSON 배열 문자열로 저장
+        if (!allComments.isEmpty()) {
+            saveCommentsToRedis(redisKey, allComments);
         }
 
-        return count;
+        return allComments.size();
     }
 
     /**
-     * 댓글을 Redis에 저장 (JSON 형식)
+     * 댓글 리스트를 Redis에 JSON 배열 형식으로 저장
+     * 
+     * 변경사항:
+     * - 기존: List에 개별 JSON 문자열로 저장 (각 댓글이 List의 요소)
+     * - 신규: 전체를 하나의 JSON 배열 문자열로 저장 (String 타입)
      * 
      * 참고: channel_comment_fetcher.py의 데이터 저장 구조
-     * - Python 코드는 JSON 파일로 저장하지만, 여기서는 Redis List에 저장
-     * - Python: _save_per_video 메서드에서 JSON 파일로 저장
-     * - Java: Redis List에 JSON 문자열로 저장 (key: "video:{videoId}:comments")
+     * - Python 코드: json.dump(comments_list, f) → 파일에 JSON 배열로 저장
+     * - Java: Redis String에 JSON 배열 문자열로 저장
      * 
      * 저장 형식:
-     * - Redis Key: "video:{videoId}:comments"
-     * - Redis Value Type: List
-     * - List 요소: JSON 문자열 (YoutubeComment 객체를 JSON으로 직렬화)
+     * - Redis Key: video:{video_id}:comments:json
+     * - Redis Value Type: String
+     * - Value 예시: [{"comment_id":"Ugy123","text_original":"좋은 영상",...}, {...}]
+     * 
+     * TTL 설정:
+     * - 3일 후 자동 삭제 (만료)
      * 
      * @param redisKey Redis 저장 키
-     * @param comment 저장할 댓글 객체
+     * @param comments 저장할 댓글 리스트
      */
-    private void saveCommentToRedis(String redisKey, YoutubeComment comment) {
+    private void saveCommentsToRedis(String redisKey, List<YoutubeComment> comments) {
         try {
-            // Python 코드 참고: json.dump(data, f) → Java: objectMapper.writeValueAsString()
-            String json = objectMapper.writeValueAsString(comment);
-            // Python 코드 참고: 파일 저장 → Java: Redis List에 저장
-            stringRedisTemplate.opsForList().rightPush(redisKey, json);
+            // 전체 댓글 리스트를 하나의 JSON 배열 문자열로 변환
+            // Python 코드: json.dump(comments_list, f)
+            // Java: objectMapper.writeValueAsString(List) → "[{...}, {...}, ...]"
+            String jsonArray = objectMapper.writeValueAsString(comments);
+            
+            // Redis에 String 타입으로 저장
+            // 기존: opsForList().rightPush() (List 타입)
+            // 신규: opsForValue().set() (String 타입)
+            stringRedisTemplate.opsForValue().set(redisKey, jsonArray);
+            
+            // TTL 설정: 3일 후 자동 삭제
+            stringRedisTemplate.expire(redisKey, Duration.ofDays(3));
+            
+            log.debug("댓글 {}개를 Redis에 저장 완료: key={}", comments.size(), redisKey);
         } catch (JsonProcessingException e) {
-            log.error("댓글 직렬화 실패: {}", comment, e);
+            log.error("댓글 리스트 직렬화 실패: key={}, size={}", redisKey, comments.size(), e);
+            throw new RuntimeException("댓글 JSON 변환 실패", e);
         }
     }
 
