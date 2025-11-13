@@ -74,6 +74,16 @@ public class YoutubeService {
      */
     @Transactional
     public List<YoutubeChannelDto> syncChannels(Integer userId) {
+        return syncChannels(userId, false);
+    }
+
+    /**
+     * 채널 동기화
+     * @param userId 사용자 ID
+     * @param syncVideosEveryTime true면 매번 영상까지 즉시 동기화, false면 최초 동기화시에만 수행
+     */
+    @Transactional
+    public List<YoutubeChannelDto> syncChannels(Integer userId, boolean syncVideosEveryTime) {
         try {
             YoutubeOAuthTokenDto tokenDto = tokenMapper.findByUserId(userId);
             if (tokenDto == null) {
@@ -104,6 +114,19 @@ public class YoutubeService {
                         userId
                 );
                 eventPublisher.publishEvent(event);
+
+                boolean shouldSyncVideos = syncVideosEveryTime
+                        || existing == null
+                        || existing.getLastSyncedAt() == null;
+
+                if (shouldSyncVideos) {
+                    try {
+                        syncVideos(userId, dto.getYoutubeChannelId(), 10);
+                    } catch (Exception videoSyncEx) {
+                        log.warn("채널({}) 영상 동기화 실패 - userId={}, error={}",
+                                ch.getId(), userId, videoSyncEx.getMessage(), videoSyncEx);
+                    }
+                }
 
                 out.add(dto);
             }

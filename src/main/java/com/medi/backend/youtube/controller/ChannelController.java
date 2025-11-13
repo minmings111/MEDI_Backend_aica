@@ -65,13 +65,15 @@ public class ChannelController {
 
     @PreAuthorize("isAuthenticated()")
     @PostMapping("/sync")
-    public ResponseEntity<?> syncChannels() {
+    public ResponseEntity<?> syncChannels(
+            @org.springframework.web.bind.annotation.RequestParam(name = "syncVideos", defaultValue = "false") boolean syncVideos
+    ) {
         Integer userId = authUtil.getCurrentUserId();
         if (userId == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
-        List<YoutubeChannelDto> synced = youtubeService.syncChannels(userId);
+        List<YoutubeChannelDto> synced = youtubeService.syncChannels(userId, syncVideos);
         return ResponseEntity.ok(synced);
     }
 
