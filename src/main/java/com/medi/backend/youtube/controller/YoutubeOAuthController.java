@@ -117,7 +117,7 @@ public class YoutubeOAuthController {
             // Optional: 콜백 직후 채널을 즉시 동기화하여 UX 향상
             if (userId != null) {
                 try {
-                    youtubeService.syncChannels(userId);
+                    youtubeService.syncChannels(userId, true);
                     log.info("[YouTube] 콜백 직후 채널 동기화 완료 - userId={}", userId);
                 } catch (Exception syncEx) {
                     log.warn("[YouTube] 콜백 직후 채널 동기화 실패 - userId={}, error={}", userId, syncEx.getMessage());
