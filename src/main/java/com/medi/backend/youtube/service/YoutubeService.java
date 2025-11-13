@@ -216,65 +216,6 @@ public class YoutubeService {
         }
     }
 
-    public long syncComments(Integer userId, String youtubeVideoId, Integer max) {
-        try {
-            String token = youtubeOAuthService.getValidAccessToken(userId);
-            YouTube yt = buildClient(token);
-            String listKey = "video:" + youtubeVideoId + ":comments";
-            long count = 0;
-
-            // 모든 페이지를 끝까지 순회하여 댓글 전체 수집 (요구사항)
-            String nextPageToken = null;
-            do {
-                YouTube.CommentThreads.List req = yt.commentThreads().list(Arrays.asList("snippet","replies"));
-                req.setVideoId(youtubeVideoId);
-                req.setOrder("time");
-                // 한 페이지 최대 100 (YouTube 제한). max가 지정되면 사용, 아니면 100
-                req.setMaxResults(max != null ? Math.min(max.longValue(), 100L) : 100L);
-                if (nextPageToken != null) req.setPageToken(nextPageToken);
-
-                CommentThreadListResponse resp = req.execute();
-
-                if (resp.getItems() != null) {
-                    for (CommentThread t : resp.getItems()) {
-                        Comment top = t.getSnippet().getTopLevelComment();
-                        Map<String, Object> item = Map.of(
-                                "commentId", top.getId(),
-                                "text", top.getSnippet().getTextDisplay(),
-                                "author", top.getSnippet().getAuthorDisplayName(),
-                                "publishedAt", top.getSnippet().getPublishedAt() != null ? top.getSnippet().getPublishedAt().toStringRfc3339() : null
-                        );
-                        stringRedisTemplate.opsForList().leftPush(listKey, new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(item));
-                        count++;
-
-                        if (t.getReplies() != null && t.getReplies().getComments() != null) {
-                            for (Comment r : t.getReplies().getComments()) {
-                                Map<String, Object> reply = Map.of(
-                                        "commentId", r.getId(),
-                                        "parentId", top.getId(),
-                                        "text", r.getSnippet().getTextDisplay(),
-                                        "author", r.getSnippet().getAuthorDisplayName(),
-                                        "publishedAt", r.getSnippet().getPublishedAt() != null ? r.getSnippet().getPublishedAt().toStringRfc3339() : null
-                                );
-                                stringRedisTemplate.opsForList().leftPush(listKey, new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(reply));
-                                count++;
-                            }
-                        }
-                    }
-                }
-
-                nextPageToken = resp.getNextPageToken();
-            } while (nextPageToken != null);
-
-            // TTL 3일, 최대 1000개 유지
-            stringRedisTemplate.expire(listKey, java.time.Duration.ofDays(3));
-            stringRedisTemplate.opsForList().trim(listKey, 0, 999);
-            return count;
-        } catch (Exception e) {
-            throw new RuntimeException("syncComments failed", e);
-        }
-    }
-
     private List<PlaylistVideoSnapshot> fetchPlaylistSnapshotsWithApiKey(String uploadsPlaylistId,
                                                                          LocalDateTime publishedAfter,
                                                                          int cap) throws IOException {
