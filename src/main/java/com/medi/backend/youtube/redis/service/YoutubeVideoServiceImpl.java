@@ -15,17 +15,15 @@ import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
-import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.services.youtube.YouTube;
 import com.google.api.services.youtube.model.SearchListResponse;
 import com.google.api.services.youtube.model.SearchResult;
 import com.google.api.services.youtube.model.Video;
 import com.google.api.services.youtube.model.VideoListResponse;
-import com.medi.backend.youtube.dto.YoutubeChannelDto;
-import com.medi.backend.youtube.mapper.YoutubeChannelMapper;
-import com.medi.backend.youtube.redis.dto.YoutubeVideo;
+import com.medi.backend.youtube.redis.dto.RedisYoutubeVideo;
+import com.medi.backend.youtube.redis.dto.SyncOptions;
 import com.medi.backend.youtube.redis.mapper.YoutubeVideoMapper;
+import com.medi.backend.youtube.redis.util.YoutubeApiClientUtil;
 import com.medi.backend.youtube.service.YoutubeOAuthService;
 
 import lombok.RequiredArgsConstructor;
@@ -49,33 +47,33 @@ import lombok.extern.slf4j.Slf4j;
 public class YoutubeVideoServiceImpl implements YoutubeVideoService {
 
     private final YoutubeOAuthService youtubeOAuthService;
-    private final YoutubeChannelMapper channelMapper;
     private final YoutubeVideoMapper redisMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
 
     @Override
-    public Map<String, List<YoutubeVideo>> getTop20VideosByChannel(Integer userId) {
+    public Map<String, List<RedisYoutubeVideo>> getTop20VideosByChannel(Integer userId, List<String> channelIds) {
         try {
-            // 1. OAuth 토큰 가져오기
-            String token = youtubeOAuthService.getValidAccessToken(userId);
-            YouTube yt = buildClient(token);
-
-            // 2. 사용자의 등록된 채널 목록 조회 (DB에서 이미 저장된 채널 사용)
-            List<YoutubeChannelDto> channels = channelMapper.findByUserId(userId);
-            if (channels.isEmpty()) {
-                log.warn("사용자 {}의 등록된 채널이 없습니다", userId);
+            // 1. 채널 ID 리스트 검증
+            if (channelIds == null || channelIds.isEmpty()) {
+                log.warn("채널 ID 리스트가 비어있습니다: userId={}", userId);
                 return Collections.emptyMap();
             }
 
-            // 3. 각 채널마다 조회수 상위 20개 영상 수집
-            Map<String, List<YoutubeVideo>> videosByChannel = new HashMap<>();
+            // 2. make a YouTube API Client
+            YouTube yt = YoutubeApiClientUtil.buildClientForUser(youtubeOAuthService, userId);
+
+            // 3. each channel, get the top 20 videos by view count
+            Map<String, List<RedisYoutubeVideo>> videosByChannel = new HashMap<>();
             
-            for (YoutubeChannelDto channel : channels) {
+            for (String channelId : channelIds) {
                 try {
-                    String channelId = channel.getYoutubeChannelId();
+                    if (channelId == null || channelId.isBlank()) {
+                        log.warn("유효하지 않은 채널 ID: {}", channelId);
+                        continue;
+                    }
                     
-                    // 3-1. 채널의 영상 목록 조회
+                    // 3-1. get the list of videos of the channel from YouTube API
                     List<SearchResult> searchResults = fetchChannelVideos(yt, channelId);
                     
                     if (searchResults.isEmpty()) {
@@ -83,7 +81,7 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                         continue;
                     }
 
-                    // 3-2. 비디오 ID 목록 추출
+                    // 3-2. extract the list of video IDs
                     List<String> videoIds = searchResults.stream()
                         .map(result -> result.getId().getVideoId())
                         .filter(id -> id != null)
@@ -94,42 +92,44 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                         continue;
                     }
 
-                    // 3-3. 비디오 상세 정보 가져오기 (조회수 포함)
+                    // 3-3. get the details of the videos from YouTube API (include view count)
                     List<Video> videos = fetchVideoDetails(yt, videoIds);
 
-                    // 3-4. Redis DTO로 변환 (channelId 전달)
-                    List<YoutubeVideo> channelVideos = new ArrayList<>();
-                    for (Video video : videos) {
-                        YoutubeVideo redisVideo = redisMapper.toRedisVideo(video, channelId);
+                    // 3-4. sort the videos by view count and select the top 20
+                    List<Video> top20Videos = videos.stream()
+                        .sorted(Comparator.comparing(
+                            video -> {
+                                if (video.getStatistics() != null && video.getStatistics().getViewCount() != null) {
+                                    return video.getStatistics().getViewCount().longValue();
+                                }
+                                return 0L;
+                            },
+                            Comparator.reverseOrder()
+                        ))
+                        .limit(20)
+                        .collect(Collectors.toList());
+
+                    // 3-5. convert the videos to Redis DTO (pass channelId, only basic metadata)
+                    List<RedisYoutubeVideo> channelVideos = new ArrayList<>();
+                    for (Video video : top20Videos) {
+                        RedisYoutubeVideo redisVideo = redisMapper.toRedisVideo(video, channelId);
                         if (redisVideo != null) {
                             channelVideos.add(redisVideo);
                         }
                     }
 
-                    // 3-5. 조회수 기준으로 정렬하여 상위 20개 선택
-                    List<YoutubeVideo> top20Videos = channelVideos.stream()
-                        .sorted(Comparator.comparing(
-                            YoutubeVideo::getViewCount,
-                            Comparator.nullsLast(Comparator.reverseOrder())
-                        ))
-                        .limit(20)
-                        .collect(Collectors.toList());
-
-                    videosByChannel.put(channelId, top20Videos);
+                    videosByChannel.put(channelId, channelVideos);
                     
-                    // 3-6. Redis에 저장
-                    // 3-6-1. 채널별 Top20 비디오 ID Set 저장
-                    saveTop20VideoIdsToRedis(channelId, top20Videos);
+                    // 3-6. save the top 20 video IDs and video metadata to Redis
+                    saveTop20VideoIdsToRedis(channelId, channelVideos);
+                    saveVideoMetadataToRedis(channelVideos);
                     
-                    // 3-6-2. 개별 비디오 메타데이터 저장
-                    saveVideoMetadataToRedis(top20Videos);
-                    
-                    log.debug("채널 {}의 조회수 상위 20개 영상 조회 및 Redis 저장 완료: {}개", channelId, top20Videos.size());
+                    log.debug("채널 {}의 조회수 상위 20개 영상 조회 및 Redis 저장 완료: {}개", channelId, channelVideos.size());
                     
                 } catch (Exception e) {
-                    log.error("채널 {}의 영상 조회 실패: {}", channel.getYoutubeChannelId(), e.getMessage());
-                    videosByChannel.put(channel.getYoutubeChannelId(), Collections.emptyList());
-                    // 한 채널 실패해도 다른 채널은 계속 처리
+                    log.error("채널 {}의 영상 조회 실패: {}", channelId, e.getMessage());
+                    videosByChannel.put(channelId, Collections.emptyList());
+                    // if one channel fails, continue processing other channels
                 }
             }
 
@@ -143,13 +143,6 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
         }
     }
 
-    private YouTube buildClient(String accessToken) throws Exception {
-        return new YouTube.Builder(
-            GoogleNetHttpTransport.newTrustedTransport(),
-            GsonFactory.getDefaultInstance(),
-            request -> request.getHeaders().setAuthorization("Bearer " + accessToken)
-        ).setApplicationName("medi").build();
-    }
 
     /**
      * 채널의 영상 목록 조회 (social-comment-saas 방식: youtube.search.list 사용)
@@ -216,6 +209,71 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
 
         return videos;
     }
+    
+    /**
+     * 특정 비디오들의 메타데이터를 조회하여 Redis에 저장 (증분 동기화용)
+     * 
+     * API 호출 최소화:
+     * - 비디오 ID 리스트를 50개씩 배치로 묶어서 한 번에 조회
+     * - 이미 조회한 Video 객체를 재사용하여 추가 API 호출 방지
+     * 
+     * 주의: 초기 동기화와 증분 동기화 모두 기본 메타데이터만 저장합니다.
+     * 
+     * @param userId 사용자 ID (OAuth 토큰 조회용)
+     * @param videoIds 비디오 ID 리스트
+     * @param options 동기화 옵션 (사용하지 않음, 기본 메타데이터만 저장)
+     * @return 저장된 비디오 개수
+     */
+    @Override
+    public int syncVideoMetadata(Integer userId, List<String> videoIds, SyncOptions options) {
+        try {
+            if (videoIds == null || videoIds.isEmpty()) {
+                log.warn("비디오 ID 리스트가 비어있습니다: userId={}", userId);
+                return 0;
+            }
+            
+            // OAuth 토큰 가져오기
+            String token = youtubeOAuthService.getValidAccessToken(userId);
+            YouTube yt = YoutubeApiClientUtil.buildClient(token);
+            
+            // 비디오 상세 정보 조회 (배치 처리로 API 호출 최소화)
+            // ⭐ YouTube Videos API 호출: 50개씩 묶어서 한 번에 조회
+            List<Video> videos = fetchVideoDetails(yt, videoIds);
+            
+            if (videos.isEmpty()) {
+                log.warn("비디오 상세 정보를 가져올 수 없습니다: userId={}, videoIds={}", userId, videoIds.size());
+                return 0;
+            }
+            
+            // 채널 ID 추출 (비디오에서 가져오기)
+            Map<String, String> videoIdToChannelId = new HashMap<>();
+            for (Video video : videos) {
+                if (video.getSnippet() != null && video.getSnippet().getChannelId() != null) {
+                    videoIdToChannelId.put(video.getId(), video.getSnippet().getChannelId());
+                }
+            }
+            
+            // 기본 메타데이터 DTO로 변환 (초기/증분 모두 동일)
+            List<RedisYoutubeVideo> redisVideos = new ArrayList<>();
+            for (Video video : videos) {
+                String channelId = videoIdToChannelId.get(video.getId());
+                RedisYoutubeVideo redisVideo = redisMapper.toRedisVideo(video, channelId);
+                if (redisVideo != null) {
+                    redisVideos.add(redisVideo);
+                }
+            }
+            
+            // Redis에 저장 (기본 메타데이터만)
+            saveVideoMetadataToRedis(redisVideos);
+            
+            log.info("비디오 메타데이터 동기화 완료: userId={}, 비디오={}개", userId, redisVideos.size());
+            return redisVideos.size();
+            
+        } catch (Exception e) {
+            log.error("비디오 메타데이터 동기화 실패: userId={}", userId, e);
+            throw new RuntimeException("syncVideoMetadata failed", e);
+        }
+    }
 
     /**
      * 채널별 Top20 비디오 ID Set을 Redis에 저장
@@ -238,7 +296,7 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
      * @param channelId YouTube 채널 ID
      * @param top20Videos 상위 20개 비디오 리스트
      */
-    private void saveTop20VideoIdsToRedis(String channelId, List<YoutubeVideo> top20Videos) {
+    private void saveTop20VideoIdsToRedis(String channelId, List<RedisYoutubeVideo> top20Videos) {
         if (top20Videos.isEmpty()) {
             return;
         }
@@ -251,7 +309,7 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
             
             // 2. 새로운 비디오 ID들을 Set에 추가
             // SADD channel:{channel_id}:top20_video_ids "video_id_1" "video_id_2" ...
-            for (YoutubeVideo video : top20Videos) {
+            for (RedisYoutubeVideo video : top20Videos) {
                 if (video.getYoutubeVideoId() != null) {
                     stringRedisTemplate.opsForSet().add(setKey, video.getYoutubeVideoId());
                 }
@@ -273,26 +331,20 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
      * Redis 저장 형식:
      * - Key: video:{video_id}:meta:json
      * - Type: String (JSON)
-     * - Value: {
-     *     "channel_id": "...",
-     *     "video_id": "...",
-     *     "video_title": "...",
-     *     "video_tags": [...]
-     *   }
+     * - Value: {channel_id, video_id, video_title, video_tags}
      * 
-     * 저장되는 필드:
-     * - channel_id: 채널 ID
-     * - video_id: 비디오 ID
-     * - video_title: 비디오 제목
-     * - video_tags: 비디오 태그 리스트
+     * 저장 방식:
+     * - 기본 메타데이터만 저장 (초기/증분 동기화 모두 동일)
+     * - RedisYoutubeVideo DTO 객체를 직접 JSON으로 직렬화
+     * - @JsonProperty를 통해 스네이크 케이스로 자동 변환
      * 
      * TTL 설정:
      * - 3일 후 자동 삭제 (만료)
      * 
-     * @param videos 저장할 비디오 리스트
+     * @param videos 저장할 비디오 리스트 (기본 메타데이터)
      */
-    private void saveVideoMetadataToRedis(List<YoutubeVideo> videos) {
-        for (YoutubeVideo video : videos) {
+    private void saveVideoMetadataToRedis(List<RedisYoutubeVideo> videos) {
+        for (RedisYoutubeVideo video : videos) {
             try {
                 String videoId = video.getYoutubeVideoId();
                 if (videoId == null || videoId.isBlank()) {
@@ -301,15 +353,8 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
 
                 String metaKey = "video:" + videoId + ":meta:json";
                 
-                // 비디오 메타데이터 JSON 생성
-                Map<String, Object> metadata = new HashMap<>();
-                metadata.put("channel_id", video.getChannelId());
-                metadata.put("video_id", video.getYoutubeVideoId());
-                metadata.put("video_title", video.getTitle());
-                metadata.put("video_tags", video.getTags() != null ? video.getTags() : Collections.emptyList());
-                
-                // JSON 문자열로 변환
-                String metaJson = objectMapper.writeValueAsString(metadata);
+                // 기본 메타데이터만 저장 (초기/증분 동기화 모두 동일)
+                String metaJson = objectMapper.writeValueAsString(video);
                 
                 // Redis에 String 타입으로 저장
                 stringRedisTemplate.opsForValue().set(metaKey, metaJson);
@@ -327,4 +372,5 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
             }
         }
     }
+    
 }

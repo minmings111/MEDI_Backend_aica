@@ -8,16 +8,12 @@ import com.medi.backend.youtube.config.YoutubeDataApiProperties;
 import com.medi.backend.youtube.dto.YoutubeOAuthTokenDto;
 import com.medi.backend.youtube.dto.YoutubeChannelDto;
 import com.medi.backend.youtube.dto.YoutubeVideoDto;
-import com.medi.backend.youtube.event.ChannelCacheEvent;
-import com.medi.backend.youtube.event.VideoCacheEvent;
 import com.medi.backend.youtube.exception.NoAvailableApiKeyException;
 import com.medi.backend.youtube.mapper.YoutubeChannelMapper;
 import com.medi.backend.youtube.mapper.YoutubeOAuthTokenMapper;
 import com.medi.backend.youtube.mapper.YoutubeVideoMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,11 +45,6 @@ public class YoutubeService {
     @Autowired
     private YoutubeDataApiProperties youtubeDataApiProperties;
 
-    private StringRedisTemplate stringRedisTemplate;
-
-    @Autowired
-    private ApplicationEventPublisher eventPublisher;  // 이벤트 발행용
-
 
     public boolean validateToken(Integer userId) {
         String token = youtubeOAuthService.getValidAccessToken(userId);
@@ -70,7 +61,6 @@ public class YoutubeService {
 
     /**
      * 채널 동기화
-     * MySQL 저장 후 커밋되면 이벤트로 Redis 캐시 업데이트
      */
     @Transactional
     public List<YoutubeChannelDto> syncChannels(Integer userId) {
@@ -104,17 +94,6 @@ public class YoutubeService {
                 // 1. MySQL에 저장 (트랜잭션 내)
                 channelMapper.upsert(dto);
 
-                // 2. 이벤트 발행 (커밋 후 리스너가 Redis에 저장)
-                // MySQL 커밋 성공 후에만 Redis 캐시 업데이트
-                ChannelCacheEvent event = new ChannelCacheEvent(
-                        ch.getId(),
-                        ch.getSnippet().getTitle(),
-                        ch.getSnippet().getCustomUrl(),
-                        dto.getThumbnailUrl(),
-                        userId
-                );
-                eventPublisher.publishEvent(event);
-
                 boolean shouldSyncVideos = syncVideosEveryTime
                         || existing == null
                         || existing.getLastSyncedAt() == null;
@@ -142,7 +121,6 @@ public class YoutubeService {
      * 영상 동기화
      * - 처음 동기화(채널의 lastSyncedAt이 null): 영상 최대 N개(기본 10개)만 수집
      * - 이후 동기화(증분): 필요시 상위 N개만 또는 증분 로직으로 확장 가능
-     * - MySQL 저장 후 커밋되면 이벤트로 Redis 캐시 업데이트
      *
      * 매핑 원칙:
      * - YouTube 응답(JSON)의 키 이름을 DB 컬럼명으로 맞출 필요는 없음
@@ -334,13 +312,6 @@ public class YoutubeService {
             Video stat = statistics.get(snapshot.videoId());
             YoutubeVideoDto dto = mapVideoSnapshotToDto(channel.getId(), snapshot, stat);
             videoMapper.upsert(dto);
-            VideoCacheEvent event = new VideoCacheEvent(
-                    dto.getYoutubeVideoId(),
-                    dto.getTitle(),
-                    dto.getThumbnailUrl(),
-                    dto.getPublishedAt()
-            );
-            eventPublisher.publishEvent(event);
             persisted.add(dto);
         }
         return persisted;
