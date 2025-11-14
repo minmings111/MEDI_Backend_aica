@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 import com.google.api.services.youtube.model.Video;
 import com.medi.backend.youtube.redis.dto.RedisYoutubeVideo;
 
-@Component
+@Component("redisYoutubeVideoMapper")
 public class YoutubeVideoMapper {
     // YouTube API Video object -> YoutubeVideo DTO
 
