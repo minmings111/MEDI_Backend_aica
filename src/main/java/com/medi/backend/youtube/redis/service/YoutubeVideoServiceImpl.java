@@ -95,8 +95,9 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                     // 3-3. get the details of the videos from YouTube API (include view count)
                     List<Video> videos = fetchVideoDetails(yt, videoIds);
 
-                    // 3-4. sort the videos by view count and select the top 20
+                    // 3-4. 쇼츠 제거 및 조회수 순으로 정렬하여 상위 20개 선택
                     List<Video> top20Videos = videos.stream()
+                        .filter(video -> !isShortsVideo(video))  // 쇼츠 제거
                         .sorted(Comparator.comparing(
                             video -> {
                                 if (video.getStatistics() != null && video.getStatistics().getViewCount() != null) {
@@ -104,9 +105,9 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                                 }
                                 return 0L;
                             },
-                            Comparator.reverseOrder()
+                            Comparator.reverseOrder()  // 조회수 내림차순 정렬
                         ))
-                        .limit(20)
+                        .limit(20)  // 조회수 순으로 20개만 선택
                         .collect(Collectors.toList());
 
                     // 3-5. convert the videos to Redis DTO (pass channelId, only basic metadata)
@@ -193,8 +194,9 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
             // ⭐ YouTube Videos API 요청 생성
             // API 엔드포인트: youtube.videos.list
             // 용도: 비디오 ID 목록으로 상세 정보 조회 (조회수, 좋아요 수 등 통계 포함)
+            // contentDetails: 비디오 길이(duration) 정보 포함 (쇼츠 필터링용)
             YouTube.Videos.List req = yt.videos().list(
-                Arrays.asList("snippet", "statistics")  // snippet: 제목, 썸네일 등 / statistics: 조회수, 좋아요 수 등
+                Arrays.asList("snippet", "statistics", "contentDetails")  // snippet: 제목, 썸네일 등 / statistics: 조회수, 좋아요 수 등 / contentDetails: 비디오 길이
             );
             req.setId(batch);
             
@@ -208,6 +210,52 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
         }
 
         return videos;
+    }
+    
+    /**
+     * 비디오가 쇼츠인지 확인
+     * 
+     * 쇼츠 판단 기준: 비디오 길이가 30분 30초(1830초) 미만인 경우
+     * 
+     * @param video YouTube API Video 객체
+     * @return 쇼츠이면 true, 아니면 false
+     */
+    private boolean isShortsVideo(Video video) {
+        if (video == null || video.getContentDetails() == null) {
+            return false;
+        }
+        
+        String duration = video.getContentDetails().getDuration();
+        if (duration == null || duration.isBlank()) {
+            return false;
+        }
+        
+        // ISO 8601 duration 형식 파싱 (예: "PT1M30S" = 1분 30초, "PT30M30S" = 30분 30초)
+        // 쇼츠 판단 기준: 30분 30초(1830초) 미만
+        try {
+            long totalSeconds = parseDurationToSeconds(duration);
+            return totalSeconds > 0 && totalSeconds < 1830;  // 30분 30초(1830초) 미만이면 쇼츠
+        } catch (Exception e) {
+            log.warn("비디오 duration 파싱 실패: videoId={}, duration={}", video.getId(), duration, e);
+            return false;
+        }
+    }
+    
+
+    // ISO 8601 duration -> seconds
+    private long parseDurationToSeconds(String duration) {
+        if (duration == null || duration.isBlank()) {
+            return 0;
+        }
+        
+        try {
+            // java.time.Duration.parse()를 사용하여 ISO 8601 duration 형식 파싱
+            Duration parsedDuration = Duration.parse(duration);
+            return parsedDuration.getSeconds();
+        } catch (Exception e) {
+            log.warn("ISO 8601 duration 파싱 실패: duration={}", duration, e);
+            return 0;
+        }
     }
     
     /**
