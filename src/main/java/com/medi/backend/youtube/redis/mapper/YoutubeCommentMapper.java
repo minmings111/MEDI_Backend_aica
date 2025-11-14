@@ -3,7 +3,8 @@ package com.medi.backend.youtube.redis.mapper;
 import org.springframework.stereotype.Component;
 
 import com.google.api.services.youtube.model.Comment;
-import com.medi.backend.youtube.redis.dto.YoutubeComment;
+import com.medi.backend.youtube.redis.dto.RedisYoutubeComment;
+import com.medi.backend.youtube.redis.dto.RedisYoutubeCommentFull;
 
 /**
  * YouTube API Comment 객체를 Redis 저장용 YoutubeComment DTO로 변환하는 매퍼
@@ -21,54 +22,135 @@ import com.medi.backend.youtube.redis.dto.YoutubeComment;
 public class YoutubeCommentMapper {
 
     /**
-     * YouTube API Comment 객체를 YoutubeComment DTO로 변환
+     * YouTube API Comment 객체를 RedisYoutubeComment DTO로 변환
      * 
      * @param comment YouTube API Comment 객체
      * @param parentId 부모 댓글 ID (최상위 댓글이면 null, 대댓글이면 부모 ID)
-     * @return YoutubeComment DTO (변환 실패 시 null)
+     * @return RedisYoutubeComment DTO (변환 실패 시 null)
      */
-    public YoutubeComment toRedisComment(Comment comment, String parentId) {
+    public RedisYoutubeComment toRedisComment(Comment comment, String parentId) {
         if (comment == null || comment.getSnippet() == null) {
             return null;
         }
 
-        // 1. 댓글 ID 추출
+        // 기본 필드 추출 (재사용성 향상)
+        CommentBasicFields basicFields = extractBasicFields(comment);
+
+        return RedisYoutubeComment.builder()
+            .commentId(basicFields.commentId)
+            .textOriginal(basicFields.textOriginal)
+            .authorName(basicFields.authorName)
+            .likeCount(basicFields.likeCount)
+            .publishedAt(basicFields.publishedAt)
+            .build();
+    }
+    
+    /**
+     * 댓글의 기본 필드 추출 (재사용성 향상)
+     * 
+     * @param comment YouTube API Comment 객체
+     * @return 기본 필드들
+     */
+    private CommentBasicFields extractBasicFields(Comment comment) {
         String commentId = comment.getId();
         
-        // 2. 댓글 원본 텍스트 추출
-        // YouTube API: textDisplay (HTML 형식) 또는 textOriginal (순수 텍스트)
-        // Python 코드: text_original = comment["snippet"]["textOriginal"]
+        // 댓글 원본 텍스트 추출
         String textOriginal = comment.getSnippet().getTextDisplay();
         if (comment.getSnippet().getTextOriginal() != null) {
-            textOriginal = comment.getSnippet().getTextOriginal();  // 순수 텍스트 우선 사용
+            textOriginal = comment.getSnippet().getTextOriginal();
         }
         
-        // 3. 작성자 이름 추출
-        // Python 코드: author_name = comment["snippet"]["authorDisplayName"]
+        // 작성자 이름 추출
         String authorName = comment.getSnippet().getAuthorDisplayName();
         
-        // 4. 좋아요 수 추출 (null 가능)
-        // Python 코드: like_count = comment["snippet"].get("likeCount", 0)
+        // 좋아요 수 추출
         Long likeCount = null;
         if (comment.getSnippet().getLikeCount() != null) {
             likeCount = comment.getSnippet().getLikeCount().longValue();
         }
 
-        // 5. 발행 시간 변환 (ISO 8601 형식 문자열)
-        // YouTube API: DateTime 객체 → RFC3339 문자열로 변환
-        // Python 코드: published_at = comment["snippet"]["publishedAt"]  (이미 문자열)
-        // Java: DateTime.toStringRfc3339() → ISO 8601 형식 (예: "2021-04-18T10:05:00Z")
+        // 발행 시간 변환
         String publishedAt = null;
         if (comment.getSnippet().getPublishedAt() != null) {
             publishedAt = comment.getSnippet().getPublishedAt().toStringRfc3339();
         }
+        
+        return new CommentBasicFields(commentId, textOriginal, authorName, likeCount, publishedAt);
+    }
+    
+    /**
+     * 댓글 기본 필드 임시 저장용 클래스
+     */
+    private static class CommentBasicFields {
+        final String commentId;
+        final String textOriginal;
+        final String authorName;
+        final Long likeCount;
+        final String publishedAt;
+        
+        CommentBasicFields(String commentId, String textOriginal, String authorName, Long likeCount, String publishedAt) {
+            this.commentId = commentId;
+            this.textOriginal = textOriginal;
+            this.authorName = authorName;
+            this.likeCount = likeCount;
+            this.publishedAt = publishedAt;
+        }
+    }
+    
+    /**
+     * YouTube API Comment 객체를 RedisYoutubeCommentFull DTO로 변환 (증분 동기화용)
+     * 
+     * 전체 메타데이터를 포함하여 변환합니다:
+     * - 기본 필드: comment_id, text_original, author_name, like_count, published_at
+     * - 추가 필드: author_channel_id, updated_at, parent_id, total_reply_count, can_rate, viewer_rating
+     * 
+     * @param comment YouTube API Comment 객체
+     * @param parentId 부모 댓글 ID (최상위 댓글이면 null, 대댓글이면 부모 ID)
+     * @param totalReplyCount 대댓글 개수 (CommentThread에서 가져온 값, 대댓글인 경우 null)
+     * @return RedisYoutubeCommentFull DTO (변환 실패 시 null)
+     */
+    public RedisYoutubeCommentFull toRedisCommentFull(Comment comment, String parentId, Long totalReplyCount) {
+        if (comment == null || comment.getSnippet() == null) {
+            return null;
+        }
 
-        return YoutubeComment.builder()
-            .commentId(commentId)
-            .textOriginal(textOriginal)
-            .authorName(authorName)
-            .likeCount(likeCount)
-            .publishedAt(publishedAt)
+        // 기본 필드 추출 (재사용성 향상)
+        CommentBasicFields basicFields = extractBasicFields(comment);
+        
+        // 추가 필드 추출 (전체 메타데이터)
+        // 작성자 채널 ID 추출
+        String authorChannelId = null;
+        if (comment.getSnippet().getAuthorChannelId() != null) {
+            authorChannelId = comment.getSnippet().getAuthorChannelId().getValue();
+        }
+        
+        // 수정 시간 변환
+        String updatedAt = null;
+        if (comment.getSnippet().getUpdatedAt() != null) {
+            updatedAt = comment.getSnippet().getUpdatedAt().toStringRfc3339();
+        }
+        
+        // 평가 가능 여부 추출
+        Boolean canRate = comment.getSnippet().getCanRate();
+        
+        // 시청자 평가 추출
+        String viewerRating = null;
+        if (comment.getSnippet().getViewerRating() != null) {
+            viewerRating = comment.getSnippet().getViewerRating();
+        }
+
+        return RedisYoutubeCommentFull.builder()
+            .commentId(basicFields.commentId)
+            .textOriginal(basicFields.textOriginal)
+            .authorName(basicFields.authorName)
+            .authorChannelId(authorChannelId)
+            .likeCount(basicFields.likeCount)
+            .publishedAt(basicFields.publishedAt)
+            .updatedAt(updatedAt)
+            .parentId(parentId)
+            .totalReplyCount(totalReplyCount)
+            .canRate(canRate)
+            .viewerRating(viewerRating)
             .build();
     }
 }
