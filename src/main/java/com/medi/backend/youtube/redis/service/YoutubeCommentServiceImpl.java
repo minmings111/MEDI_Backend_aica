@@ -11,14 +11,17 @@ import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
-import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.services.youtube.YouTube;
 import com.google.api.services.youtube.model.Comment;
 import com.google.api.services.youtube.model.CommentThread;
 import com.google.api.services.youtube.model.CommentThreadListResponse;
-import com.medi.backend.youtube.redis.dto.YoutubeComment;
+import com.medi.backend.youtube.redis.dto.RedisYoutubeComment;
+import com.medi.backend.youtube.redis.dto.RedisYoutubeCommentFull;
+import com.medi.backend.youtube.redis.dto.RedisYoutubeVideo;
+import com.medi.backend.youtube.redis.dto.SyncOptions;
 import com.medi.backend.youtube.redis.mapper.YoutubeCommentMapper;
+import com.medi.backend.youtube.redis.util.YoutubeApiClientUtil;
+import com.medi.backend.youtube.redis.util.YoutubeErrorUtil;
 import com.medi.backend.youtube.service.YoutubeOAuthService;
 
 import lombok.RequiredArgsConstructor;
@@ -47,37 +50,37 @@ import lombok.extern.slf4j.Slf4j;
 public class YoutubeCommentServiceImpl implements YoutubeCommentService {
 
     private final YoutubeOAuthService youtubeOAuthService;
-    private final YoutubeVideoService videoService;
     private final YoutubeCommentMapper redisMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
 
     @Override
-    public long syncTop20VideoComments(Integer userId) {
+    public long syncTop20VideoComments(Integer userId, Map<String, List<RedisYoutubeVideo>> videosByChannel, SyncOptions options) {
         try {
-            // 1. 각 채널마다 조회수 상위 20개 영상 조회
-            Map<String, List<com.medi.backend.youtube.redis.dto.YoutubeVideo>> videosByChannel = 
-                videoService.getTop20VideosByChannel(userId);
-
-            if (videosByChannel.isEmpty()) {
-                log.warn("조회수 상위 20개 영상이 없습니다: userId={}", userId);
+            // 1. videosByChannel 검증 (이미 조회된 결과를 재사용하여 중복 API 호출 방지)
+            if (videosByChannel == null || videosByChannel.isEmpty()) {
+                log.warn("비디오 리스트가 비어있습니다: userId={}", userId);
                 return 0;
             }
+            
+            // 옵션이 null이면 기본 옵션 사용
+            if (options == null) {
+                options = SyncOptions.initialSync();
+            }
 
-            // 2. OAuth 토큰 가져오기
-            String token = youtubeOAuthService.getValidAccessToken(userId);
-            YouTube yt = buildClient(token);
+            // 2. YouTube API 클라이언트 생성 (재사용성 향상)
+            YouTube yt = YoutubeApiClientUtil.buildClientForUser(youtubeOAuthService, userId);
 
             long totalCommentCount = 0;
 
             // 3. 각 채널의 상위 20개 영상의 댓글 조회 및 Redis 저장
-            for (Map.Entry<String, List<com.medi.backend.youtube.redis.dto.YoutubeVideo>> entry : videosByChannel.entrySet()) {
+            for (Map.Entry<String, List<RedisYoutubeVideo>> entry : videosByChannel.entrySet()) {
                 String channelId = entry.getKey();
-                List<com.medi.backend.youtube.redis.dto.YoutubeVideo> videos = entry.getValue();
+                List<RedisYoutubeVideo> videos = entry.getValue();
                 
                 log.debug("채널 {}의 {}개 영상 댓글 조회 시작", channelId, videos.size());
                 
-                for (com.medi.backend.youtube.redis.dto.YoutubeVideo video : videos) {
+                for (RedisYoutubeVideo video : videos) {
                     try {
                         String videoId = video.getYoutubeVideoId();
                         
@@ -97,11 +100,11 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
                         
                         long commentCount = 0;
                         try {
-                            // 댓글 조회 및 저장
+                            // 댓글 조회 및 저장 (옵션에 따라 제한 적용)
                             // Python 코드 참고: channel_comment_fetcher.py의 fetch_comments_for_video 메서드
                             // - 댓글이 비활성화된 경우(commentsDisabled) 처리
                             // - HttpError 예외 처리
-                            commentCount = fetchAndSaveComments(yt, videoId, redisKey);
+                            commentCount = fetchAndSaveComments(yt, videoId, redisKey, options);
                             
                             // 부분 실패 처리: 새 댓글이 없고 기존 댓글이 있었으면 복구
                             if (commentCount == 0 && existingComments != null && !existingComments.isEmpty()) {
@@ -122,7 +125,7 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
                     } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
                         // Python 코드 참고: HttpError 예외 처리
                         // Python: if reason in {"commentsDisabled", "disabledComments"}
-                        String errorReason = extractErrorReason(e);
+                        String errorReason = YoutubeErrorUtil.extractErrorReason(e);
                         if ("commentsDisabled".equals(errorReason) || "disabledComments".equals(errorReason)) {
                             log.info("영상 {}의 댓글이 비활성화되어 있습니다", video.getYoutubeVideoId());
                         } else {
@@ -146,14 +149,80 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
             throw new RuntimeException("syncTop20VideoComments failed", e);
         }
     }
+    
+    @Override
+    public long syncVideoComments(Integer userId, List<String> videoIds, SyncOptions options) {
+        try {
+            if (videoIds == null || videoIds.isEmpty()) {
+                log.warn("비디오 ID 리스트가 비어있습니다: userId={}", userId);
+                return 0;
+            }
+            
+            // 옵션이 null이면 증분 동기화 옵션 사용
+            if (options == null) {
+                options = SyncOptions.incrementalSync();
+            }
 
-    private YouTube buildClient(String accessToken) throws Exception {
-        return new YouTube.Builder(
-            GoogleNetHttpTransport.newTrustedTransport(),
-            GsonFactory.getDefaultInstance(),
-            request -> request.getHeaders().setAuthorization("Bearer " + accessToken)
-        ).setApplicationName("medi").build();
+            // OAuth 토큰 가져오기
+            String token = youtubeOAuthService.getValidAccessToken(userId);
+            YouTube yt = YoutubeApiClientUtil.buildClient(token);
+
+            long totalCommentCount = 0;
+
+            // 각 비디오의 댓글 조회 및 Redis 저장
+            for (String videoId : videoIds) {
+                try {
+                    if (videoId == null || videoId.isBlank()) {
+                        log.warn("유효하지 않은 비디오 ID: {}", videoId);
+                        continue;
+                    }
+                    
+                    String redisKey = "video:" + videoId + ":comments:json";
+                    
+                    // 기존 댓글 백업
+                    String existingComments = stringRedisTemplate.opsForValue().get(redisKey);
+                    
+                    long commentCount = 0;
+                    try {
+                        // 댓글 조회 및 저장 (옵션에 따라 제한 적용)
+                        commentCount = fetchAndSaveComments(yt, videoId, redisKey, options);
+                        
+                        if (commentCount == 0 && existingComments != null && !existingComments.isEmpty()) {
+                            log.warn("댓글 조회 실패 또는 댓글 없음. 기존 댓글 복구: {}", videoId);
+                            stringRedisTemplate.opsForValue().set(redisKey, existingComments);
+                        }
+                        
+                        totalCommentCount += commentCount;
+                        log.debug("영상 {}의 댓글 {}개 저장 완료", videoId, commentCount);
+                    } catch (Exception saveException) {
+                        if (existingComments != null && !existingComments.isEmpty()) {
+                            log.warn("댓글 저장 실패. 기존 댓글 복구: {}", videoId);
+                            stringRedisTemplate.opsForValue().set(redisKey, existingComments);
+                        }
+                        throw saveException;
+                    }
+                } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
+                    String errorReason = YoutubeErrorUtil.extractErrorReason(e);
+                    if ("commentsDisabled".equals(errorReason) || "disabledComments".equals(errorReason)) {
+                        log.info("영상 {}의 댓글이 비활성화되어 있습니다", videoId);
+                    } else {
+                        log.error("영상 {}의 댓글 조회 실패: {} (reason: {})", videoId, e.getMessage(), errorReason);
+                    }
+                } catch (Exception e) {
+                    log.error("영상 {}의 댓글 조회 실패: {}", videoId, e.getMessage());
+                }
+            }
+
+            log.info("비디오 댓글 동기화 완료: userId={}, 비디오={}개, 총 댓글 수={}", 
+                userId, videoIds.size(), totalCommentCount);
+            return totalCommentCount;
+
+        } catch (Exception e) {
+            log.error("비디오 댓글 동기화 실패: userId={}", userId, e);
+            throw new RuntimeException("syncVideoComments failed", e);
+        }
     }
+
 
     /**
      * 영상의 댓글을 조회하여 Redis에 저장
@@ -183,13 +252,25 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
      * @return 저장된 댓글 개수
      * @throws Exception YouTube API 호출 실패 시
      */
-    private long fetchAndSaveComments(YouTube yt, String videoId, String redisKey) throws Exception {
+    private long fetchAndSaveComments(YouTube yt, String videoId, String redisKey, SyncOptions options) throws Exception {
+        // 옵션에 따라 기본 또는 전체 메타데이터 사용
+        boolean useFullMetadata = options != null && options.isIncludeFullMetadata();
+        
         // 변경: 댓글을 List로 수집 (나중에 한 번에 JSON 배열로 변환)
-        List<YoutubeComment> allComments = new ArrayList<>();
+        // 초기 동기화: RedisYoutubeComment 사용, 증분 동기화: RedisYoutubeCommentFull 사용
+        List<Object> allComments = new ArrayList<>();
         String nextPageToken = null;
+        
+        // 댓글 개수 제한: 옵션에 따라 결정 (null이면 제한 없음)
+        Integer maxCommentCount = options != null ? options.getMaxCommentCount() : null;
 
         // Python 코드 참고: while True 대신 do-while 사용 (최소 1번은 실행)
         do {
+            // 댓글 개수 제한 체크 (제한이 설정된 경우에만)
+            if (maxCommentCount != null && maxCommentCount > 0 && allComments.size() >= maxCommentCount) {
+                break;
+            }
+            
             // ⭐ YouTube CommentThreads API 요청 생성
             // API 엔드포인트: youtube.commentThreads.list
             // 용도: 특정 영상의 댓글 스레드 조회 (최상위 댓글 + 대댓글)
@@ -219,13 +300,41 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
             if (resp.getItems() != null) {
                 // Python 코드 참고: for thread in threads 루프
                 for (CommentThread thread : resp.getItems()) {
+                    // 댓글 개수 제한 체크 (제한이 설정된 경우에만)
+                    if (maxCommentCount != null && maxCommentCount > 0 && allComments.size() >= maxCommentCount) {
+                        break;
+                    }
+                    
                     Comment top = thread.getSnippet().getTopLevelComment();
                     
                     // 최상위 댓글 변환 및 리스트에 추가
                     // Python 코드 참고: extract_comment_info(thread)로 댓글 정보 추출
-                    YoutubeComment topComment = redisMapper.toRedisComment(top, null);
-                    if (topComment != null) {
-                        allComments.add(topComment);
+                    // 옵션에 따라 기본 또는 전체 메타데이터 사용
+                    if (useFullMetadata) {
+                        // totalReplyCount는 CommentThread의 snippet에서 가져옴
+                        Long totalReplyCount = null;
+                        if (thread.getSnippet().getTotalReplyCount() != null) {
+                            totalReplyCount = thread.getSnippet().getTotalReplyCount().longValue();
+                        }
+                        RedisYoutubeCommentFull topComment = redisMapper.toRedisCommentFull(top, null, totalReplyCount);
+                        if (topComment != null) {
+                            allComments.add(topComment);
+                            
+                            // 댓글 개수 제한 체크 (제한이 설정된 경우에만)
+                            if (maxCommentCount != null && maxCommentCount > 0 && allComments.size() >= maxCommentCount) {
+                                break;
+                            }
+                        }
+                    } else {
+                        RedisYoutubeComment topComment = redisMapper.toRedisComment(top, null);
+                        if (topComment != null) {
+                            allComments.add(topComment);
+                            
+                            // 댓글 개수 제한 체크 (제한이 설정된 경우에만)
+                            if (maxCommentCount != null && maxCommentCount > 0 && allComments.size() >= maxCommentCount) {
+                                break;
+                            }
+                        }
                     }
 
                     // 대댓글 처리
@@ -233,11 +342,27 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
                     if (thread.getReplies() != null 
                         && thread.getReplies().getComments() != null) {
                         for (Comment reply : thread.getReplies().getComments()) {
-                            YoutubeComment replyComment = redisMapper.toRedisComment(
-                                reply, top.getId()
-                            );
-                            if (replyComment != null) {
-                                allComments.add(replyComment);
+                            // 댓글 개수 제한 체크 (제한이 설정된 경우에만)
+                            if (maxCommentCount != null && maxCommentCount > 0 && allComments.size() >= maxCommentCount) {
+                                break;
+                            }
+                            
+                            // 옵션에 따라 기본 또는 전체 메타데이터 사용
+                            if (useFullMetadata) {
+                                // 대댓글은 totalReplyCount가 없음 (null 전달)
+                                RedisYoutubeCommentFull replyComment = redisMapper.toRedisCommentFull(
+                                    reply, top.getId(), null
+                                );
+                                if (replyComment != null) {
+                                    allComments.add(replyComment);
+                                }
+                            } else {
+                                RedisYoutubeComment replyComment = redisMapper.toRedisComment(
+                                    reply, top.getId()
+                                );
+                                if (replyComment != null) {
+                                    allComments.add(replyComment);
+                                }
                             }
                         }
                     }
@@ -249,7 +374,14 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
             
             // Python 코드 참고: if not next_page_token: break
             // do-while의 조건문에서 처리됨
-        } while (nextPageToken != null);
+            // 댓글 개수 제한이 설정된 경우에만 제한 체크
+        } while (nextPageToken != null && 
+                 (maxCommentCount == null || maxCommentCount <= 0 || allComments.size() < maxCommentCount));
+        
+        // 제한 적용: 초과분 제거 (제한이 설정된 경우에만)
+        if (maxCommentCount != null && maxCommentCount > 0 && allComments.size() > maxCommentCount) {
+            allComments = allComments.subList(0, maxCommentCount);
+        }
 
         // 변경: 전체 댓글을 하나의 JSON 배열 문자열로 저장
         if (!allComments.isEmpty()) {
@@ -279,9 +411,9 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
      * - 3일 후 자동 삭제 (만료)
      * 
      * @param redisKey Redis 저장 키
-     * @param comments 저장할 댓글 리스트
+     * @param comments 저장할 댓글 리스트 (RedisYoutubeComment 또는 RedisYoutubeCommentFull)
      */
-    private void saveCommentsToRedis(String redisKey, List<YoutubeComment> comments) {
+    private void saveCommentsToRedis(String redisKey, List<Object> comments) {
         try {
             // 전체 댓글 리스트를 하나의 JSON 배열 문자열로 변환
             // Python 코드: json.dump(comments_list, f)
@@ -303,31 +435,4 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
         }
     }
 
-    /**
-     * Google API 에러 응답에서 에러 원인(reason) 추출
-     * 
-     * 참고: channel_comment_fetcher.py의 _extract_error_reason 메서드
-     * Python 코드:
-     *   data = json.loads(error.content.decode("utf-8"))
-     *   errors = data.get("error", {}).get("errors", [])
-     *   return errors[0].get("reason", "")
-     * 
-     * @param e GoogleJsonResponseException 예외 객체
-     * @return 에러 원인 문자열 (예: "commentsDisabled", "disabledComments")
-     */
-    private String extractErrorReason(com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
-        try {
-            com.google.api.client.googleapis.json.GoogleJsonError error = e.getDetails();
-            if (error != null && error.getErrors() != null && !error.getErrors().isEmpty()) {
-                com.google.api.client.googleapis.json.GoogleJsonError.ErrorInfo firstError = 
-                    error.getErrors().get(0);
-                if (firstError != null) {
-                    return firstError.getReason();
-                }
-            }
-        } catch (Exception ex) {
-            log.debug("에러 원인 추출 실패: {}", ex.getMessage());
-        }
-        return "";
-    }
 }
