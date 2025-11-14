@@ -76,7 +76,7 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
 
             // 3. save the top 20 video IDs, video metadata of each channel to Redis
             Map<String, List<RedisYoutubeVideo>> videosByChannel = 
-                videoService.getTop20VideosByChannel(userId, channelIds);
+                videoService.getTop20VideosByChannel(yt, channelIds);
             
             if (videosByChannel.isEmpty()) {
                 log.warn("조회수 상위 20개 영상이 없습니다: userId={}", userId);

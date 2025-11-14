@@ -52,20 +52,18 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
     private final ObjectMapper objectMapper;
 
     @Override
-    public Map<String, List<RedisYoutubeVideo>> getTop20VideosByChannel(Integer userId, List<String> channelIds) {
+    public Map<String, List<RedisYoutubeVideo>> getTop20VideosByChannel(YouTube yt, List<String> channelIds) {
         try {
             // 1. 채널 ID 리스트 검증
             if (channelIds == null || channelIds.isEmpty()) {
-                log.warn("채널 ID 리스트가 비어있습니다: userId={}", userId);
+                log.warn("채널 ID 리스트가 비어있습니다");
                 return Collections.emptyMap();
             }
 
-            // 2. make a YouTube API Client
-            YouTube yt = YoutubeApiClientUtil.buildClientForUser(youtubeOAuthService, userId);
-
-            // 3. each channel, get the top 20 videos by view count
+            // 2. each channel, get the top 20 videos by view count
             Map<String, List<RedisYoutubeVideo>> videosByChannel = new HashMap<>();
             
+            // 2-0. process each channel
             for (String channelId : channelIds) {
                 try {
                     if (channelId == null || channelId.isBlank()) {
@@ -73,7 +71,7 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                         continue;
                     }
                     
-                    // 3-1. get the list of videos of the channel from YouTube API
+                    // 2-1. get the list of videos of the channel from YouTube API
                     List<SearchResult> searchResults = fetchChannelVideos(yt, channelId);
                     
                     if (searchResults.isEmpty()) {
@@ -81,7 +79,7 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                         continue;
                     }
 
-                    // 3-2. extract the list of video IDs
+                    // 2-2. extract the list of video IDs
                     List<String> videoIds = searchResults.stream()
                         .map(result -> result.getId().getVideoId())
                         .filter(id -> id != null)
@@ -92,12 +90,12 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                         continue;
                     }
 
-                    // 3-3. get the details of the videos from YouTube API (include view count)
+                    // 2-3. get the details of the videos from YouTube API (include view count)
                     List<Video> videos = fetchVideoDetails(yt, videoIds);
 
-                    // 3-4. 쇼츠 제거 및 조회수 순으로 정렬하여 상위 20개 선택
+                    // 2-4. remove shorts and sort by view count and select the top 20
                     List<Video> top20Videos = videos.stream()
-                        .filter(video -> !isShortsVideo(video))  // 쇼츠 제거
+                        .filter(video -> !isShortsVideo(video))  // remove shorts
                         .sorted(Comparator.comparing(
                             video -> {
                                 if (video.getStatistics() != null && video.getStatistics().getViewCount() != null) {
@@ -105,9 +103,9 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                                 }
                                 return 0L;
                             },
-                            Comparator.reverseOrder()  // 조회수 내림차순 정렬
+                            Comparator.reverseOrder()  // sort by view count in descending order
                         ))
-                        .limit(20)  // 조회수 순으로 20개만 선택
+                        .limit(20)  // select the top 20 by view count
                         .collect(Collectors.toList());
 
                     // 3-5. convert the videos to Redis DTO (pass channelId, only basic metadata)
@@ -134,12 +132,12 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                 }
             }
 
-            log.info("사용자 {}의 각 채널별 조회수 상위 20개 영상 조회 완료: {}개 채널", 
-                userId, videosByChannel.size());
+            log.info("각 채널별 조회수 상위 20개 영상 조회 완료: {}개 채널", 
+                videosByChannel.size());
             return videosByChannel;
 
         } catch (Exception e) {
-            log.error("각 채널별 조회수 상위 20개 영상 조회 실패: userId={}", userId, e);
+            log.error("각 채널별 조회수 상위 20개 영상 조회 실패", e);
             throw new RuntimeException("getTop20VideosByChannel failed", e);
         }
     }
