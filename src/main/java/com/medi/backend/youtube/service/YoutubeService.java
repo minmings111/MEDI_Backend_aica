@@ -12,6 +12,8 @@ import com.medi.backend.youtube.exception.NoAvailableApiKeyException;
 import com.medi.backend.youtube.mapper.YoutubeChannelMapper;
 import com.medi.backend.youtube.mapper.YoutubeOAuthTokenMapper;
 import com.medi.backend.youtube.mapper.YoutubeVideoMapper;
+import com.medi.backend.youtube.model.VideoSyncMode;
+import com.medi.backend.youtube.redis.service.YoutubeRedisSyncService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -44,6 +46,9 @@ public class YoutubeService {
 
     @Autowired
     private YoutubeDataApiProperties youtubeDataApiProperties;
+
+    @Autowired(required = false)
+    private YoutubeRedisSyncService youtubeRedisSyncService;
 
 
     public boolean validateToken(Integer userId) {
@@ -87,6 +92,16 @@ public class YoutubeService {
             ChannelListResponse resp = req.execute();
             List<YoutubeChannelDto> out = new ArrayList<>();
             
+            // 최초 등록 여부 확인 (모든 채널이 새로 등록된 경우)
+            boolean isFirstRegistration = true;
+            for (Channel ch : resp.getItems()) {
+                YoutubeChannelDto existing = channelMapper.findByYoutubeChannelId(ch.getId());
+                if (existing != null) {
+                    isFirstRegistration = false;
+                    break;
+                }
+            }
+            
             for (Channel ch : resp.getItems()) {
                 YoutubeChannelDto existing = channelMapper.findByYoutubeChannelId(ch.getId());
                 YoutubeChannelDto dto = mapChannelToDto(ch, userId, tokenDto.getId(), existing);
@@ -100,7 +115,10 @@ public class YoutubeService {
 
                 if (shouldSyncVideos) {
                     try {
-                        syncVideos(userId, dto.getYoutubeChannelId(), 10);
+                        VideoSyncMode mode = (existing == null || existing.getLastSyncedAt() == null)
+                                ? VideoSyncMode.FIRST_SYNC
+                                : VideoSyncMode.FOLLOW_UP;
+                        syncVideos(userId, dto.getYoutubeChannelId(), 10, mode);
                     } catch (Exception videoSyncEx) {
                         log.warn("채널({}) 영상 동기화 실패 - userId={}, error={}",
                                 ch.getId(), userId, videoSyncEx.getMessage(), videoSyncEx);
@@ -109,6 +127,19 @@ public class YoutubeService {
 
                 out.add(dto);
             }
+            
+            // 2. MySQL 저장 완료 후 Redis 초기 동기화 (최초 등록 시에만)
+            if (youtubeRedisSyncService != null && isFirstRegistration && syncVideosEveryTime) {
+                try {
+                    log.info("최초 채널 등록 감지 - Redis 초기 동기화 시작: userId={}", userId);
+                    youtubeRedisSyncService.syncToRedis(userId);
+                    log.info("Redis 초기 동기화 완료: userId={}", userId);
+                } catch (Exception redisEx) {
+                    log.warn("Redis 초기 동기화 실패 - userId={}, error={}", userId, redisEx.getMessage(), redisEx);
+                    // Redis 실패해도 MySQL은 이미 저장되었으므로 예외를 던지지 않음
+                }
+            }
+            
             return out;
         } catch (Exception e) {
             log.error("YouTube 채널 동기화 실패: userId={}", userId, e);
@@ -130,6 +161,11 @@ public class YoutubeService {
      */
     @Transactional
     public List<YoutubeVideoDto> syncVideos(Integer userId, String youtubeChannelId, Integer maxResults) {
+        return syncVideos(userId, youtubeChannelId, maxResults, VideoSyncMode.FOLLOW_UP);
+    }
+
+    @Transactional
+    public List<YoutubeVideoDto> syncVideos(Integer userId, String youtubeChannelId, Integer maxResults, VideoSyncMode syncMode) {
         try {
             String token = youtubeOAuthService.getValidAccessToken(userId);
             YouTube yt = buildClient(token);
@@ -138,14 +174,13 @@ public class YoutubeService {
                 throw new RuntimeException("채널 또는 업로드 플레이리스트 정보를 찾을 수 없습니다");
             }
 
-            // 처음 동기화 시 기본 10개 제한 (요구사항)
-            int firstSyncLimit = 10;
-            boolean isFirstSync = channel.getLastSyncedAt() == null;
+            boolean treatAsFirstSync = syncMode == VideoSyncMode.FIRST_SYNC || channel.getLastSyncedAt() == null;
 
             updateChannelSyncInfo(channel.getYoutubeChannelId(), channel.getLastSyncedAt(), channel.getLastVideoPublishedAt());
 
-            int cap = isFirstSync ? firstSyncLimit : (maxResults != null ? maxResults : 10);
-            LocalDateTime publishedAfter = isFirstSync ? null : channel.getLastVideoPublishedAt();
+            int defaultCap = treatAsFirstSync ? 10 : 10;
+            int cap = (maxResults != null ? maxResults : defaultCap);
+            LocalDateTime publishedAfter = treatAsFirstSync ? null : channel.getLastVideoPublishedAt();
 
             List<PlaylistVideoSnapshot> snapshots;
             Map<String, Video> statistics;
@@ -174,7 +209,7 @@ public class YoutubeService {
                 return Collections.emptyList();
             }
 
-            List<YoutubeVideoDto> persisted = persistSnapshots(channel, snapshots, statistics);
+            List<YoutubeVideoDto> persisted = persistSnapshots(channel, snapshots, statistics, syncMode);
 
             LocalDateTime newestPublishedAt = channel.getLastVideoPublishedAt();
             for (YoutubeVideoDto dto : persisted) {
@@ -183,6 +218,28 @@ public class YoutubeService {
                 }
             }
             updateChannelSyncInfo(channel.getYoutubeChannelId(), LocalDateTime.now(), newestPublishedAt);
+            
+            // MySQL 저장 완료 후 Redis 증분 동기화
+            if (youtubeRedisSyncService != null && !persisted.isEmpty()) {
+                try {
+                    List<String> videoIds = persisted.stream()
+                            .map(YoutubeVideoDto::getYoutubeVideoId)
+                            .filter(id -> id != null && !id.isBlank())
+                            .collect(java.util.stream.Collectors.toList());
+                    
+                    if (!videoIds.isEmpty()) {
+                        log.debug("MySQL 영상 동기화 완료 - Redis 증분 동기화 시작: userId={}, channelId={}, videoCount={}", 
+                                userId, youtubeChannelId, videoIds.size());
+                        youtubeRedisSyncService.syncIncrementalToRedis(userId, videoIds);
+                        log.debug("Redis 증분 동기화 완료: userId={}, videoCount={}", userId, videoIds.size());
+                    }
+                } catch (Exception redisEx) {
+                    log.warn("Redis 증분 동기화 실패 - userId={}, channelId={}, error={}", 
+                            userId, youtubeChannelId, redisEx.getMessage(), redisEx);
+                    // Redis 실패해도 MySQL은 이미 저장되었으므로 예외를 던지지 않음
+                }
+            }
+            
             return persisted;
         } catch (Exception e) {
             log.error("YouTube 영상 동기화 실패: channelId={}", youtubeChannelId, e);
@@ -306,7 +363,8 @@ public class YoutubeService {
 
     private List<YoutubeVideoDto> persistSnapshots(YoutubeChannelDto channel,
                                                    List<PlaylistVideoSnapshot> snapshots,
-                                                   Map<String, Video> statistics) {
+                                                   Map<String, Video> statistics,
+                                                   VideoSyncMode syncMode) {
         List<YoutubeVideoDto> persisted = new ArrayList<>();
         for (PlaylistVideoSnapshot snapshot : snapshots) {
             Video stat = statistics.get(snapshot.videoId());
