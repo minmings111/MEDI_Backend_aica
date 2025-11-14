@@ -11,6 +11,8 @@ import com.medi.backend.youtube.dto.YoutubeChannelDto;
 import com.medi.backend.youtube.dto.YoutubeVideoDto;
 import com.medi.backend.youtube.mapper.YoutubeChannelMapper;
 import com.medi.backend.youtube.mapper.YoutubeVideoMapper;
+import com.medi.backend.youtube.redis.dto.RedisSyncResult;
+import com.medi.backend.youtube.redis.service.YoutubeRedisSyncService;
 import com.medi.backend.youtube.service.YoutubeDataApiClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,6 +46,7 @@ public class TestYoutubeController {
     private final YoutubeDataApiClient youtubeDataApiClient;
     private final YoutubeChannelMapper channelMapper;
     private final YoutubeVideoMapper videoMapper;
+    private final YoutubeRedisSyncService youtubeRedisSyncService;
 
     @PostMapping("/save")
     public ResponseEntity<?> saveChannelAndVideos(
@@ -157,9 +160,35 @@ public class TestYoutubeController {
                 .collect(Collectors.toList());
 
         return ResponseEntity.ok(Map.of(
-                "success", true,
-                "channels", summary
+            "success", true,
+            "channels", summary
         ));
+    }
+
+    @PostMapping("/redis/sync")
+    public ResponseEntity<?> testRedisSync(@RequestParam("userId") Integer userId) {
+        try {
+            log.info("Redis 동기화 테스트 시작: userId={}", userId);
+            RedisSyncResult result = youtubeRedisSyncService.syncToRedis(userId);
+            
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Redis 동기화 완료",
+                "result", Map.of(
+                    "channelCount", result.getChannelCount(),
+                    "videoCount", result.getVideoCount(),
+                    "commentCount", result.getCommentCount(),
+                    "success", result.isSuccess(),
+                    "errorMessage", result.getErrorMessage() != null ? result.getErrorMessage() : ""
+                )
+            ));
+        } catch (Exception e) {
+            log.error("Redis 동기화 테스트 실패: userId={}", userId, e);
+            return ResponseEntity.status(500).body(Map.of(
+                "success", false,
+                "message", e.getMessage()
+            ));
+        }
     }
 
     private YoutubeChannelDto mapChannel(Integer userId, Channel channel) {

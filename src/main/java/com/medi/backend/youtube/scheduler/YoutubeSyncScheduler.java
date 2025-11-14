@@ -12,7 +12,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 매일 오후 4시에 등록된 채널의 영상을 동기화하는 스케줄러.
+ * 매 시간마다 등록된 채널의 영상을 동기화하는 스케줄러.
  * 채널마다 일정 간격을 두어 API 호출이 몰리지 않도록 한다.
  */
 @Slf4j
@@ -23,7 +23,7 @@ public class YoutubeSyncScheduler {
     private final YoutubeChannelMapper youtubeChannelMapper;
     private final YoutubeService youtubeService;
 
-    @Scheduled(cron = "0 0 16 * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 * * * *", zone = "Asia/Seoul")
     public void syncAllChannelsDaily() {
         List<YoutubeChannelDto> channels = youtubeChannelMapper.findAllForSync();
         if (channels == null || channels.isEmpty()) {
