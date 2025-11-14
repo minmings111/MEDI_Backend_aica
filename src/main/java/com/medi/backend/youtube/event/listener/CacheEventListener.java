@@ -2,6 +2,7 @@ package com.medi.backend.youtube.event.listener;
 
 import com.medi.backend.youtube.event.ChannelCacheEvent;
 import com.medi.backend.youtube.event.VideoCacheEvent;
+import com.medi.backend.youtube.model.VideoSyncMode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -71,6 +72,10 @@ public class CacheEventListener {
      */
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleVideoCacheEvent(VideoCacheEvent event) {
+        if (event.getSyncMode() == VideoSyncMode.REFRESH_ONLY) {
+            log.debug("영상 캐시 업데이트 생략(REFRESH_ONLY): {}", event.getYoutubeVideoId());
+            return;
+        }
         try {
             log.debug("영상 캐시 업데이트 시작: {}", event.getYoutubeVideoId());
 

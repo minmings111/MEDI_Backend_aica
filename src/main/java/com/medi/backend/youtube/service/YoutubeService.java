@@ -14,6 +14,7 @@ import com.medi.backend.youtube.exception.NoAvailableApiKeyException;
 import com.medi.backend.youtube.mapper.YoutubeChannelMapper;
 import com.medi.backend.youtube.mapper.YoutubeOAuthTokenMapper;
 import com.medi.backend.youtube.mapper.YoutubeVideoMapper;
+import com.medi.backend.youtube.model.VideoSyncMode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
@@ -121,7 +122,10 @@ public class YoutubeService {
 
                 if (shouldSyncVideos) {
                     try {
-                        syncVideos(userId, dto.getYoutubeChannelId(), 10);
+                        VideoSyncMode mode = (existing == null || existing.getLastSyncedAt() == null)
+                                ? VideoSyncMode.FIRST_SYNC
+                                : VideoSyncMode.FOLLOW_UP;
+                        syncVideos(userId, dto.getYoutubeChannelId(), 10, mode);
                     } catch (Exception videoSyncEx) {
                         log.warn("채널({}) 영상 동기화 실패 - userId={}, error={}",
                                 ch.getId(), userId, videoSyncEx.getMessage(), videoSyncEx);
@@ -152,6 +156,11 @@ public class YoutubeService {
      */
     @Transactional
     public List<YoutubeVideoDto> syncVideos(Integer userId, String youtubeChannelId, Integer maxResults) {
+        return syncVideos(userId, youtubeChannelId, maxResults, VideoSyncMode.FOLLOW_UP);
+    }
+
+    @Transactional
+    public List<YoutubeVideoDto> syncVideos(Integer userId, String youtubeChannelId, Integer maxResults, VideoSyncMode syncMode) {
         try {
             String token = youtubeOAuthService.getValidAccessToken(userId);
             YouTube yt = buildClient(token);
@@ -160,14 +169,13 @@ public class YoutubeService {
                 throw new RuntimeException("채널 또는 업로드 플레이리스트 정보를 찾을 수 없습니다");
             }
 
-            // 처음 동기화 시 기본 10개 제한 (요구사항)
-            int firstSyncLimit = 10;
-            boolean isFirstSync = channel.getLastSyncedAt() == null;
+            boolean treatAsFirstSync = syncMode == VideoSyncMode.FIRST_SYNC || channel.getLastSyncedAt() == null;
 
             updateChannelSyncInfo(channel.getYoutubeChannelId(), channel.getLastSyncedAt(), channel.getLastVideoPublishedAt());
 
-            int cap = isFirstSync ? firstSyncLimit : (maxResults != null ? maxResults : 10);
-            LocalDateTime publishedAfter = isFirstSync ? null : channel.getLastVideoPublishedAt();
+            int defaultCap = treatAsFirstSync ? 10 : 10;
+            int cap = (maxResults != null ? maxResults : defaultCap);
+            LocalDateTime publishedAfter = treatAsFirstSync ? null : channel.getLastVideoPublishedAt();
 
             List<PlaylistVideoSnapshot> snapshots;
             Map<String, Video> statistics;
@@ -196,7 +204,7 @@ public class YoutubeService {
                 return Collections.emptyList();
             }
 
-            List<YoutubeVideoDto> persisted = persistSnapshots(channel, snapshots, statistics);
+            List<YoutubeVideoDto> persisted = persistSnapshots(channel, snapshots, statistics, syncMode);
 
             LocalDateTime newestPublishedAt = channel.getLastVideoPublishedAt();
             for (YoutubeVideoDto dto : persisted) {
@@ -328,19 +336,23 @@ public class YoutubeService {
 
     private List<YoutubeVideoDto> persistSnapshots(YoutubeChannelDto channel,
                                                    List<PlaylistVideoSnapshot> snapshots,
-                                                   Map<String, Video> statistics) {
+                                                   Map<String, Video> statistics,
+                                                   VideoSyncMode syncMode) {
         List<YoutubeVideoDto> persisted = new ArrayList<>();
         for (PlaylistVideoSnapshot snapshot : snapshots) {
             Video stat = statistics.get(snapshot.videoId());
             YoutubeVideoDto dto = mapVideoSnapshotToDto(channel.getId(), snapshot, stat);
             videoMapper.upsert(dto);
-            VideoCacheEvent event = new VideoCacheEvent(
-                    dto.getYoutubeVideoId(),
-                    dto.getTitle(),
-                    dto.getThumbnailUrl(),
-                    dto.getPublishedAt()
-            );
-            eventPublisher.publishEvent(event);
+            if (syncMode != VideoSyncMode.REFRESH_ONLY) {
+                VideoCacheEvent event = new VideoCacheEvent(
+                        dto.getYoutubeVideoId(),
+                        dto.getTitle(),
+                        dto.getThumbnailUrl(),
+                        dto.getPublishedAt(),
+                        syncMode
+                );
+                eventPublisher.publishEvent(event);
+            }
             persisted.add(dto);
         }
         return persisted;

@@ -1,8 +1,11 @@
 package com.medi.backend.youtube.event;
 
+import java.time.LocalDateTime;
+
+import com.medi.backend.youtube.model.VideoSyncMode;
+
 import lombok.Getter;
 import lombok.ToString;
-import java.time.LocalDateTime;
 
 /**
  * 영상 캐시 이벤트
@@ -15,13 +18,16 @@ public class VideoCacheEvent {
     private final String title;
     private final String thumbnailUrl;
     private final LocalDateTime publishedAt;
+    private final VideoSyncMode syncMode;
 
     public VideoCacheEvent(String youtubeVideoId, String title, 
-                          String thumbnailUrl, LocalDateTime publishedAt) {
+                          String thumbnailUrl, LocalDateTime publishedAt,
+                           VideoSyncMode syncMode) {
         this.youtubeVideoId = youtubeVideoId;
         this.title = title;
         this.thumbnailUrl = thumbnailUrl;
         this.publishedAt = publishedAt;
+        this.syncMode = syncMode;
     }
 }
 

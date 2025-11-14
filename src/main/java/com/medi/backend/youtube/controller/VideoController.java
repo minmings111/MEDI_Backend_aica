@@ -18,6 +18,7 @@ import com.medi.backend.global.util.AuthUtil;
 import com.medi.backend.youtube.dto.VideoSyncRequest;
 import com.medi.backend.youtube.dto.YoutubeChannelDto;
 import com.medi.backend.youtube.dto.YoutubeVideoDto;
+import com.medi.backend.youtube.model.VideoSyncMode;
 import com.medi.backend.youtube.service.ChannelService;
 import com.medi.backend.youtube.service.YoutubeService;
 import com.medi.backend.youtube.service.VideoService;
@@ -98,7 +99,8 @@ public class VideoController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Channel not found");
         }
 
-        List<YoutubeVideoDto> synced = youtubeService.syncVideos(userId, channel.getYoutubeChannelId(), request.getMaxResults());
+        VideoSyncMode mode = request.getSyncMode() != null ? request.getSyncMode() : VideoSyncMode.FOLLOW_UP;
+        List<YoutubeVideoDto> synced = youtubeService.syncVideos(userId, channel.getYoutubeChannelId(), request.getMaxResults(), mode);
         return ResponseEntity.ok(synced);
     }
 
