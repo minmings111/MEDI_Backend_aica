@@ -13,12 +13,14 @@ import com.medi.backend.youtube.mapper.YoutubeChannelMapper;
 import com.medi.backend.youtube.mapper.YoutubeVideoMapper;
 import com.medi.backend.youtube.redis.dto.RedisSyncResult;
 import com.medi.backend.youtube.redis.service.YoutubeRedisSyncService;
+import com.medi.backend.youtube.redis.service.YoutubeTranscriptService;
 import com.medi.backend.youtube.service.YoutubeDataApiClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -48,6 +50,7 @@ public class TestYoutubeController {
     private final YoutubeChannelMapper channelMapper;
     private final YoutubeVideoMapper videoMapper;
     private final YoutubeRedisSyncService youtubeRedisSyncService;
+    private final YoutubeTranscriptService youtubeTranscriptService;
 
     @PostMapping("/save")
     public ResponseEntity<?> saveChannelAndVideos(
@@ -226,6 +229,52 @@ public class TestYoutubeController {
                 "success", false,
                 "message", e.getMessage()
             ));
+        }
+    }
+
+    /**
+     * Redis에서 특정 비디오의 자막(transcript) 조회
+     * 
+     * GET /api/test/youtube/transcript/{videoId}
+     * 
+     * AI 서버가 댓글 필터링 시 비디오 컨텍스트를 위해 사용
+     * 
+     * @param videoId YouTube 비디오 ID
+     * @return 자막 텍스트 (없으면 null)
+     */
+    @GetMapping("/transcript/{videoId}")
+    public ResponseEntity<?> getTranscript(@PathVariable("videoId") String videoId) {
+        try {
+            if (videoId == null || videoId.isBlank()) {
+                return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "videoId가 필요합니다."
+                ));
+            }
+
+            String transcript = youtubeTranscriptService.getTranscriptFromRedis(videoId);
+            
+            if (transcript == null) {
+                Map<String, Object> response = new HashMap<>();
+                response.put("success", true);
+                response.put("message", "자막이 Redis에 없습니다.");
+                response.put("videoId", videoId);
+                response.put("transcript", null);
+                return ResponseEntity.ok(response);
+            }
+
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "videoId", videoId,
+                "transcript", transcript,
+                "length", transcript.length()
+            ));
+        } catch (Exception e) {
+            log.error("자막 조회 실패: videoId={}", videoId, e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage() != null ? e.getMessage() : "자막 조회 중 오류가 발생했습니다.");
+            return ResponseEntity.status(500).body(errorResponse);
         }
     }
 
