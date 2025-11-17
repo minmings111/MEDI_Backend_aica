@@ -86,9 +86,9 @@ public class YoutubeOAuthController {
      */
     @GetMapping("/oauth/callback")
     public void oauthCallback(
-        @RequestParam(required = false) String code,
-        @RequestParam(required = false) String state,
-        @RequestParam(required = false) String error,
+        @RequestParam(value = "code", required = false) String code,
+        @RequestParam(value = "state", required = false) String state,
+        @RequestParam(value = "error", required = false) String error,
         HttpServletResponse response
     ) throws IOException {
         String frontendBase = resolveFrontendBase();

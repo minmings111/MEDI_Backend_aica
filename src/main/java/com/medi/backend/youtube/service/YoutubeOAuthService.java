@@ -2,6 +2,7 @@ package com.medi.backend.youtube.service;
 
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeRequestUrl;
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeTokenRequest;
+import com.google.api.client.googleapis.auth.oauth2.GoogleRefreshTokenRequest;
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.client.googleapis.auth.oauth2.GoogleTokenResponse;
@@ -129,24 +130,38 @@ public class YoutubeOAuthService {
         if (expiresAt.isAfter(now.plusMinutes(5))) {
             return token.getAccessToken();
         }
-        // refresh
-        String decryptedRefresh = token.getRefreshToken();
+        
+        // refresh token 확인
+        String refreshToken = token.getRefreshToken();
+        if (refreshToken == null || refreshToken.trim().isEmpty()) {
+            log.error("Refresh token이 없습니다. userId={}, tokenId={}", userId, token.getId());
+            tokenMapper.updateTokenStatus(token.getId(), "EXPIRED");
+            throw new RuntimeException("Refresh token not found, reconnect required");
+        }
+        
+        // refresh token으로 새 access token 발급
         try {
-            GoogleTokenResponse refreshResp = new GoogleAuthorizationCodeTokenRequest(
+            GoogleTokenResponse refreshResp = new GoogleRefreshTokenRequest(
                     GoogleNetHttpTransport.newTrustedTransport(),
                     GsonFactory.getDefaultInstance(),
-                    clientId, clientSecret,
-                    decryptedRefresh, "")
-                    .setGrantType("refresh_token")
+                    refreshToken,
+                    clientId,
+                    clientSecret)
                     .execute();
+            
             String newAccess = refreshResp.getAccessToken();
             Integer expiresIn = refreshResp.getExpiresInSeconds() != null ? refreshResp.getExpiresInSeconds().intValue() : 3600;
             LocalDateTime newExpiresAt = LocalDateTime.now().plusSeconds(expiresIn);
+            
             token.setAccessToken(newAccess);
             token.setAccessTokenExpiresAt(DF.format(newExpiresAt));
+            token.setTokenStatus("ACTIVE");
             tokenMapper.upsert(token);
+            
+            log.info("Access token 갱신 성공: userId={}", userId);
             return newAccess;
         } catch (Exception ex) {
+            log.error("Access token 갱신 실패: userId={}, error={}", userId, ex.getMessage(), ex);
             tokenMapper.updateTokenStatus(token.getId(), "EXPIRED");
             throw new RuntimeException("Refresh token expired, reconnect required", ex);
         }
