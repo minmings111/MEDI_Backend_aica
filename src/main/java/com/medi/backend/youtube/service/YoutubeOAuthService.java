@@ -2,11 +2,19 @@ package com.medi.backend.youtube.service;
 
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeRequestUrl;
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeTokenRequest;
+import com.google.api.client.googleapis.auth.oauth2.GoogleRefreshTokenRequest;
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.client.googleapis.auth.oauth2.GoogleTokenResponse;
+import com.google.api.client.http.GenericUrl;
+import com.google.api.client.http.HttpRequest;
+import com.google.api.client.http.HttpRequestFactory;
+import com.google.api.client.http.javanet.NetHttpTransport;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.medi.backend.youtube.dto.YoutubeOAuthTokenDto;
 import com.medi.backend.youtube.mapper.YoutubeOAuthTokenMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -17,6 +25,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
 
+@Slf4j
 @Service
 public class YoutubeOAuthService {
 
@@ -87,11 +96,20 @@ public class YoutubeOAuthService {
                 throw new IllegalStateException("Invalid state: no userId");
             }
 
+            // Google UserInfo API를 호출하여 이메일 가져오기
+            String googleEmail = fetchEmailFromUserInfo(accessToken);
+            if (googleEmail == null || googleEmail.isEmpty()) {
+                log.warn("Google UserInfo API에서 이메일을 가져올 수 없습니다. userId={}", userId);
+                googleEmail = "unknown@googleuser";  // 폴백
+            } else {
+                log.info("Google 이메일 조회 성공: userId={}, email={}", userId, googleEmail);
+            }
+
             // 저장 준비
             LocalDateTime expiresAt = LocalDateTime.now().plusSeconds(expiresIn);
             YoutubeOAuthTokenDto dto = new YoutubeOAuthTokenDto();
             dto.setUserId(userId);
-            dto.setGoogleEmail("unknown@googleuser");
+            dto.setGoogleEmail(googleEmail);
             dto.setAccessToken(accessToken);
             dto.setRefreshToken(refreshToken);
             dto.setAccessTokenExpiresAt(DF.format(expiresAt));
@@ -112,24 +130,38 @@ public class YoutubeOAuthService {
         if (expiresAt.isAfter(now.plusMinutes(5))) {
             return token.getAccessToken();
         }
-        // refresh
-        String decryptedRefresh = token.getRefreshToken();
+        
+        // refresh token 확인
+        String refreshToken = token.getRefreshToken();
+        if (refreshToken == null || refreshToken.trim().isEmpty()) {
+            log.error("Refresh token이 없습니다. userId={}, tokenId={}", userId, token.getId());
+            tokenMapper.updateTokenStatus(token.getId(), "EXPIRED");
+            throw new RuntimeException("Refresh token not found, reconnect required");
+        }
+        
+        // refresh token으로 새 access token 발급
         try {
-            GoogleTokenResponse refreshResp = new GoogleAuthorizationCodeTokenRequest(
+            GoogleTokenResponse refreshResp = new GoogleRefreshTokenRequest(
                     GoogleNetHttpTransport.newTrustedTransport(),
                     GsonFactory.getDefaultInstance(),
-                    clientId, clientSecret,
-                    decryptedRefresh, "")
-                    .setGrantType("refresh_token")
+                    refreshToken,
+                    clientId,
+                    clientSecret)
                     .execute();
+            
             String newAccess = refreshResp.getAccessToken();
             Integer expiresIn = refreshResp.getExpiresInSeconds() != null ? refreshResp.getExpiresInSeconds().intValue() : 3600;
             LocalDateTime newExpiresAt = LocalDateTime.now().plusSeconds(expiresIn);
+            
             token.setAccessToken(newAccess);
             token.setAccessTokenExpiresAt(DF.format(newExpiresAt));
+            token.setTokenStatus("ACTIVE");
             tokenMapper.upsert(token);
+            
+            log.info("Access token 갱신 성공: userId={}", userId);
             return newAccess;
         } catch (Exception ex) {
+            log.error("Access token 갱신 실패: userId={}, error={}", userId, ex.getMessage(), ex);
             tokenMapper.updateTokenStatus(token.getId(), "EXPIRED");
             throw new RuntimeException("Refresh token expired, reconnect required", ex);
         }
@@ -142,6 +174,38 @@ public class YoutubeOAuthService {
         try {
             return Integer.parseInt(state.substring(idx + 7));
         } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Google UserInfo API를 호출하여 사용자 이메일 가져오기
+     * 
+     * @param accessToken Google OAuth Access Token
+     * @return 사용자 이메일 주소, 실패 시 null
+     */
+    private String fetchEmailFromUserInfo(String accessToken) {
+        try {
+            NetHttpTransport transport = new NetHttpTransport();
+            HttpRequestFactory requestFactory = transport.createRequestFactory();
+            
+            // Google UserInfo API 엔드포인트
+            GenericUrl url = new GenericUrl("https://www.googleapis.com/oauth2/v2/userinfo");
+            HttpRequest request = requestFactory.buildGetRequest(url);
+            request.getHeaders().setAuthorization("Bearer " + accessToken);
+            
+            // API 호출 및 응답 파싱
+            String responseBody = request.execute().parseAsString();
+            JsonObject jsonObject = JsonParser.parseString(responseBody).getAsJsonObject();
+            
+            if (jsonObject.has("email")) {
+                return jsonObject.get("email").getAsString();
+            } else {
+                log.warn("UserInfo API 응답에 email 필드가 없습니다. response={}", responseBody);
+                return null;
+            }
+        } catch (Exception e) {
+            log.error("Google UserInfo API 호출 실패: {}", e.getMessage(), e);
             return null;
         }
     }

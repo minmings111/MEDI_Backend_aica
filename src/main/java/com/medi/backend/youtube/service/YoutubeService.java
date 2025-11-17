@@ -18,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import jakarta.annotation.PostConstruct;
 
 import java.io.IOException;
 import java.math.BigInteger;
@@ -50,6 +51,15 @@ public class YoutubeService {
     @Autowired(required = false)
     private YoutubeRedisSyncService youtubeRedisSyncService;
 
+    // 초기화 시점에 Redis 서비스 주입 여부 확인
+    @PostConstruct
+    public void init() {
+        if (youtubeRedisSyncService == null) {
+            log.warn("⚠️ YoutubeRedisSyncService가 주입되지 않았습니다. Redis 동기화 기능이 비활성화됩니다.");
+        } else {
+            log.info("✅ YoutubeRedisSyncService가 정상적으로 주입되었습니다.");
+        }
+    }
 
     public boolean validateToken(Integer userId) {
         String token = youtubeOAuthService.getValidAccessToken(userId);
@@ -92,16 +102,6 @@ public class YoutubeService {
             ChannelListResponse resp = req.execute();
             List<YoutubeChannelDto> out = new ArrayList<>();
             
-            // 최초 등록 여부 확인 (모든 채널이 새로 등록된 경우)
-            boolean isFirstRegistration = true;
-            for (Channel ch : resp.getItems()) {
-                YoutubeChannelDto existing = channelMapper.findByYoutubeChannelId(ch.getId());
-                if (existing != null) {
-                    isFirstRegistration = false;
-                    break;
-                }
-            }
-            
             for (Channel ch : resp.getItems()) {
                 YoutubeChannelDto existing = channelMapper.findByYoutubeChannelId(ch.getId());
                 YoutubeChannelDto dto = mapChannelToDto(ch, userId, tokenDto.getId(), existing);
@@ -128,16 +128,21 @@ public class YoutubeService {
                 out.add(dto);
             }
             
-            // 2. MySQL 저장 완료 후 Redis 초기 동기화 (최초 등록 시에만)
-            if (youtubeRedisSyncService != null && isFirstRegistration && syncVideosEveryTime) {
+            // 2. MySQL 저장 완료 후 Redis 초기 동기화
+            // syncVideosEveryTime이 true일 때만 실행 (OAuth 콜백 직후 또는 수동 동기화 시)
+            if (youtubeRedisSyncService == null) {
+                log.warn("YoutubeRedisSyncService가 주입되지 않았습니다. Redis 동기화를 건너뜁니다. userId={}", userId);
+            } else if (syncVideosEveryTime) {
                 try {
-                    log.info("최초 채널 등록 감지 - Redis 초기 동기화 시작: userId={}", userId);
+                    log.info("Redis 초기 동기화 시작: userId={}", userId);
                     youtubeRedisSyncService.syncToRedis(userId);
                     log.info("Redis 초기 동기화 완료: userId={}", userId);
                 } catch (Exception redisEx) {
-                    log.warn("Redis 초기 동기화 실패 - userId={}, error={}", userId, redisEx.getMessage(), redisEx);
+                    log.error("Redis 초기 동기화 실패 - userId={}, error={}", userId, redisEx.getMessage(), redisEx);
                     // Redis 실패해도 MySQL은 이미 저장되었으므로 예외를 던지지 않음
                 }
+            } else {
+                log.debug("Redis 동기화 스킵: syncVideosEveryTime=false, userId={}", userId);
             }
             
             return out;
