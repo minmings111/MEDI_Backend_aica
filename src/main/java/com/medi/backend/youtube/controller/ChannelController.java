@@ -77,7 +77,7 @@ public class ChannelController {
     @PreAuthorize("isAuthenticated()")
     @PostMapping("/sync")
     public ResponseEntity<?> syncChannels(
-            @org.springframework.web.bind.annotation.RequestParam(name = "syncVideos", defaultValue = "false") boolean syncVideos
+            @org.springframework.web.bind.annotation.RequestParam(name = "syncVideos", defaultValue = "true") boolean syncVideos
     ) {
         Integer userId = authUtil.getCurrentUserId();
         if (userId == null) {
