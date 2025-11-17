@@ -95,15 +95,30 @@ public class YoutubeService {
                 throw new IllegalStateException("YouTube OAuth 토큰이 존재하지 않습니다. 다시 연결해 주세요.");
             }
 
+            // DB에서 사용자의 현재 채널 목록을 먼저 가져옴 (삭제된 채널 제외)
+            List<YoutubeChannelDto> existingChannels = channelMapper.findByUserId(userId);
+            Map<String, YoutubeChannelDto> existingChannelMap = new HashMap<>();
+            for (YoutubeChannelDto channel : existingChannels) {
+                existingChannelMap.put(channel.getYoutubeChannelId(), channel);
+            }
+
             String token = youtubeOAuthService.getValidAccessToken(userId);
             YouTube yt = buildClient(token);
             YouTube.Channels.List req = yt.channels().list(Arrays.asList("snippet","contentDetails","statistics"));
             req.setMine(true);
             ChannelListResponse resp = req.execute();
-            List<YoutubeChannelDto> out = new ArrayList<>();
             
             for (Channel ch : resp.getItems()) {
-                YoutubeChannelDto existing = channelMapper.findByYoutubeChannelId(ch.getId());
+                // DB에 존재하는 채널만 처리 (삭제된 채널은 무시)
+                YoutubeChannelDto existing = existingChannelMap.get(ch.getId());
+                
+                // 삭제된 채널은 동기화하지 않음
+                if (existing == null) {
+                    log.debug("채널({})은 DB에 존재하지 않으므로 동기화를 건너뜁니다 (삭제된 채널). userId={}", 
+                            ch.getId(), userId);
+                    continue;
+                }
+
                 YoutubeChannelDto dto = mapChannelToDto(ch, userId, tokenDto.getId(), existing);
 
                 // 1. MySQL에 저장 (트랜잭션 내)
@@ -114,12 +129,11 @@ public class YoutubeService {
                 // - syncVideosEveryTime=false: 최초 등록된 채널만 동기화 (새로고침 시에는 새 영상만 가져오지 않음)
                 //   → 새로고침은 채널 정보만 업데이트하고, 영상은 스케줄러에서 처리
                 boolean shouldSyncVideos = syncVideosEveryTime
-                        || existing == null
                         || existing.getLastSyncedAt() == null;
 
                 if (shouldSyncVideos) {
                     try {
-                        VideoSyncMode mode = (existing == null || existing.getLastSyncedAt() == null)
+                        VideoSyncMode mode = (existing.getLastSyncedAt() == null)
                                 ? VideoSyncMode.FIRST_SYNC
                                 : VideoSyncMode.FOLLOW_UP;
                         syncVideos(userId, dto.getYoutubeChannelId(), 10, mode);
@@ -130,8 +144,6 @@ public class YoutubeService {
                 } else {
                     log.debug("채널({}) 영상 동기화 스킵 - 이미 동기화된 채널 (새로고침은 채널 정보만 업데이트)", ch.getId());
                 }
-
-                out.add(dto);
             }
             
             // 2. MySQL 저장 완료 후 Redis 초기 동기화
@@ -151,7 +163,9 @@ public class YoutubeService {
                 log.debug("Redis 동기화 스킵: syncVideosEveryTime=false, userId={}", userId);
             }
             
-            return out;
+            // 동기화 후 DB에서 최신 채널 목록을 가져와서 반환 (삭제된 채널 제외)
+            List<YoutubeChannelDto> latestChannels = channelMapper.findByUserId(userId);
+            return latestChannels;
         } catch (Exception e) {
             log.error("YouTube 채널 동기화 실패: userId={}", userId, e);
             markUserChannelsFailed(userId, e.getMessage());
