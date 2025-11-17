@@ -95,8 +95,8 @@ public class YoutubeService {
                 throw new IllegalStateException("YouTube OAuth 토큰이 존재하지 않습니다. 다시 연결해 주세요.");
             }
 
-            // DB에서 사용자의 현재 채널 목록을 먼저 가져옴 (삭제된 채널 제외)
-            List<YoutubeChannelDto> existingChannels = channelMapper.findByUserId(userId);
+            // DB에서 사용자의 모든 채널 목록을 가져옴 (삭제된 채널 포함 - 동기화 시 체크용)
+            List<YoutubeChannelDto> existingChannels = channelMapper.findByUserIdIncludingDeleted(userId);
             Map<String, YoutubeChannelDto> existingChannelMap = new HashMap<>();
             for (YoutubeChannelDto channel : existingChannels) {
                 existingChannelMap.put(channel.getYoutubeChannelId(), channel);
@@ -109,14 +109,29 @@ public class YoutubeService {
             ChannelListResponse resp = req.execute();
             
             for (Channel ch : resp.getItems()) {
-                // DB에 존재하는 채널만 처리 (삭제된 채널은 무시)
                 YoutubeChannelDto existing = existingChannelMap.get(ch.getId());
                 
-                // 삭제된 채널은 동기화하지 않음
-                if (existing == null) {
-                    log.debug("채널({})은 DB에 존재하지 않으므로 동기화를 건너뜁니다 (삭제된 채널). userId={}", 
+                // 삭제된 채널(deleted_at이 있는 경우)은 동기화하지 않음
+                if (existing != null && existing.getDeletedAt() != null) {
+                    log.debug("채널({})은 삭제된 채널이므로 동기화를 건너뜁니다. userId={}", 
                             ch.getId(), userId);
                     continue;
+                }
+                
+                // 새 채널 처리 로직:
+                // - syncVideosEveryTime=true (OAuth 콜백): 새 채널 생성 ✅
+                // - syncVideosEveryTime=false (수동 동기화): 새 채널 건너뜀
+                if (existing == null && !syncVideosEveryTime) {
+                    log.debug("채널({})은 DB에 존재하지 않으므로 동기화를 건너뜁니다 (새 채널, 수동 동기화 모드). userId={}", 
+                            ch.getId(), userId);
+                    continue;
+                }
+                
+                // 새 채널 생성 또는 기존 채널 업데이트
+                if (existing == null) {
+                    log.info("새 채널 생성: {} (OAuth 콜백). userId={}", ch.getId(), userId);
+                } else {
+                    log.debug("기존 채널 업데이트: {}. userId={}", ch.getId(), userId);
                 }
 
                 YoutubeChannelDto dto = mapChannelToDto(ch, userId, tokenDto.getId(), existing);
@@ -129,11 +144,11 @@ public class YoutubeService {
                 // - syncVideosEveryTime=false: 최초 등록된 채널만 동기화 (새로고침 시에는 새 영상만 가져오지 않음)
                 //   → 새로고침은 채널 정보만 업데이트하고, 영상은 스케줄러에서 처리
                 boolean shouldSyncVideos = syncVideosEveryTime
-                        || existing.getLastSyncedAt() == null;
+                        || (existing != null && existing.getLastSyncedAt() == null);
 
                 if (shouldSyncVideos) {
                     try {
-                        VideoSyncMode mode = (existing.getLastSyncedAt() == null)
+                        VideoSyncMode mode = (existing == null || existing.getLastSyncedAt() == null)
                                 ? VideoSyncMode.FIRST_SYNC
                                 : VideoSyncMode.FOLLOW_UP;
                         syncVideos(userId, dto.getYoutubeChannelId(), 10, mode);

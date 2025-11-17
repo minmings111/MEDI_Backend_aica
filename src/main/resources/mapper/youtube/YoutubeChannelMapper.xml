@@ -17,6 +17,7 @@
         <result property="lastSyncedAt" column="last_synced_at"/>
         <result property="lastVideoPublishedAt" column="last_video_published_at"/>
         <result property="uploadsPlaylistId" column="uploads_playlist_id"/>
+        <result property="deletedAt" column="deleted_at"/>
     </resultMap>
 
     <insert id="upsert" parameterType="com.medi.backend.youtube.dto.YoutubeChannelDto">
@@ -39,20 +40,33 @@
             uploads_playlist_id = VALUES(uploads_playlist_id),
             last_synced_at = VALUES(last_synced_at),
             last_video_published_at = VALUES(last_video_published_at),
+            deleted_at = NULL,
             updated_at = NOW()
     </insert>
 
     <select id="findByYoutubeChannelId" parameterType="string" resultMap="ChannelResultMap">
-        SELECT * FROM youtube_channels WHERE youtube_channel_id = #{youtubeChannelId}
+        SELECT * FROM youtube_channels 
+        WHERE youtube_channel_id = #{youtubeChannelId} 
+        AND (deleted_at IS NULL)
     </select>
 
     <select id="findByUserId" parameterType="int" resultMap="ChannelResultMap">
-        SELECT * FROM youtube_channels WHERE user_id = #{userId} ORDER BY created_at DESC
+        SELECT * FROM youtube_channels 
+        WHERE user_id = #{userId} 
+        AND (deleted_at IS NULL)
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="findByUserIdIncludingDeleted" parameterType="int" resultMap="ChannelResultMap">
+        SELECT * FROM youtube_channels 
+        WHERE user_id = #{userId}
+        ORDER BY created_at DESC
     </select>
 
     <select id="findAllForSync" resultMap="ChannelResultMap">
         SELECT *
         FROM youtube_channels
+        WHERE (deleted_at IS NULL)
         ORDER BY (updated_at IS NULL), updated_at DESC, created_at DESC
     </select>
 

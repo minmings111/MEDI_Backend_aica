@@ -22,4 +22,5 @@ public class YoutubeChannelDto {
     private LocalDateTime lastSyncedAt;
     private LocalDateTime lastVideoPublishedAt;
     private String uploadsPlaylistId;
+    private LocalDateTime deletedAt; // 소프트 삭제용
 }
