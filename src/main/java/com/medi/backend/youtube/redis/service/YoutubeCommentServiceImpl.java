@@ -36,7 +36,8 @@ import lombok.extern.slf4j.Slf4j;
  * 3. Redis에 JSON 배열 형식으로 저장
  * 
  * Redis 저장 형식:
- * - Key: video:{video_id}:comments:json
+ * - 초기 동기화: video:{video_id}:comments:init (채널 프로파일링용)
+ * - 증분 동기화: video:{video_id}:comments:filter (필터링 작업용)
  * - Type: String
  * - Value: [{comment_id: "...", text_original: "...", ...}, ...]
  * 
@@ -91,9 +92,8 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
                         }
                         
                         // 변경: Redis Key 형식 변경
-                        // 기존: video:{videoId}:comments
-                        // 신규: video:{videoId}:comments:json
-                        String redisKey = "video:" + videoId + ":comments:json";
+                        // 초기 동기화: video:{videoId}:comments:init (채널 프로파일링용)
+                        String redisKey = "video:" + videoId + ":comments:init";
                         
                         // 부분 실패 방지: 기존 댓글 백업 (String 타입으로 저장되어 있음)
                         String existingComments = stringRedisTemplate.opsForValue().get(redisKey);
@@ -177,7 +177,8 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
                         continue;
                     }
                     
-                    String redisKey = "video:" + videoId + ":comments:json";
+                    // 증분 동기화: video:{videoId}:comments:filter (필터링 작업용)
+                    String redisKey = "video:" + videoId + ":comments:filter";
                     
                     // 기존 댓글 백업
                     String existingComments = stringRedisTemplate.opsForValue().get(redisKey);
@@ -242,13 +243,13 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
      * 5. part: "snippet,replies" 사용 (Python: part="snippet,replies")
      * 
      * Redis 저장 형식:
-     * - Key: video:{video_id}:comments:json
+     * - Key: video:{video_id}:comments:init 또는 video:{video_id}:comments:filter
      * - Type: String
      * - Value: [{comment_id: "...", text_original: "...", ...}, ...]
      * 
      * @param yt YouTube API 클라이언트 객체
      * @param videoId YouTube 영상 ID
-     * @param redisKey Redis 저장 키 (예: "video:{videoId}:comments:json")
+     * @param redisKey Redis 저장 키 (예: "video:{videoId}:comments:init" 또는 "video:{videoId}:comments:filter")
      * @return 저장된 댓글 개수
      * @throws Exception YouTube API 호출 실패 시
      */
@@ -403,7 +404,7 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
      * - Java: Redis String에 JSON 배열 문자열로 저장
      * 
      * 저장 형식:
-     * - Redis Key: video:{video_id}:comments:json
+     * - Redis Key: video:{video_id}:comments:init 또는 video:{video_id}:comments:filter
      * - Redis Value Type: String
      * - Value 예시: [{"comment_id":"Ugy123","text_original":"좋은 영상",...}, {...}]
      * 
