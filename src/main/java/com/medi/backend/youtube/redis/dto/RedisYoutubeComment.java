@@ -10,7 +10,7 @@ import lombok.Getter;
  * YouTube 댓글 DTO (Redis 저장용)
  * 
  * Redis 저장 형식:
- * - Key: video:{video_id}:comments:json
+ * - 초기 동기화: Key: video:{video_id}:comments:init (채널 프로파일링용)
  * - Type: String (JSON 배열)
  * - Value: [{comment_id: "...", text_original: "...", ...}, ...]
  */
