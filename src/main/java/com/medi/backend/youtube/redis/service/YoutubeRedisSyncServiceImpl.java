@@ -2,6 +2,7 @@ package com.medi.backend.youtube.redis.service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,6 +49,7 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
     private final YoutubeVideoService videoService;
     private final YoutubeCommentService commentService;
     private final YoutubeOAuthService youtubeOAuthService;
+    private final YoutubeTranscriptService youtubeTranscriptService;
 
     // full sync process (initial sync)
     @Override
@@ -96,6 +98,17 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
             // 4. save the comments metadata of each video to Redis(limit: 100)
             long totalCommentCount = commentService.syncTop20VideoComments(
                 userId, videosByChannel, SyncOptions.initialSync());
+
+            // 5. save the transcripts for channel analysis (채널 성격 파악용 - 프로파일용 상위 20개 영상)
+            List<String> allVideoIds = videosByChannel.values().stream()
+                .flatMap(List::stream)
+                .map(RedisYoutubeVideo::getYoutubeVideoId)
+                .collect(Collectors.toList());
+            
+            if (!allVideoIds.isEmpty()) {
+                log.info("초기 동기화: {}개 영상의 자막 저장 시작 (채널 성격 파악용)", allVideoIds.size());
+                youtubeTranscriptService.saveTranscriptsToRedis(allVideoIds, yt);
+            }
 
             log.info("Redis 동기화 완료: userId={}, 채널={}개, 비디오={}개, 댓글={}개", 
                 userId, videosByChannel.size(), totalVideoCount, totalCommentCount);
