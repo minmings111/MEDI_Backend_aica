@@ -11,9 +11,10 @@
         SELECT
             id, user_id, oauth_token_id, 
             youtube_channel_id, channel_name, channel_handle, thumbnail_url, 
-            created_at, updated_at
+            created_at, updated_at, deleted_at
         FROM youtube_channels
         WHERE user_id = #{userId}
+        AND (deleted_at IS NULL)
     </select>
 
     <select id="getOneChannelByIdAndUserId" 
@@ -21,11 +22,12 @@
         SELECT
             id, user_id, oauth_token_id, 
             youtube_channel_id, channel_name, channel_handle, thumbnail_url, 
-            created_at, updated_at
+            created_at, updated_at, deleted_at
         FROM youtube_channels
         WHERE 
             id = #{id} AND 
             user_id = #{userId}
+            AND (deleted_at IS NULL)
     </select>
 
 
@@ -34,8 +36,9 @@
         SELECT
             id, user_id, oauth_token_id, 
             youtube_channel_id, channel_name, channel_handle, thumbnail_url, 
-            created_at, updated_at
+            created_at, updated_at, deleted_at
         FROM youtube_channels
+        WHERE (deleted_at IS NULL)
     </select>
 
 
@@ -43,12 +46,14 @@
 
 
 
-    <delete id="deleteChannelById">
-        DELETE FROM youtube_channels
+    <update id="deleteChannelById">
+        UPDATE youtube_channels
+        SET deleted_at = NOW()
         WHERE 
             id = #{id} AND
             user_id = #{userId}
-    </delete>
+            AND (deleted_at IS NULL)
+    </update>
 
 
 
