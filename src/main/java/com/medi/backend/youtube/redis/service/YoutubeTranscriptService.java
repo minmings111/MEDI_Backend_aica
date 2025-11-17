@@ -2,6 +2,8 @@ package com.medi.backend.youtube.redis.service;
 
 import java.util.List;
 
+import com.google.api.services.youtube.YouTube;
+
 /**
  * YouTube 비디오 스크립트(자막) 저장 서비스 인터페이스
  * 
@@ -19,10 +21,6 @@ import java.util.List;
  * 2. 모든 비디오에 자막이 있는 것은 아님 (자막 비활성화 또는 미제공)
  * 3. 자막은 자동 생성 자막과 수동 자막으로 구분됨
  * 4. 다국어 자막 지원 고려 필요
- * 
- * 구현 예정:
- * - 현재는 인터페이스만 정의
- * - 추후 YouTube Captions API 연동 필요 시 구현
  */
 public interface YoutubeTranscriptService {
     
@@ -43,6 +41,18 @@ public interface YoutubeTranscriptService {
      * @return 저장 성공한 비디오 개수
      */
     long saveTranscriptsToRedis(List<String> videoIds, Integer userId);
+    
+    /**
+     * 여러 비디오의 스크립트(자막)를 Redis에 일괄 저장 (클라이언트 재사용)
+     * 
+     * 동기화 서비스에서 이미 생성한 YouTube API 클라이언트를 재사용하여
+     * OAuth 토큰 조회 및 클라이언트 생성을 생략합니다.
+     * 
+     * @param videoIds YouTube 비디오 ID 목록
+     * @param yt YouTube API 클라이언트 (재사용)
+     * @return 저장 성공한 비디오 개수
+     */
+    long saveTranscriptsToRedis(List<String> videoIds, YouTube yt);
     
     /**
      * Redis에서 특정 비디오의 스크립트 조회
