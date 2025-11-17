@@ -110,12 +110,21 @@ public class YoutubeService {
             
             for (Channel ch : resp.getItems()) {
                 YoutubeChannelDto existing = existingChannelMap.get(ch.getId());
+                boolean wasDeletedChannel = existing != null && existing.getDeletedAt() != null;
                 
-                // 삭제된 채널(deleted_at이 있는 경우)은 동기화하지 않음
-                if (existing != null && existing.getDeletedAt() != null) {
+                // 삭제된 채널 처리:
+                // - syncVideosEveryTime=true (OAuth 콜백): 복구 허용
+                // - syncVideosEveryTime=false: 계속 삭제 상태 유지
+                if (wasDeletedChannel && !syncVideosEveryTime) {
                     log.debug("채널({})은 삭제된 채널이므로 동기화를 건너뜁니다. userId={}", 
                             ch.getId(), userId);
                     continue;
+                }
+                if (wasDeletedChannel && syncVideosEveryTime) {
+                    log.info("삭제된 채널 복구: {}. userId={}", ch.getId(), userId);
+                    if (existing != null) {
+                        existing.setDeletedAt(null);
+                    }
                 }
                 
                 // 새 채널 처리 로직:
@@ -131,7 +140,11 @@ public class YoutubeService {
                 if (existing == null) {
                     log.info("새 채널 생성: {} (OAuth 콜백). userId={}", ch.getId(), userId);
                 } else {
-                    log.debug("기존 채널 업데이트: {}. userId={}", ch.getId(), userId);
+                    if (wasDeletedChannel) {
+                        log.debug("삭제되었던 채널을 업데이트합니다: {}. userId={}", ch.getId(), userId);
+                    } else {
+                        log.debug("기존 채널 업데이트: {}. userId={}", ch.getId(), userId);
+                    }
                 }
 
                 YoutubeChannelDto dto = mapChannelToDto(ch, userId, tokenDto.getId(), existing);
@@ -144,6 +157,7 @@ public class YoutubeService {
                 // - syncVideosEveryTime=false: 최초 등록된 채널만 동기화 (새로고침 시에는 새 영상만 가져오지 않음)
                 //   → 새로고침은 채널 정보만 업데이트하고, 영상은 스케줄러에서 처리
                 boolean shouldSyncVideos = syncVideosEveryTime
+                        || wasDeletedChannel
                         || (existing != null && existing.getLastSyncedAt() == null);
 
                 if (shouldSyncVideos) {
