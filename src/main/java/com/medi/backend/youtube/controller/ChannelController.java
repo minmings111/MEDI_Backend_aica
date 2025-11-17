@@ -74,6 +74,12 @@ public class ChannelController {
         return ResponseEntity.ok(youtubeChannelDto);
     }
 
+    /**
+     * 채널 새로고침 (수동 동기화)
+     * 
+     * MySQL에만 저장하고 Redis 동기화는 실행하지 않습니다.
+     * Redis 동기화는 첫 등록 시(OAuth 콜백) 또는 별도 엔드포인트(/redis/sync)를 통해 실행됩니다.
+     */
     @PreAuthorize("isAuthenticated()")
     @PostMapping("/sync")
     public ResponseEntity<?> syncChannels(
@@ -84,7 +90,9 @@ public class ChannelController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
-        List<YoutubeChannelDto> synced = youtubeService.syncChannels(userId, syncVideos);
+        // 새로고침은 MySQL만 저장 (Redis 동기화 X)
+        // syncVideos=false로 하면 Redis 동기화가 실행되지 않음
+        List<YoutubeChannelDto> synced = youtubeService.syncChannels(userId, false);
         return ResponseEntity.ok(synced);
     }
 

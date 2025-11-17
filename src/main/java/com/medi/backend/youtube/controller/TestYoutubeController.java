@@ -14,7 +14,10 @@ import com.medi.backend.youtube.mapper.YoutubeVideoMapper;
 import com.medi.backend.youtube.redis.dto.RedisSyncResult;
 import com.medi.backend.youtube.redis.service.YoutubeRedisSyncService;
 import com.medi.backend.youtube.redis.service.YoutubeTranscriptService;
+import com.medi.backend.youtube.scheduler.YoutubeSyncScheduler;
 import com.medi.backend.youtube.service.YoutubeDataApiClient;
+import com.medi.backend.youtube.service.YoutubeService;
+import com.medi.backend.youtube.model.VideoSyncMode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -51,6 +54,8 @@ public class TestYoutubeController {
     private final YoutubeVideoMapper videoMapper;
     private final YoutubeRedisSyncService youtubeRedisSyncService;
     private final YoutubeTranscriptService youtubeTranscriptService;
+    private final YoutubeSyncScheduler youtubeSyncScheduler;
+    private final YoutubeService youtubeService;
 
     @PostMapping("/save")
     public ResponseEntity<?> saveChannelAndVideos(
@@ -225,6 +230,69 @@ public class TestYoutubeController {
             ));
         } catch (Exception e) {
             log.error("Redis 증분 동기화 테스트 실패: userId={}", userId, e);
+            return ResponseEntity.status(500).body(Map.of(
+                "success", false,
+                "message", e.getMessage()
+            ));
+        }
+    }
+
+    /**
+     * 스케줄러 수동 실행 (테스트용)
+     * 
+     * 실제 스케줄러가 실행하는 로직을 수동으로 트리거합니다.
+     * 1시간을 기다리지 않고 스케줄러를 테스트할 수 있습니다.
+     * 
+     * 옵션:
+     * - 파라미터 없음: 모든 채널 동기화 (실제 스케줄러와 동일)
+     * - userId + channelId 지정: 특정 채널만 동기화 (증분 동기화 테스트)
+     * 
+     * 예시:
+     * - POST /api/test/youtube/scheduler/test (모든 채널)
+     * - POST /api/test/youtube/scheduler/test?userId=12&channelId=UC... (특정 채널)
+     */
+    @PostMapping("/scheduler/test")
+    public ResponseEntity<?> testScheduler(
+            @RequestParam(value = "userId", required = false) Integer userId,
+            @RequestParam(value = "channelId", required = false) String channelId) {
+        try {
+            log.info("[테스트] 스케줄러 수동 실행 시작 - userId={}, channelId={}", userId, channelId);
+            
+            // 특정 채널만 테스트하는 경우 (증분 동기화 테스트)
+            if (userId != null && channelId != null) {
+                log.info("[테스트] 특정 채널 증분 동기화: userId={}, channelId={}", userId, channelId);
+                List<YoutubeVideoDto> videos = youtubeService.syncVideos(
+                    userId, 
+                    channelId, 
+                    null,  // maxResults: null이면 기본값 10
+                    VideoSyncMode.FOLLOW_UP  // 증분 동기화 모드
+                );
+                
+                return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "특정 채널 증분 동기화 완료",
+                    "videoCount", videos.size(),
+                    "videos", videos.stream()
+                        .map(v -> Map.of(
+                            "id", v.getId() != null ? v.getId() : "",
+                            "videoId", v.getYoutubeVideoId() != null ? v.getYoutubeVideoId() : "",
+                            "title", v.getTitle() != null ? v.getTitle() : "",
+                            "publishedAt", v.getPublishedAt() != null ? v.getPublishedAt().toString() : ""
+                        ))
+                        .collect(Collectors.toList())
+                ));
+            }
+            
+            // 모든 채널 동기화 (실제 스케줄러와 동일)
+            youtubeSyncScheduler.syncAllChannelsDaily();
+            log.info("[테스트] 스케줄러 수동 실행 완료");
+            
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "스케줄러 실행 완료 (모든 채널 동기화)"
+            ));
+        } catch (Exception e) {
+            log.error("[테스트] 스케줄러 실행 실패", e);
             return ResponseEntity.status(500).body(Map.of(
                 "success", false,
                 "message", e.getMessage()
