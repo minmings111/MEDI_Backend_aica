@@ -33,7 +33,8 @@ import lombok.extern.slf4j.Slf4j;
  *    Value: {channel_id, video_id, video_title, video_tags}
  * 
  * 4. save the video comments to Redis (after 3 is completed)
- *    Key: video:{video_id}:comments:json
+ *    초기 동기화: Key: video:{video_id}:comments:init (채널 프로파일링용)
+ *    증분 동기화: Key: video:{video_id}:comments:filter (필터링 작업용)
  *    Type: String (JSON array)
  *    Value: [{comment_id, text_original, author_name, like_count, published_at}, ...]
  * 
