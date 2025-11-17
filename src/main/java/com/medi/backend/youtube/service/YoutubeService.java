@@ -109,6 +109,10 @@ public class YoutubeService {
                 // 1. MySQL에 저장 (트랜잭션 내)
                 channelMapper.upsert(dto);
 
+                // 영상 동기화 조건:
+                // - syncVideosEveryTime=true: 항상 동기화 (OAuth 콜백 시)
+                // - syncVideosEveryTime=false: 최초 등록된 채널만 동기화 (새로고침 시에는 새 영상만 가져오지 않음)
+                //   → 새로고침은 채널 정보만 업데이트하고, 영상은 스케줄러에서 처리
                 boolean shouldSyncVideos = syncVideosEveryTime
                         || existing == null
                         || existing.getLastSyncedAt() == null;
@@ -123,6 +127,8 @@ public class YoutubeService {
                         log.warn("채널({}) 영상 동기화 실패 - userId={}, error={}",
                                 ch.getId(), userId, videoSyncEx.getMessage(), videoSyncEx);
                     }
+                } else {
+                    log.debug("채널({}) 영상 동기화 스킵 - 이미 동기화된 채널 (새로고침은 채널 정보만 업데이트)", ch.getId());
                 }
 
                 out.add(dto);
@@ -233,10 +239,10 @@ public class YoutubeService {
                             .collect(java.util.stream.Collectors.toList());
                     
                     if (!videoIds.isEmpty()) {
-                        log.debug("MySQL 영상 동기화 완료 - Redis 증분 동기화 시작: userId={}, channelId={}, videoCount={}", 
+                        log.info("MySQL 영상 동기화 완료 - Redis 증분 동기화 시작: userId={}, channelId={}, videoCount={}", 
                                 userId, youtubeChannelId, videoIds.size());
                         youtubeRedisSyncService.syncIncrementalToRedis(userId, videoIds);
-                        log.debug("Redis 증분 동기화 완료: userId={}, videoCount={}", userId, videoIds.size());
+                        log.info("Redis 증분 동기화 완료: userId={}, videoCount={}", userId, videoIds.size());
                     }
                 } catch (Exception redisEx) {
                     log.warn("Redis 증분 동기화 실패 - userId={}, channelId={}, error={}", 
