@@ -1,6 +1,7 @@
 package com.medi.backend.youtube.controller;
 
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -13,12 +14,16 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.extern.slf4j.Slf4j;
 
 import com.medi.backend.global.util.AuthUtil;
 import com.medi.backend.youtube.dto.YoutubeChannelDto;
+import com.medi.backend.youtube.redis.dto.RedisSyncResult;
+import com.medi.backend.youtube.redis.service.YoutubeRedisSyncService;
 import com.medi.backend.youtube.service.ChannelService;
 import com.medi.backend.youtube.service.YoutubeService;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/youtube/channels")
 @Tag(name = "YouTube Channels", description = "채널 목록 조회 및 삭제 API")
@@ -26,11 +31,17 @@ public class ChannelController {
     private final ChannelService channelService;
     private final YoutubeService youtubeService;
     private final AuthUtil authUtil;
+    private final YoutubeRedisSyncService youtubeRedisSyncService;
 
-    public ChannelController(ChannelService channelService, YoutubeService youtubeService, AuthUtil authUtil) {
+    public ChannelController(
+            ChannelService channelService, 
+            YoutubeService youtubeService, 
+            AuthUtil authUtil,
+            YoutubeRedisSyncService youtubeRedisSyncService) {
         this.channelService = channelService;
         this.youtubeService = youtubeService;
         this.authUtil = authUtil;
+        this.youtubeRedisSyncService = youtubeRedisSyncService;
     }
 
     // View my channels
@@ -75,6 +86,51 @@ public class ChannelController {
 
         List<YoutubeChannelDto> synced = youtubeService.syncChannels(userId, syncVideos);
         return ResponseEntity.ok(synced);
+    }
+
+    /**
+     * Redis 초기 동기화 엔드포인트
+     * 
+     * 사용자의 모든 채널을 YouTube API로 조회하여:
+     * - 각 채널의 상위 20개 영상 (쇼츠 제외, 조회수 순)을 Redis에 저장
+     * - 각 영상의 댓글 100개를 Redis에 저장
+     * 
+     * 주의: 이 엔드포인트는 수동으로 초기 동기화를 트리거할 때 사용합니다.
+     * 증분 동기화는 스케줄러에 의해 자동으로 실행됩니다.
+     * 
+     * @return Redis 동기화 결과 (채널 개수, 비디오 개수, 댓글 개수)
+     */
+    @PreAuthorize("isAuthenticated()")
+    @PostMapping("/redis/sync")
+    public ResponseEntity<?> syncChannelsToRedis() {
+        Integer userId = authUtil.getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                Map.of("success", false, "message", "로그인이 필요합니다")
+            );
+        }
+
+        try {
+            log.info("Redis 초기 동기화 시작: userId={}", userId);
+            RedisSyncResult result = youtubeRedisSyncService.syncToRedis(userId);
+            
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Redis 동기화 완료",
+                "result", Map.of(
+                    "channelCount", result.getChannelCount(),
+                    "videoCount", result.getVideoCount(),
+                    "commentCount", result.getCommentCount(),
+                    "success", result.isSuccess(),
+                    "errorMessage", result.getErrorMessage() != null ? result.getErrorMessage() : ""
+                )
+            ));
+        } catch (Exception e) {
+            log.error("Redis 동기화 실패: userId={}", userId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                Map.of("success", false, "message", e.getMessage())
+            );
+        }
     }
 
     @PreAuthorize("hasRole('ADMIN')")

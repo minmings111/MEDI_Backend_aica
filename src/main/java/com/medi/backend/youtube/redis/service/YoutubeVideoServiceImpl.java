@@ -95,7 +95,7 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
 
                     // 2-4. remove shorts and sort by view count and select the top 20
                     List<Video> top20Videos = videos.stream()
-                        .filter(video -> !isShortsVideo(video))  // remove shorts
+                        // .filter(video -> !isShortsVideo(video))  // remove shorts
                         .sorted(Comparator.comparing(
                             video -> {
                                 if (video.getStatistics() != null && video.getStatistics().getViewCount() != null) {

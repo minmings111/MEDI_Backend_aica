@@ -13,13 +13,16 @@ import com.medi.backend.youtube.mapper.YoutubeChannelMapper;
 import com.medi.backend.youtube.mapper.YoutubeVideoMapper;
 import com.medi.backend.youtube.redis.dto.RedisSyncResult;
 import com.medi.backend.youtube.redis.service.YoutubeRedisSyncService;
+import com.medi.backend.youtube.redis.service.YoutubeTranscriptService;
 import com.medi.backend.youtube.service.YoutubeDataApiClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -47,6 +50,7 @@ public class TestYoutubeController {
     private final YoutubeChannelMapper channelMapper;
     private final YoutubeVideoMapper videoMapper;
     private final YoutubeRedisSyncService youtubeRedisSyncService;
+    private final YoutubeTranscriptService youtubeTranscriptService;
 
     @PostMapping("/save")
     public ResponseEntity<?> saveChannelAndVideos(
@@ -188,6 +192,89 @@ public class TestYoutubeController {
                 "success", false,
                 "message", e.getMessage()
             ));
+        }
+    }
+
+    @PostMapping("/redis/sync/incremental")
+    public ResponseEntity<?> testRedisIncrementalSync(
+            @RequestParam("userId") Integer userId,
+            @RequestBody Map<String, List<String>> request) {
+        try {
+            log.info("Redis 증분 동기화 테스트 시작: userId={}", userId);
+            
+            List<String> videoIds = request.get("videoIds");
+            if (videoIds == null || videoIds.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "videoIds가 필요합니다. Body에 {\"videoIds\": [\"video1\", \"video2\", ...]} 형식으로 전달해주세요."
+                ));
+            }
+            
+            log.info("Redis 증분 동기화 테스트 - 비디오 ID 개수: {}", videoIds.size());
+            RedisSyncResult result = youtubeRedisSyncService.syncIncrementalToRedis(userId, videoIds);
+            
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Redis 증분 동기화 완료",
+                "result", Map.of(
+                    "videoCount", result.getVideoCount(),
+                    "commentCount", result.getCommentCount(),
+                    "success", result.isSuccess(),
+                    "errorMessage", result.getErrorMessage() != null ? result.getErrorMessage() : ""
+                )
+            ));
+        } catch (Exception e) {
+            log.error("Redis 증분 동기화 테스트 실패: userId={}", userId, e);
+            return ResponseEntity.status(500).body(Map.of(
+                "success", false,
+                "message", e.getMessage()
+            ));
+        }
+    }
+
+    /**
+     * Redis에서 특정 비디오의 자막(transcript) 조회
+     * 
+     * GET /api/test/youtube/transcript/{videoId}
+     * 
+     * AI 서버가 댓글 필터링 시 비디오 컨텍스트를 위해 사용
+     * 
+     * @param videoId YouTube 비디오 ID
+     * @return 자막 텍스트 (없으면 null)
+     */
+    @GetMapping("/transcript/{videoId}")
+    public ResponseEntity<?> getTranscript(@PathVariable("videoId") String videoId) {
+        try {
+            if (videoId == null || videoId.isBlank()) {
+                return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "videoId가 필요합니다."
+                ));
+            }
+
+            String transcript = youtubeTranscriptService.getTranscriptFromRedis(videoId);
+            
+            if (transcript == null) {
+                Map<String, Object> response = new HashMap<>();
+                response.put("success", true);
+                response.put("message", "자막이 Redis에 없습니다.");
+                response.put("videoId", videoId);
+                response.put("transcript", null);
+                return ResponseEntity.ok(response);
+            }
+
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "videoId", videoId,
+                "transcript", transcript,
+                "length", transcript.length()
+            ));
+        } catch (Exception e) {
+            log.error("자막 조회 실패: videoId={}", videoId, e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage() != null ? e.getMessage() : "자막 조회 중 오류가 발생했습니다.");
+            return ResponseEntity.status(500).body(errorResponse);
         }
     }
 
