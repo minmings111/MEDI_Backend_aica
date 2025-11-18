@@ -13,6 +13,16 @@
         LIMIT 1
     </select>
 
+    <select id="findChannelIdByYoutubeChannelId" resultType="java.lang.Integer">
+        SELECT id 
+        FROM youtube_channels
+        WHERE youtube_channel_id = #{youtubeChannelId} 
+        LIMIT 1
+    </select>
+
+
+
+
     <insert id="insertFilteredComment">
         INSERT INTO youtube_comments (
             video_id,
@@ -21,39 +31,76 @@
             commenter_name,
             published_at,
             like_count
-            <!-- author_channel_id,
+            author_channel_id,
             updated_at,
             parent_id,
             total_reply_count,
             can_rate,
-            viewer_rating -->
+            viewer_rating
         ) VALUES (
             #{videoId},
             #{youtubeCommentId},
             #{commentText},
             #{commenterName},
-            STR_TO_DATE(#{publishedAt}, '%Y-%m-%dT%H:%i:%sZ')
+            STR_TO_DATE(#{publishedAt}, '%Y-%m-%dT%H:%i:%sZ'),
             #{likeCount},
-            <!-- #{authorChannelId},
+            #{authorChannelId},
             STR_TO_DATE(#{updatedAt}, '%Y-%m-%dT%H:%i:%sZ'),
             #{parentId},
             #{totalReplyCount},
             #{canRate},
-            #{viewerRating} -->
+            #{viewerRating}
         )
         ON DUPLICATE KEY UPDATE
             comment_text = VALUES(comment_text),
             commenter_name = VALUES(commenter_name),
-            published_at = VALUES(published_at)
-            like_count = VALUES(like_count),
-            <!-- author_channel_id = VALUES(author_channel_id),
+            published_at = VALUES(published_at),
+            like_count = VALUES(like_count)
+            author_channel_id = VALUES(author_channel_id),
             updated_at = VALUES(updated_at),
             parent_id = VALUES(parent_id),
             total_reply_count = VALUES(total_reply_count),
             can_rate = VALUES(can_rate),
-            viewer_rating = VALUES(viewer_rating) -->
+            viewer_rating = VALUES(viewer_rating)
     </insert>
 
+    <!-- insertResultVideo SQL -->
+    <insert id="insertResultVideo">
+        INSERT INTO ai_video_analysis_result (
+            video_id,
+            summarize,
+            communication,
+            ai_model_version
+        ) VALUES (
+            #{videoId},
+            #{summarize},
+            #{communication},
+            NULL
+        )
+        ON DUPLICATE KEY UPDATE
+            summarize = VALUES(summarize),
+            communication = VALUES(communication)
+    </insert>
 
+    <!-- insertResultChannel SQL -->
+    <insert id="insertResultChannel">
+        INSERT INTO ai_channel_analysis_result (
+            channel_id,
+            analysis_result,
+            ai_model_version
+        ) VALUES (
+            #{channelId},
+            JSON_OBJECT(
+                'profile', #{profile},
+                'ecosystem', #{ecosystem}
+            ),
+            NULL
+        )
+        ON DUPLICATE KEY UPDATE
+            analysis_result = JSON_OBJECT(
+                'profile', #{profile},
+                'ecosystem', #{ecosystem}
+            )
+    </insert>
 
 </mapper>

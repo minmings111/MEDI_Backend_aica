@@ -39,13 +39,13 @@ public class AgentServiceImpl implements AgentService{
                 comment.getTextOriginal(),
                 comment.getAuthorName(),
                 comment.getPublishedAt(),
-                comment.getLikeCount()
-                // comment.getAuthorChannelId(),
-                // comment.getUpdatedAt(),
-                // comment.getParentId(),
-                // comment.getTotalReplyCount(),
-                // comment.getCanRate(),
-                // comment.getViewerRating()
+                comment.getLikeCount(),
+                comment.getAuthorChannelId(),
+                comment.getUpdatedAt(),
+                comment.getParentId(),
+                comment.getTotalReplyCount(),
+                comment.getCanRate(),
+                comment.getViewerRating()
             );
             
             if (result > 0) {

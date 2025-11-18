@@ -347,7 +347,7 @@ private static final ZoneId YOUTUBE_TIME_ZONE = ZoneId.of("UTC");
                     if (thread.getReplies() != null 
                         && thread.getReplies().getComments() != null) {
                         for (Comment reply : thread.getReplies().getComments()) {
-                            // 댓글 개수 제한 체크 (제한이 설정된 경우에만)
+                    // 댓글 개수 제한 체크 (제한이 설정된 경우에만)
                             if (maxCommentCount != null && maxCommentCount > 0 && newComments.size() >= maxCommentCount) {
                                 break;
                             }
@@ -450,7 +450,7 @@ private static final ZoneId YOUTUBE_TIME_ZONE = ZoneId.of("UTC");
                     if (maxCommentCount != null && maxCommentCount > 0 && allComments.size() >= maxCommentCount) {
                         break;
                     }
-
+                    
                     Comment top = thread.getSnippet().getTopLevelComment();
                     if (useFullMetadata) {
                         Long totalReplyCount = null;
@@ -474,13 +474,13 @@ private static final ZoneId YOUTUBE_TIME_ZONE = ZoneId.of("UTC");
                         }
                     }
 
-                    if (thread.getReplies() != null
-                            && thread.getReplies().getComments() != null) {
+                    if (thread.getReplies() != null 
+                        && thread.getReplies().getComments() != null) {
                         for (Comment reply : thread.getReplies().getComments()) {
                             if (maxCommentCount != null && maxCommentCount > 0 && allComments.size() >= maxCommentCount) {
                                 break;
                             }
-
+                            
                             if (useFullMetadata) {
                                 RedisYoutubeCommentFull replyComment = redisMapper.toRedisCommentFull(
                                         reply, top != null ? top.getId() : null, null
@@ -502,9 +502,9 @@ private static final ZoneId YOUTUBE_TIME_ZONE = ZoneId.of("UTC");
             }
 
             nextPageToken = resp.getNextPageToken();
-        } while (nextPageToken != null &&
-                (maxCommentCount == null || maxCommentCount <= 0 || allComments.size() < maxCommentCount));
-
+        } while (nextPageToken != null && 
+                 (maxCommentCount == null || maxCommentCount <= 0 || allComments.size() < maxCommentCount));
+        
         if (maxCommentCount != null && maxCommentCount > 0 && allComments.size() > maxCommentCount) {
             allComments = allComments.subList(0, maxCommentCount);
         }
