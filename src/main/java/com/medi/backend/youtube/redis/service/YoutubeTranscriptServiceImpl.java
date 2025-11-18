@@ -4,11 +4,16 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.api.services.youtube.YouTube;
 import com.google.api.services.youtube.model.Caption;
 import com.google.api.services.youtube.model.CaptionListResponse;
@@ -28,8 +33,15 @@ import lombok.extern.slf4j.Slf4j;
  * 
  * Redis 저장 형식:
  * - Key: video:{video_id}:transcript
- * - Type: String
- * - Value: 스크립트 텍스트 원본
+ * - Type: String (JSON)
+ * - Value: JSON 형식의 스크립트 데이터
+ *   {
+ *     "video_id": "KNY8AGkPXC4",
+ *     "video_title": "비디오 제목",
+ *     "transcript": "스크립트 텍스트"
+ *   }
+ * 
+ * 비디오 제목은 레디스의 video:{video_id}:meta:json에서 가져옴
  * 
  * Python 코드 참고:
  * ```python
@@ -46,6 +58,7 @@ public class YoutubeTranscriptServiceImpl implements YoutubeTranscriptService {
 
     private final YoutubeOAuthService youtubeOAuthService;
     private final StringRedisTemplate stringRedisTemplate;
+    private final ObjectMapper objectMapper;
 
     /**
      * 특정 비디오의 스크립트(자막)를 Redis에 저장
@@ -192,13 +205,30 @@ public class YoutubeTranscriptServiceImpl implements YoutubeTranscriptService {
                 
                 log.info("영상 {}의 자막 텍스트 정리 완료: 정리 후 길이={}자", videoId, cleanedTranscript.length());
                 
-                // 6. Redis에 저장
+                // 6. 레디스에서 비디오 메타데이터 조회 (video_title 가져오기)
+                String videoTitle = getVideoTitleFromRedis(videoId);
+                
+                // 7. JSON 형식으로 변환 (순서 보장: video_id, video_title, transcript)
+                Map<String, String> transcriptData = new LinkedHashMap<>();
+                transcriptData.put("video_id", videoId);
+                transcriptData.put("video_title", videoTitle != null ? videoTitle : "");
+                transcriptData.put("transcript", cleanedTranscript);
+                
+                String jsonValue;
+                try {
+                    jsonValue = objectMapper.writeValueAsString(transcriptData);
+                } catch (JsonProcessingException e) {
+                    log.error("영상 {}의 JSON 변환 실패: {}", videoId, e.getMessage(), e);
+                    return false;
+                }
+                
+                // 8. Redis에 저장
                 String redisKey = "video:" + videoId + ":transcript";
-                stringRedisTemplate.opsForValue().set(redisKey, cleanedTranscript);
+                stringRedisTemplate.opsForValue().set(redisKey, jsonValue);
                 stringRedisTemplate.expire(redisKey, Duration.ofDays(3));
 
-                log.info("영상 {}의 자막 저장 완료: Redis key={}, 길이={}자", 
-                    videoId, redisKey, cleanedTranscript.length());
+                log.info("영상 {}의 자막 저장 완료: Redis key={}, JSON 길이={}자", 
+                    videoId, redisKey, jsonValue.length());
                 return true;
                 
             } catch (Exception downloadException) {
@@ -296,6 +326,44 @@ public class YoutubeTranscriptServiceImpl implements YoutubeTranscriptService {
 
         String redisKey = "video:" + videoId + ":transcript";
         return stringRedisTemplate.opsForValue().get(redisKey);
+    }
+    
+    /**
+     * 레디스에서 비디오 제목 조회
+     * 
+     * @param videoId YouTube 비디오 ID
+     * @return 비디오 제목 (없으면 null)
+     */
+    private String getVideoTitleFromRedis(String videoId) {
+        if (videoId == null || videoId.isBlank()) {
+            return null;
+        }
+        
+        try {
+            String metaKey = "video:" + videoId + ":meta:json";
+            String metaJson = stringRedisTemplate.opsForValue().get(metaKey);
+            
+            if (metaJson == null || metaJson.isBlank()) {
+                log.warn("영상 {}의 메타데이터를 레디스에서 찾을 수 없습니다", videoId);
+                return null;
+            }
+            
+            // JSON 파싱하여 video_title 추출
+            Map<String, Object> metaData = objectMapper.readValue(
+                metaJson, 
+                new TypeReference<Map<String, Object>>() {}
+            );
+            
+            Object titleObj = metaData.get("video_title");
+            return titleObj != null ? titleObj.toString() : null;
+            
+        } catch (JsonProcessingException e) {
+            log.error("영상 {}의 메타데이터 JSON 파싱 실패: {}", videoId, e.getMessage());
+            return null;
+        } catch (Exception e) {
+            log.error("영상 {}의 제목 조회 실패: {}", videoId, e.getMessage());
+            return null;
+        }
     }
 
     /**
