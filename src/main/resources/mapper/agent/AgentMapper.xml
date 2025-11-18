@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.medi.backend.agent.mapper.AgentMapper">
+
+
+    <select id="findVideoIdByYoutubeVideoId" resultType="java.lang.Integer">
+        SELECT id 
+        FROM youtube_videos
+        WHERE youtube_video_id = #{youtubeVideoId} 
+        LIMIT 1
+    </select>
+
+    <insert id="insertFilteredComment">
+        INSERT INTO youtube_comments (
+            video_id,
+            youtube_comment_id,
+            comment_text,
+            commenter_name,
+            published_at,
+            like_count
+            <!-- author_channel_id,
+            updated_at,
+            parent_id,
+            total_reply_count,
+            can_rate,
+            viewer_rating -->
+        ) VALUES (
+            #{videoId},
+            #{youtubeCommentId},
+            #{commentText},
+            #{commenterName},
+            STR_TO_DATE(#{publishedAt}, '%Y-%m-%dT%H:%i:%sZ')
+            #{likeCount},
+            <!-- #{authorChannelId},
+            STR_TO_DATE(#{updatedAt}, '%Y-%m-%dT%H:%i:%sZ'),
+            #{parentId},
+            #{totalReplyCount},
+            #{canRate},
+            #{viewerRating} -->
+        )
+        ON DUPLICATE KEY UPDATE
+            comment_text = VALUES(comment_text),
+            commenter_name = VALUES(commenter_name),
+            published_at = VALUES(published_at)
+            like_count = VALUES(like_count),
+            <!-- author_channel_id = VALUES(author_channel_id),
+            updated_at = VALUES(updated_at),
+            parent_id = VALUES(parent_id),
+            total_reply_count = VALUES(total_reply_count),
+            can_rate = VALUES(can_rate),
+            viewer_rating = VALUES(viewer_rating) -->
+    </insert>
+
+
+
+</mapper>
