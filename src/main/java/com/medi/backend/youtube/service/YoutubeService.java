@@ -5,6 +5,7 @@ import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.services.youtube.YouTube;
 import com.google.api.services.youtube.model.*;
 import com.medi.backend.youtube.config.YoutubeDataApiProperties;
+import com.medi.backend.youtube.config.YoutubeSyncConfigProperties;
 import com.medi.backend.youtube.dto.YoutubeOAuthTokenDto;
 import com.medi.backend.youtube.dto.YoutubeChannelDto;
 import com.medi.backend.youtube.dto.YoutubeVideoDto;
@@ -47,6 +48,9 @@ public class YoutubeService {
 
     @Autowired
     private YoutubeDataApiProperties youtubeDataApiProperties;
+
+    @Autowired
+    private YoutubeSyncConfigProperties syncConfig;
 
     @Autowired(required = false)
     private YoutubeRedisSyncService youtubeRedisSyncService;
@@ -165,7 +169,8 @@ public class YoutubeService {
                         VideoSyncMode mode = (existing == null || existing.getLastSyncedAt() == null)
                                 ? VideoSyncMode.FIRST_SYNC
                                 : VideoSyncMode.FOLLOW_UP;
-                        syncVideos(userId, dto.getYoutubeChannelId(), 10, mode);
+                        // 초기 동기화 시 설정값 사용 (기본값: 5개)
+                        syncVideos(userId, dto.getYoutubeChannelId(), syncConfig.getMaxVideosInitial(), mode);
                     } catch (Exception videoSyncEx) {
                         log.warn("채널({}) 영상 동기화 실패 - userId={}, error={}",
                                 ch.getId(), userId, videoSyncEx.getMessage(), videoSyncEx);
@@ -220,6 +225,12 @@ public class YoutubeService {
 
     @Transactional
     public List<YoutubeVideoDto> syncVideos(Integer userId, String youtubeChannelId, Integer maxResults, VideoSyncMode syncMode) {
+        return syncVideos(userId, youtubeChannelId, maxResults, syncMode, false);
+    }
+
+    @Transactional
+    public List<YoutubeVideoDto> syncVideos(Integer userId, String youtubeChannelId, Integer maxResults,
+                                           VideoSyncMode syncMode, boolean skipCommentSync) {
         try {
             String token = youtubeOAuthService.getValidAccessToken(userId);
             YouTube yt = buildClient(token);
@@ -232,9 +243,13 @@ public class YoutubeService {
 
             updateChannelSyncInfo(channel.getYoutubeChannelId(), channel.getLastSyncedAt(), channel.getLastVideoPublishedAt());
 
-            int defaultCap = treatAsFirstSync ? 10 : 10;
+            // 설정값 사용: 초기 동기화는 maxVideosInitial, 증분 동기화는 maxVideosPerHour
+            int defaultCap = treatAsFirstSync ? syncConfig.getMaxVideosInitial() : syncConfig.getMaxVideosPerHour();
             int cap = (maxResults != null ? maxResults : defaultCap);
             LocalDateTime publishedAfter = treatAsFirstSync ? null : channel.getLastVideoPublishedAt();
+
+            log.debug("[YouTube] 영상 동기화 시작: userId={}, channelId={}, mode={}, skipComment={}, maxResults={}, cap={}",
+                    userId, youtubeChannelId, syncMode, skipCommentSync, maxResults, cap);
 
             List<PlaylistVideoSnapshot> snapshots;
             Map<String, Video> statistics;
@@ -272,26 +287,36 @@ public class YoutubeService {
                 }
             }
             updateChannelSyncInfo(channel.getYoutubeChannelId(), LocalDateTime.now(), newestPublishedAt);
-            
-            // MySQL 저장 완료 후 Redis 증분 동기화
-            if (youtubeRedisSyncService != null && !persisted.isEmpty()) {
+
+            // 영상 개수 제한 도달 시 경고 로그
+            if (snapshots.size() >= cap && cap < Integer.MAX_VALUE) {
+                log.warn("[YouTube] 영상 개수 제한 도달: userId={}, channelId={}, 조회={}, 제한={}, " +
+                        "다음 동기화 시 처리될 영상이 있을 수 있습니다.",
+                        userId, youtubeChannelId, snapshots.size(), cap);
+            }
+
+            // skipCommentSync가 false일 때만 Redis 댓글 동기화 수행
+            // (스케줄러에서는 skipCommentSync=true로 호출하여 중복 호출 방지)
+            if (!skipCommentSync && youtubeRedisSyncService != null && !persisted.isEmpty()) {
                 try {
                     List<String> videoIds = persisted.stream()
                             .map(YoutubeVideoDto::getYoutubeVideoId)
                             .filter(id -> id != null && !id.isBlank())
                             .collect(java.util.stream.Collectors.toList());
-                    
+
                     if (!videoIds.isEmpty()) {
-                        log.info("MySQL 영상 동기화 완료 - Redis 증분 동기화 시작: userId={}, channelId={}, videoCount={}", 
+                        log.info("[YouTube] MySQL 영상 동기화 완료 - Redis 증분 동기화 시작: userId={}, channelId={}, videoCount={}",
                                 userId, youtubeChannelId, videoIds.size());
                         youtubeRedisSyncService.syncIncrementalToRedis(userId, videoIds);
-                        log.info("Redis 증분 동기화 완료: userId={}, videoCount={}", userId, videoIds.size());
+                        log.info("[YouTube] Redis 증분 동기화 완료: userId={}, videoCount={}", userId, videoIds.size());
                     }
                 } catch (Exception redisEx) {
-                    log.warn("Redis 증분 동기화 실패 - userId={}, channelId={}, error={}", 
+                    log.warn("[YouTube] Redis 증분 동기화 실패 - userId={}, channelId={}, error={}",
                             userId, youtubeChannelId, redisEx.getMessage(), redisEx);
                     // Redis 실패해도 MySQL은 이미 저장되었으므로 예외를 던지지 않음
                 }
+            } else if (skipCommentSync) {
+                log.debug("[YouTube] 댓글 동기화 건너뜀: userId={}, channelId={}", userId, youtubeChannelId);
             }
             
             return persisted;
@@ -326,7 +351,8 @@ public class YoutubeService {
                     return snapshots;
                 }
                 snapshots.add(snapshot);
-                if (snapshots.size() >= cap) {
+                // cap이 Integer.MAX_VALUE가 아닐 때만 제한 체크
+                if (cap != Integer.MAX_VALUE && snapshots.size() >= cap) {
                     return snapshots;
                 }
             }
@@ -385,7 +411,8 @@ public class YoutubeService {
                     return snapshots;
                 }
                 snapshots.add(snapshot);
-                if (snapshots.size() >= cap) {
+                // cap이 Integer.MAX_VALUE가 아닐 때만 제한 체크
+                if (cap != Integer.MAX_VALUE && snapshots.size() >= cap) {
                     return snapshots;
                 }
             }

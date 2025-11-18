@@ -43,9 +43,13 @@ import lombok.extern.slf4j.Slf4j;
  * 
  * Redis 저장 형식:
  * - 초기 동기화: video:{video_id}:comments:init (채널 프로파일링용)
- * - 증분 동기화: video:{video_id}:comments:filter (필터링 작업용)
- * - Type: String
- * - Value: [{comment_id: "...", text_original: "...", ...}, ...]
+ *                Type: String (JSON 배열)
+ * - 증분 동기화: video:{video_id}:comments (원본 데이터, 절대 수정 금지)
+ *                Type: Hash
+ *                Field: comment_id, Value: JSON 문자열 (전체 메타데이터)
+ * - 필터링 결과: video:{video_id}:classification (FastAPI agent가 저장)
+ *                Type: Hash
+ *                Field: comment_id, Value: JSON 문자열 (분류 결과)
  * 
  * 참고:
  * - channel_comment_fetcher.py의 로직을 Java로 구현

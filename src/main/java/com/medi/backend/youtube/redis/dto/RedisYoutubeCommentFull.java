@@ -10,13 +10,17 @@ import lombok.Getter;
  * YouTube 댓글 전체 메타데이터 DTO (Redis 저장용, 증분 동기화용)
  * 
  * Redis 저장 형식:
- * - 증분 동기화: Key: video:{video_id}:comments:filter (필터링 작업용)
- * - Type: String (JSON 배열)
- * - Value: [{comment_id: "...", text_original: "...", parent_id: "...", ...}, ...]
+ * - 증분 동기화: Key: video:{video_id}:comments (원본 데이터, 절대 수정 금지)
+ *                Type: Hash
+ *                Field: comment_id, Value: JSON 문자열 (전체 메타데이터)
  * 
  * 초기 동기화 vs 증분 동기화:
- * - 초기 동기화: RedisYoutubeComment 사용 (기본 필드만) → comments:init
- * - 증분 동기화: RedisYoutubeCommentFull 사용 (전체 메타데이터) → comments:filter
+ * - 초기 동기화: RedisYoutubeComment 사용 (기본 필드만) → comments:init (String, JSON 배열)
+ * - 증분 동기화: RedisYoutubeCommentFull 사용 (전체 메타데이터) → comments (Hash)
+ * 
+ * 필터링 결과:
+ * - FastAPI agent가 video:{video_id}:classification (Hash)에 별도로 저장
+ * - 원본 데이터(video:{video_id}:comments)는 절대 수정하지 않음
  */
 @Getter
 @Builder
