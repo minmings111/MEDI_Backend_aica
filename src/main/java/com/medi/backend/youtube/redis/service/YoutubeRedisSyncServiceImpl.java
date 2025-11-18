@@ -137,7 +137,7 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
                     .collect(Collectors.toList());
                 
                 if (!videoIds.isEmpty()) {
-                    enqueueAgentTask(channelId, videoIds);
+                    enqueueAgentTask(channelId, videoIds, "profiling");
                 }
             }
 
@@ -227,7 +227,7 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
                 List<String> channelVideoIds = entry.getValue();
                 
                 if (!channelVideoIds.isEmpty()) {
-                    enqueueAgentTask(channelId, channelVideoIds);
+                    enqueueAgentTask(channelId, channelVideoIds, "filtering");
                 }
             }
             
@@ -267,13 +267,14 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
      * @param channelId YouTube 채널 ID
      * @param videoIds 처리할 비디오 ID 리스트
      */
-    private void enqueueAgentTask(String channelId, List<String> videoIds) {
+    private void enqueueAgentTask(String channelId, List<String> videoIds, String option) {
         try {
             Map<String, Object> task = new HashMap<>();
             task.put("taskId", UUID.randomUUID().toString());
             task.put("channelId", channelId);
             task.put("videoIds", videoIds);
             task.put("createdAt", LocalDateTime.now().toString());
+            task.put("option", option);
             
             String taskJson = objectMapper.writeValueAsString(task);
             queueRedisTemplate.opsForList().leftPush("profiling_agent:tasks:queue", taskJson);
