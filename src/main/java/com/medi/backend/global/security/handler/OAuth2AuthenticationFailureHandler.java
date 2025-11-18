@@ -47,8 +47,8 @@ public class OAuth2AuthenticationFailureHandler extends SimpleUrlAuthenticationF
         // CORS 설정에서 첫 번째 허용 도메인 가져오기 (프론트엔드 URL)
         String frontendUrl = allowedOrigins.split(",")[0];
         
-        // 프론트엔드 에러 페이지로 리다이렉트 (에러 메시지 포함)
-        String targetUrl = UriComponentsBuilder.fromUriString(frontendUrl + "/oauth2/error")
+        // 로그인 페이지로 리다이렉트 (에러 메시지 포함)
+        String targetUrl = UriComponentsBuilder.fromUriString(frontendUrl + "/login")
             .queryParam("error", errorMessage)
             .build()
             .toUriString();
