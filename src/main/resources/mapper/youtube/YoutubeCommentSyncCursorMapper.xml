@@ -33,7 +33,7 @@
 
     <delete id="deleteOlderThan" parameterType="java.time.LocalDateTime">
         DELETE FROM youtube_comment_sync_cursor
-        WHERE updated_at < #{threshold}
+        WHERE updated_at <![CDATA[ < ]]> #{threshold}
     </delete>
 
 </mapper>
