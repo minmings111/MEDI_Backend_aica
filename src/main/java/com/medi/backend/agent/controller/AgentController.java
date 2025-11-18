@@ -6,10 +6,6 @@ import org.springframework.web.bind.annotation.RestController;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.medi.backend.agent.dto.AgentFilteredComment;
 import com.medi.backend.agent.dto.AgentChannelResult;
-import com.medi.backend.agent.dto.AgentSummaryResult;
-import com.medi.backend.agent.dto.AgentCommunicationResult;
-import com.medi.backend.agent.dto.AgentProfileResult;
-import com.medi.backend.agent.dto.AgentEcosystemResult;
 import com.medi.backend.agent.service.AgentService;
 
 import java.util.HashMap;
@@ -50,65 +46,29 @@ public class AgentController {
 
 
     /**
-     * AI 서버에서 개별 분석 결과를 받는 엔드포인트
+     * AI 서버에서 채널별 통합 분석 결과를 받는 엔드포인트
      * 
-     * 개별 JSON을 받아서 타입을 판단하고 각각의 DTO로 변환한 다음 Service의 개별 메서드를 호출
+     * 채널별로 모든 비디오 결과와 채널 결과가 하나의 JSON으로 묶여서 전달됨
+     * 
+     * @param result 채널별 통합 분석 결과
+     * @return 저장 성공 응답
      */
     @PostMapping("/profile-results")
-    public ResponseEntity<?> receiveResult(@RequestBody Map<String, Object> jsonBody) {
+    public ResponseEntity<?> receiveChannelResult(@RequestBody AgentChannelResult result) {
         
         try {
-            // 1. JSON type check and collect result
-            if (jsonBody.containsKey("summary")) {
-                // summary 결과
-                AgentSummaryResult result = objectMapper.convertValue(jsonBody, AgentSummaryResult.class);
-                agentService.collectSummaryResult(result);
-                
-                Map<String, Object> response = new HashMap<>();
-                response.put("message", "Summary result received and processed successfully");
-                response.put("video_id", result.getVideoId());
-                return ResponseEntity.ok(response);
-                
-            } else if (jsonBody.containsKey("communication_report")) {
-                // communication_report 결과
-                AgentCommunicationResult result = objectMapper.convertValue(jsonBody, AgentCommunicationResult.class);
-                agentService.collectCommunicationResult(result);
-                
-                Map<String, Object> response = new HashMap<>();
-                response.put("message", "Communication result received and processed successfully");
-                response.put("video_id", result.getVideoId());
-                return ResponseEntity.ok(response);
-                
-            } else if (jsonBody.containsKey("profile_report")) {
-                // profile_report 결과
-                AgentProfileResult result = objectMapper.convertValue(jsonBody, AgentProfileResult.class);
-                agentService.collectProfileResult(result);
-                
-                Map<String, Object> response = new HashMap<>();
-                response.put("message", "Profile result received and processed successfully");
-                response.put("channel_id", result.getChannelId());
-                return ResponseEntity.ok(response);
-                
-            } else if (jsonBody.containsKey("ecosystem_report")) {
-                // ecosystem_report 결과
-                AgentEcosystemResult result = objectMapper.convertValue(jsonBody, AgentEcosystemResult.class);
-                agentService.collectEcosystemResult(result);
-                
-                Map<String, Object> response = new HashMap<>();
-                response.put("message", "Ecosystem result received and processed successfully");
-                response.put("channel_id", result.getChannelId());
-                return ResponseEntity.ok(response);
-                
-            } else {
-                Map<String, Object> errorResponse = new HashMap<>();
-                errorResponse.put("message", "Unknown result type. Must contain one of: summary, communication_report, profile_report, ecosystem_report");
-                errorResponse.put("error", "INVALID_REQUEST");
-                return ResponseEntity.badRequest().body(errorResponse);
-            }
+            agentService.saveChannelResult(result);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("message", "Channel analysis results saved successfully");
+            response.put("channel_id", result.getChannelId());
+            response.put("video_count", result.getVideoResults() != null ? result.getVideoResults().size() : 0);
+            
+            return ResponseEntity.ok(response);
             
         } catch (Exception e) {
             Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("message", "Failed to process result");
+            errorResponse.put("message", "Failed to process channel result");
             errorResponse.put("error", e.getMessage());
             return ResponseEntity.internalServerError().body(errorResponse);
         }
