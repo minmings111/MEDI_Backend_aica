@@ -20,8 +20,26 @@
         LIMIT 1
     </select>
 
+    <select id="findUserIdByChannelId" resultType="java.lang.Integer">
+        SELECT user_id 
+        FROM youtube_channels
+        WHERE id = #{channelId} 
+        LIMIT 1
+    </select>
 
+    <select id="findChannelIdByVideoId" resultType="java.lang.Integer">
+        SELECT channel_id 
+        FROM youtube_videos
+        WHERE id = #{videoId} 
+        LIMIT 1
+    </select>
 
+    <select id="findYoutubeChannelIdByChannelId" resultType="java.lang.String">
+        SELECT youtube_channel_id 
+        FROM youtube_channels
+        WHERE id = #{channelId} 
+        LIMIT 1
+    </select>
 
     <insert id="insertFilteredComment">
         INSERT INTO youtube_comments (
@@ -64,42 +82,36 @@
             viewer_rating = VALUES(viewer_rating)
     </insert>
 
-    <!-- insertResultVideo SQL -->
     <insert id="insertResultVideo">
         INSERT INTO ai_video_analysis_result (
             video_id,
             summarize,
-            communication,
-            ai_model_version
+            communication
         ) VALUES (
             #{videoId},
-            #{summarize},
-            #{communication},
-            NULL
+            #{summary},
+            #{communicationReport}
         )
         ON DUPLICATE KEY UPDATE
             summarize = VALUES(summarize),
             communication = VALUES(communication)
     </insert>
 
-    <!-- insertResultChannel SQL -->
     <insert id="insertResultChannel">
         INSERT INTO ai_channel_analysis_result (
             channel_id,
-            analysis_result,
-            ai_model_version
+            analysis_result
         ) VALUES (
             #{channelId},
             JSON_OBJECT(
-                'profile', #{profile},
-                'ecosystem', #{ecosystem}
-            ),
-            NULL
+                'profile', #{profileReport},
+                'ecosystem', #{ecosystemReport}
+            )
         )
         ON DUPLICATE KEY UPDATE
             analysis_result = JSON_OBJECT(
-                'profile', #{profile},
-                'ecosystem', #{ecosystem}
+                'profile', #{profileReport},
+                'ecosystem', #{ecosystemReport}
             )
     </insert>
 

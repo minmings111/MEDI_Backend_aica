@@ -8,6 +8,14 @@ public interface AgentMapper {
     // find int ID(using in mysql) by string youtube ID
     Integer findVideoIdByYoutubeVideoId(String youtubeVideoId);
     Integer findChannelIdByYoutubeChannelId(String youtubeChannelId);
+    
+    Integer findUserIdByChannelId(Integer channelId);
+    
+    // find channel_id by video_id
+    Integer findChannelIdByVideoId(Integer videoId);
+    
+    // find youtube_channel_id by channel_id
+    String findYoutubeChannelIdByChannelId(Integer channelId);
 
     // Insert filtered comment into youtube_comments table
     Integer insertFilteredComment(
@@ -25,19 +33,18 @@ public interface AgentMapper {
         @Param("viewerRating") String viewerRating 
     );
 
-    
     // Insert result video into ai_video_analysis_result
     Integer insertResultVideo(
         @Param("videoId") Integer videoId, 
-        @Param("summarize") String summarize, 
-        @Param("communication") String communication
+        @Param("summary") String summary, 
+        @Param("communicationReport") String communicationReport
     );
 
     // Insert result channel into ai_channel_analysis_result
     Integer insertResultChannel(
         @Param("channelId") Integer channelId, 
-        @Param("profile") String profile, 
-        @Param("ecosystem") String ecosystem
+        @Param("profileReport") String profileReport, 
+        @Param("ecosystemReport") String ecosystemReport
     );
 
 
