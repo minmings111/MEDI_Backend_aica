@@ -951,13 +951,15 @@ public class YouTubeComment {
   "taskId": "uuid",
   "channelId": "UCxxxxx",
   "videoIds": ["video_001", "video_002", "video_003"],
-  "createdAt": "2025-11-12T09:00:00Z"
+  "createdAt": "2025-11-12T09:00:00Z",
+  "option": "profiling"   // 또는 "filtering"
 }
 ```
 
 **FastAPI가 받아서**:
 1. `channelId` 무시 (사용 안 함)
-2. `videoIds` 각각에 대해:
+2. `option`으로 작업 타입 구분 (`profiling`: 초기 프로파일링, `filtering`: 증분 필터링)
+3. `videoIds` 각각에 대해:
    - `HGETALL comments:{videoId}` 실행
    - 댓글 필터링
    - `SADD filtered:comments:{videoId}` 저장
@@ -971,7 +973,7 @@ public class YouTubeComment {
 | **영상** | `videos:{channelId}` (Hash) | `videos:UCxxxxx` |
 | **댓글** | `comments:{videoId}` (Hash) | `comments:video_001` |
 | **필터링 결과** | `filtered:comments:{videoId}` (Set) | `filtered:comments:video_001` |
-| **큐** | `agent:job-queue` (List) | `{taskId, channelId, videoIds}` |
+| **큐** | `agent:job-queue` (List) | `{taskId, channelId, videoIds, createdAt, option}` |
 
 **데이터 형식**: YouTube Data API 응답 **그대로** (JSON)
 

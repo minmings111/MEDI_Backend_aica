@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -21,6 +22,8 @@ import com.google.api.services.youtube.YouTube;
 import com.google.api.services.youtube.model.Comment;
 import com.google.api.services.youtube.model.CommentThread;
 import com.google.api.services.youtube.model.CommentThreadListResponse;
+import com.medi.backend.youtube.dto.YoutubeCommentSyncCursorDto;
+import com.medi.backend.youtube.mapper.YoutubeCommentSyncCursorMapper;
 import com.medi.backend.youtube.redis.dto.RedisYoutubeComment;
 import com.medi.backend.youtube.redis.dto.RedisYoutubeCommentFull;
 import com.medi.backend.youtube.redis.dto.RedisYoutubeVideo;
@@ -62,16 +65,17 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
 
     private final YoutubeOAuthService youtubeOAuthService;
     private final YoutubeCommentMapper redisMapper;
+    private final YoutubeCommentSyncCursorMapper cursorMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
 
 private static final Duration COMMENT_HASH_TTL = Duration.ofDays(3);
 private static final Duration PROCESSED_SET_TTL = Duration.ofDays(30);
-private static final Duration CURSOR_TTL = Duration.ofDays(30);
 private static final Duration DEFAULT_CURSOR_LOOKBACK = Duration.ofDays(30);
 private static final int MAX_PAGE_LIMIT = 50;
 private static final int CONSECUTIVE_OLD_PAGE_THRESHOLD = 5;
 private static final ZoneId YOUTUBE_TIME_ZONE = ZoneId.of("UTC");
+private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
     @Override
     public long syncTop20VideoComments(Integer userId, Map<String, List<RedisYoutubeVideo>> videosByChannel, SyncOptions options) {
@@ -195,7 +199,7 @@ private static final ZoneId YOUTUBE_TIME_ZONE = ZoneId.of("UTC");
                     String processedKey = buildProcessedKey(videoId);
                     String cursorKey = buildCursorKey(videoId);
                     
-                    LocalDateTime cursorTime = getLastSyncTime(cursorKey);
+                    LocalDateTime cursorTime = getLastSyncTime(cursorKey, videoId);
                     
                     IncrementalFetchResult incrementalResult =
                             fetchAndSaveCommentsIncremental(yt, videoId, commentsKey, cursorTime, options);
@@ -203,7 +207,7 @@ private static final ZoneId YOUTUBE_TIME_ZONE = ZoneId.of("UTC");
                     log.debug("영상 {}의 새 댓글 {}개 저장 완료", videoId, incrementalResult.getNewCount());
                     
                     if (incrementalResult.getLatestPublishedAt() != null) {
-                        updateLastSyncTime(cursorKey, incrementalResult.getLatestPublishedAt());
+                        updateLastSyncTime(cursorKey, videoId, incrementalResult.getLatestPublishedAt());
                     }
                     
                     stringRedisTemplate.expire(commentsKey, COMMENT_HASH_TTL);
@@ -566,25 +570,58 @@ private static final ZoneId YOUTUBE_TIME_ZONE = ZoneId.of("UTC");
         return "video:" + videoId + ":last_sync_time";
     }
 
-    private LocalDateTime getLastSyncTime(String cursorKey) {
+    private LocalDateTime getLastSyncTime(String cursorKey, String videoId) {
+        LocalDateTime redisCursor = readCursorFromRedis(cursorKey);
+        if (redisCursor != null) {
+            return redisCursor;
+        }
+
+        LocalDateTime dbCursor = readCursorFromDatabase(videoId);
+        if (dbCursor != null) {
+            stringRedisTemplate.opsForValue().set(cursorKey, dbCursor.format(CURSOR_FORMATTER));
+            log.debug("DB 커서를 Redis로 복구: videoId={}, cursor={}", videoId, dbCursor);
+            return dbCursor;
+        }
+
+        LocalDateTime fallback = LocalDateTime.now().minus(DEFAULT_CURSOR_LOOKBACK);
+        log.debug("커서가 없어 기본값 사용: videoId={}, fallback={}", videoId, fallback);
+        return fallback;
+    }
+
+    private void updateLastSyncTime(String cursorKey, String videoId, LocalDateTime latestTime) {
+        if (latestTime == null) {
+            return;
+        }
+        String isoString = latestTime.format(CURSOR_FORMATTER);
+        stringRedisTemplate.opsForValue().set(cursorKey, isoString);
+
+        if (videoId != null && !videoId.isBlank()) {
+            YoutubeCommentSyncCursorDto cursorDto = new YoutubeCommentSyncCursorDto();
+            cursorDto.setVideoId(videoId);
+            cursorDto.setLastSyncTime(latestTime);
+            cursorMapper.upsert(cursorDto);
+        }
+    }
+
+    private LocalDateTime readCursorFromRedis(String cursorKey) {
         try {
             String value = stringRedisTemplate.opsForValue().get(cursorKey);
             if (value == null || value.isBlank()) {
                 return null;
             }
-            return LocalDateTime.parse(value);
+            return LocalDateTime.parse(value, CURSOR_FORMATTER);
         } catch (Exception e) {
             log.warn("커서 값을 파싱할 수 없습니다. key={}, error={}", cursorKey, e.getMessage());
             return null;
         }
     }
 
-    private void updateLastSyncTime(String cursorKey, LocalDateTime latestTime) {
-        if (latestTime == null) {
-            return;
+    private LocalDateTime readCursorFromDatabase(String videoId) {
+        if (videoId == null || videoId.isBlank()) {
+            return null;
         }
-        stringRedisTemplate.opsForValue().set(cursorKey, latestTime.toString());
-        stringRedisTemplate.expire(cursorKey, CURSOR_TTL);
+        YoutubeCommentSyncCursorDto cursor = cursorMapper.findByVideoId(videoId);
+        return cursor != null ? cursor.getLastSyncTime() : null;
     }
 
     private LocalDateTime toLocalDateTime(DateTime dateTime) {

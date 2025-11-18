@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.medi.backend.youtube.mapper.YoutubeCommentSyncCursorMapper">
+
+    <resultMap id="CursorResultMap" type="com.medi.backend.youtube.dto.YoutubeCommentSyncCursorDto">
+        <id property="videoId" column="video_id"/>
+        <result property="lastSyncTime" column="last_sync_time"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <insert id="upsert" parameterType="com.medi.backend.youtube.dto.YoutubeCommentSyncCursorDto">
+        INSERT INTO youtube_comment_sync_cursor (
+            video_id,
+            last_sync_time,
+            updated_at
+        ) VALUES (
+            #{videoId},
+            #{lastSyncTime},
+            NOW()
+        )
+        ON DUPLICATE KEY UPDATE
+            last_sync_time = VALUES(last_sync_time),
+            updated_at = NOW()
+    </insert>
+
+    <select id="findByVideoId" parameterType="string" resultMap="CursorResultMap">
+        SELECT video_id, last_sync_time, updated_at
+        FROM youtube_comment_sync_cursor
+        WHERE video_id = #{videoId}
+    </select>
+
+    <delete id="deleteOlderThan" parameterType="java.time.LocalDateTime">
+        DELETE FROM youtube_comment_sync_cursor
+        WHERE updated_at <![CDATA[ < ]]> #{threshold}
+    </delete>
+
+</mapper>
+
+

@@ -136,12 +136,8 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
                     .filter(id -> id != null && !id.isBlank())
                     .collect(Collectors.toList());
                 
-                log.info("초기 동기화 큐 체크: channelId={}, filteredVideoCount={}", channelId, videoIds.size());
-                
                 if (!videoIds.isEmpty()) {
-                    enqueueAgentTask(channelId, videoIds);
-                } else {
-                    log.warn("초기 동기화 큐 스킵: channelId={}, valid video 없음", channelId);
+                    enqueueAgentTask(channelId, videoIds, "profiling");
                 }
             }
 
@@ -230,12 +226,8 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
                 String channelId = entry.getKey();
                 List<String> channelVideoIds = entry.getValue();
                 
-                log.info("증분 동기화 큐 체크: channelId={}, filteredVideoCount={}", channelId, channelVideoIds.size());
-                
                 if (!channelVideoIds.isEmpty()) {
-                    enqueueAgentTask(channelId, channelVideoIds);
-                } else {
-                    log.warn("증분 동기화 큐 스킵: channelId={}, valid video 없음", channelId);
+                    enqueueAgentTask(channelId, channelVideoIds, "filtering");
                 }
             }
             
@@ -275,13 +267,14 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
      * @param channelId YouTube 채널 ID
      * @param videoIds 처리할 비디오 ID 리스트
      */
-    private void enqueueAgentTask(String channelId, List<String> videoIds) {
+    private void enqueueAgentTask(String channelId, List<String> videoIds, String option) {
         try {
             Map<String, Object> task = new HashMap<>();
             task.put("taskId", UUID.randomUUID().toString());
             task.put("channelId", channelId);
             task.put("videoIds", videoIds);
             task.put("createdAt", LocalDateTime.now().toString());
+            task.put("option", option);
             
             String taskJson = objectMapper.writeValueAsString(task);
             queueRedisTemplate.opsForList().leftPush("profiling_agent:tasks:queue", taskJson);
