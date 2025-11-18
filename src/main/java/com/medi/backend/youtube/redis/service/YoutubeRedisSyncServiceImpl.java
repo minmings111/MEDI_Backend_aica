@@ -136,8 +136,12 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
                     .filter(id -> id != null && !id.isBlank())
                     .collect(Collectors.toList());
                 
+                log.info("초기 동기화 큐 체크: channelId={}, filteredVideoCount={}", channelId, videoIds.size());
+                
                 if (!videoIds.isEmpty()) {
                     enqueueAgentTask(channelId, videoIds);
+                } else {
+                    log.warn("초기 동기화 큐 스킵: channelId={}, valid video 없음", channelId);
                 }
             }
 
@@ -226,8 +230,12 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
                 String channelId = entry.getKey();
                 List<String> channelVideoIds = entry.getValue();
                 
+                log.info("증분 동기화 큐 체크: channelId={}, filteredVideoCount={}", channelId, channelVideoIds.size());
+                
                 if (!channelVideoIds.isEmpty()) {
                     enqueueAgentTask(channelId, channelVideoIds);
+                } else {
+                    log.warn("증분 동기화 큐 스킵: channelId={}, valid video 없음", channelId);
                 }
             }
             
