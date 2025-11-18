@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -62,8 +63,10 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
     private final YoutubeOAuthService youtubeOAuthService;
     private final YoutubeTranscriptService youtubeTranscriptService;
     
-    // 작업 큐를 위한 의존성
+    // Redis 템플릿
     private final StringRedisTemplate stringRedisTemplate;
+    @Qualifier("queueRedisTemplate")
+    private final StringRedisTemplate queueRedisTemplate;
     private final ObjectMapper objectMapper;
 
     // full sync process (initial sync)
@@ -253,6 +256,14 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
     /**
      * 에이전트 작업 큐에 작업 추가
      * 
+     * Redis 큐 구조:
+     * - Key: profiling_agent:tasks:queue
+     * - Type: List
+     * - Spring 백엔드: LPUSH로 작업 추가 (왼쪽에 추가)
+     * - FastAPI Agent: RPOP/BRPOP으로 작업 꺼내기 (오른쪽에서 꺼내기, read + delete 동시 수행)
+     * 
+     * LPUSH + RPOP 조합 = FIFO (First In First Out)
+     * 
      * @param channelId YouTube 채널 ID
      * @param videoIds 처리할 비디오 ID 리스트
      */
@@ -265,7 +276,7 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
             task.put("createdAt", LocalDateTime.now().toString());
             
             String taskJson = objectMapper.writeValueAsString(task);
-            stringRedisTemplate.opsForList().leftPush("profiling_agent:tasks:queue", taskJson);
+            queueRedisTemplate.opsForList().leftPush("profiling_agent:tasks:queue", taskJson);
             
             log.info("에이전트 작업 큐에 추가: channelId={}, videoCount={}", 
                 channelId, videoIds.size());
