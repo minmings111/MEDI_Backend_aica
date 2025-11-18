@@ -1,12 +1,18 @@
 package com.medi.backend.youtube.redis.service;
 
+import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.api.services.youtube.YouTube;
 import com.medi.backend.youtube.redis.dto.RedisSyncResult;
 import com.medi.backend.youtube.redis.dto.RedisYoutubeVideo;
@@ -34,9 +40,13 @@ import lombok.extern.slf4j.Slf4j;
  * 
  * 4. save the video comments to Redis (after 3 is completed)
  *    초기 동기화: Key: video:{video_id}:comments:init (채널 프로파일링용)
- *    증분 동기화: Key: video:{video_id}:comments:filter (필터링 작업용)
- *    Type: String (JSON array)
- *    Value: [{comment_id, text_original, author_name, like_count, published_at}, ...]
+ *                Type: String (JSON array)
+ *    증분 동기화: Key: video:{video_id}:comments (원본 데이터, 절대 수정 금지)
+ *                Type: Hash
+ *                Field: comment_id, Value: JSON 문자열 (전체 메타데이터)
+ *    필터링 결과: Key: video:{video_id}:classification (FastAPI agent가 저장)
+ *                Type: Hash
+ *                Field: comment_id, Value: JSON 문자열 (분류 결과)
  * 
  * transaction processing:
  * - @Transactional: ensure that each step is executed sequentially
@@ -51,6 +61,10 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
     private final YoutubeCommentService commentService;
     private final YoutubeOAuthService youtubeOAuthService;
     private final YoutubeTranscriptService youtubeTranscriptService;
+    
+    // 작업 큐를 위한 의존성
+    private final StringRedisTemplate stringRedisTemplate;
+    private final ObjectMapper objectMapper;
 
     // full sync process (initial sync)
     @Override
@@ -109,6 +123,19 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
             if (!allVideoIds.isEmpty()) {
                 log.info("초기 동기화: {}개 영상의 자막 저장 시작 (채널 성격 파악용)", allVideoIds.size());
                 youtubeTranscriptService.saveTranscriptsToRedis(allVideoIds, yt);
+            }
+
+            // 작업 큐에 채널별 작업 추가
+            for (Map.Entry<String, List<RedisYoutubeVideo>> entry : videosByChannel.entrySet()) {
+                String channelId = entry.getKey();
+                List<String> videoIds = entry.getValue().stream()
+                    .map(RedisYoutubeVideo::getYoutubeVideoId)
+                    .filter(id -> id != null && !id.isBlank())
+                    .collect(Collectors.toList());
+                
+                if (!videoIds.isEmpty()) {
+                    enqueueAgentTask(channelId, videoIds);
+                }
             }
 
             log.info("Redis 동기화 완료: userId={}, 채널={}개, 비디오={}개, 댓글={}개", 
@@ -188,11 +215,24 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
             // ⭐ API 호출: 각 비디오마다 댓글 조회 (옵션에 따라 제한 없음)
             long totalCommentCount = commentService.syncVideoComments(userId, videoIds, incrementalOptions);
             
+            // Redis에서 video 메타데이터를 조회하여 channelId별로 그룹화
+            Map<String, List<String>> videoIdsByChannel = groupVideoIdsByChannel(videoIds);
+            
+            // 채널별로 작업 큐에 추가
+            for (Map.Entry<String, List<String>> entry : videoIdsByChannel.entrySet()) {
+                String channelId = entry.getKey();
+                List<String> channelVideoIds = entry.getValue();
+                
+                if (!channelVideoIds.isEmpty()) {
+                    enqueueAgentTask(channelId, channelVideoIds);
+                }
+            }
+            
             log.info("증분 Redis 동기화 완료: userId={}, 비디오={}개, 댓글={}개", 
                 userId, savedVideoCount, totalCommentCount);
             
             return RedisSyncResult.builder()
-                .channelCount(0)  // 증분 동기화는 채널 단위가 아님
+                .channelCount(videoIdsByChannel.size())
                 .videoCount(savedVideoCount)
                 .commentCount(totalCommentCount)
                 .success(true)
@@ -208,6 +248,64 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
                 .errorMessage(e.getMessage())
                 .build();
         }
+    }
+    
+    /**
+     * 에이전트 작업 큐에 작업 추가
+     * 
+     * @param channelId YouTube 채널 ID
+     * @param videoIds 처리할 비디오 ID 리스트
+     */
+    private void enqueueAgentTask(String channelId, List<String> videoIds) {
+        try {
+            Map<String, Object> task = new HashMap<>();
+            task.put("taskId", UUID.randomUUID().toString());
+            task.put("channelId", channelId);
+            task.put("videoIds", videoIds);
+            task.put("createdAt", LocalDateTime.now().toString());
+            
+            String taskJson = objectMapper.writeValueAsString(task);
+            stringRedisTemplate.opsForList().leftPush("profiling_agent:tasks:queue", taskJson);
+            
+            log.info("에이전트 작업 큐에 추가: channelId={}, videoCount={}", 
+                channelId, videoIds.size());
+        } catch (Exception e) {
+            log.error("에이전트 작업 큐 추가 실패: channelId={}", channelId, e);
+            // 큐 추가 실패해도 Redis 동기화는 이미 완료되었으므로 예외를 던지지 않음
+        }
+    }
+    
+    /**
+     * 비디오 ID 리스트를 channelId별로 그룹화
+     * Redis에서 비디오 메타데이터를 조회하여 channelId 추출
+     * 
+     * @param videoIds 비디오 ID 리스트
+     * @return channelId를 키로 하는 비디오 ID 리스트 맵
+     */
+    private Map<String, List<String>> groupVideoIdsByChannel(List<String> videoIds) {
+        Map<String, List<String>> result = new HashMap<>();
+        
+        for (String videoId : videoIds) {
+            try {
+                // Redis에서 비디오 메타데이터 조회
+                String metaKey = "video:" + videoId + ":meta:json";
+                String metaJson = stringRedisTemplate.opsForValue().get(metaKey);
+                
+                if (metaJson != null) {
+                    // JSON 파싱하여 channelId 추출
+                    Map<String, Object> meta = objectMapper.readValue(metaJson, new TypeReference<Map<String, Object>>() {});
+                    String channelId = (String) meta.get("channel_id");
+                    
+                    if (channelId != null && !channelId.isBlank()) {
+                        result.computeIfAbsent(channelId, k -> new java.util.ArrayList<>()).add(videoId);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("비디오 {}의 channelId 추출 실패", videoId, e);
+            }
+        }
+        
+        return result;
     }
 }
 
