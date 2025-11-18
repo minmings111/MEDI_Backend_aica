@@ -86,33 +86,62 @@
         INSERT INTO ai_video_analysis_result (
             video_id,
             summarize,
-            communication
+            communication,
+            video_title,
+            summarized_at,
+            char_count,
+            model
         ) VALUES (
             #{videoId},
             #{summary},
-            #{communicationReport}
+            #{communicationReport},
+            #{videoTitle},
+            <choose>
+                <when test="summarizedAt != null">
+                    STR_TO_DATE(#{summarizedAt}, '%Y-%m-%dT%H:%i:%s.%f')
+                </when>
+                <otherwise>
+                    NULL
+                </otherwise>
+            </choose>,
+            #{charCount},
+            #{model}
         )
         ON DUPLICATE KEY UPDATE
             summarize = VALUES(summarize),
-            communication = VALUES(communication)
+            communication = VALUES(communication),
+            video_title = VALUES(video_title),
+            summarized_at = VALUES(summarized_at),
+            char_count = VALUES(char_count),
+            model = VALUES(model)
     </insert>
 
     <insert id="insertResultChannel">
         INSERT INTO ai_channel_analysis_result (
             channel_id,
-            analysis_result
+            profile,
+            ecosystem,
+            profiled_at,
+            model
         ) VALUES (
             #{channelId},
-            JSON_OBJECT(
-                'profile', #{profileReport},
-                'ecosystem', #{ecosystemReport}
-            )
+            #{profileReport},
+            #{ecosystemReport},
+            <choose>
+                <when test="profiledAt != null">
+                    STR_TO_DATE(#{profiledAt}, '%Y-%m-%dT%H:%i:%s.%f')
+                </when>
+                <otherwise>
+                    NULL
+                </otherwise>
+            </choose>,
+            #{model}
         )
         ON DUPLICATE KEY UPDATE
-            analysis_result = JSON_OBJECT(
-                'profile', #{profileReport},
-                'ecosystem', #{ecosystemReport}
-            )
+            profile = VALUES(profile),
+            ecosystem = VALUES(ecosystem),
+            profiled_at = VALUES(profiled_at),
+            model = VALUES(model)
     </insert>
 
 </mapper>

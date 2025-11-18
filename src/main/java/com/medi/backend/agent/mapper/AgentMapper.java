@@ -37,14 +37,20 @@ public interface AgentMapper {
     Integer insertResultVideo(
         @Param("videoId") Integer videoId, 
         @Param("summary") String summary, 
-        @Param("communicationReport") String communicationReport
+        @Param("communicationReport") String communicationReport,
+        @Param("videoTitle") String videoTitle,
+        @Param("summarizedAt") String summarizedAt,
+        @Param("charCount") Integer charCount,
+        @Param("model") String model
     );
 
     // Insert result channel into ai_channel_analysis_result
     Integer insertResultChannel(
         @Param("channelId") Integer channelId, 
         @Param("profileReport") String profileReport, 
-        @Param("ecosystemReport") String ecosystemReport
+        @Param("ecosystemReport") String ecosystemReport,
+        @Param("profiledAt") String profiledAt,
+        @Param("model") String model
     );
 
 
