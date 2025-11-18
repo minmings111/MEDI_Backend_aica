@@ -66,7 +66,7 @@ private static final Duration PROCESSED_SET_TTL = Duration.ofDays(30);
 private static final Duration CURSOR_TTL = Duration.ofDays(30);
 private static final Duration DEFAULT_CURSOR_LOOKBACK = Duration.ofDays(30);
 private static final int MAX_PAGE_LIMIT = 50;
-private static final int CONSECUTIVE_OLD_PAGE_THRESHOLD = 2;
+private static final int CONSECUTIVE_OLD_PAGE_THRESHOLD = 5;
 private static final ZoneId YOUTUBE_TIME_ZONE = ZoneId.of("UTC");
 
     @Override
