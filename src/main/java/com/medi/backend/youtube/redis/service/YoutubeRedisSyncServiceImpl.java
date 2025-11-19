@@ -128,7 +128,9 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
                 youtubeTranscriptService.saveTranscriptsToRedis(allVideoIds, yt);
             }
 
-            // 작업 큐에 채널별 작업 추가
+            // 작업 큐에 채널별 작업 추가 (DB 1)
+            log.info("🔄 작업 큐 추가 시작 (초기 동기화): userId={}, channelCount={}개", userId, videosByChannel.size());
+            int enqueuedCount = 0;
             for (Map.Entry<String, List<RedisYoutubeVideo>> entry : videosByChannel.entrySet()) {
                 String channelId = entry.getKey();
                 List<String> videoIds = entry.getValue().stream()
@@ -138,9 +140,13 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
                 
                 if (!videoIds.isEmpty()) {
                     enqueueAgentTask(channelId, videoIds, "profiling");
+                    enqueuedCount++;
+                } else {
+                    log.warn("⚠️ 채널 {}의 비디오 리스트가 비어있습니다. 작업 큐에 추가하지 않습니다.", channelId);
                 }
             }
-
+            
+            log.info("✅ 작업 큐 추가 완료 (초기 동기화): userId={}, enqueuedCount={}개 채널", userId, enqueuedCount);
             log.info("Redis 동기화 완료: userId={}, 채널={}개, 비디오={}개, 댓글={}개", 
                 userId, videosByChannel.size(), totalVideoCount, totalCommentCount);
 
@@ -219,20 +225,27 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
             long totalCommentCount = commentService.syncVideoComments(userId, videoIds, incrementalOptions);
             
             // Redis에서 video 메타데이터를 조회하여 channelId별로 그룹화
+            log.info("🔄 channelId별 그룹화 시작: userId={}, videoIds={}개", userId, videoIds.size());
             Map<String, List<String>> videoIdsByChannel = groupVideoIdsByChannel(videoIds);
             
-            // 채널별로 작업 큐에 추가
+            // 채널별로 작업 큐에 추가 (DB 1)
+            log.info("🔄 작업 큐 추가 시작: userId={}, channelCount={}개", userId, videoIdsByChannel.size());
+            int enqueuedCount = 0;
             for (Map.Entry<String, List<String>> entry : videoIdsByChannel.entrySet()) {
                 String channelId = entry.getKey();
                 List<String> channelVideoIds = entry.getValue();
                 
                 if (!channelVideoIds.isEmpty()) {
                     enqueueAgentTask(channelId, channelVideoIds, "filtering");
+                    enqueuedCount++;
+                } else {
+                    log.warn("⚠️ 채널 {}의 비디오 리스트가 비어있습니다. 작업 큐에 추가하지 않습니다.", channelId);
                 }
             }
             
-            log.info("증분 Redis 동기화 완료: userId={}, 비디오={}개, 댓글={}개", 
-                userId, savedVideoCount, totalCommentCount);
+            log.info("✅ 작업 큐 추가 완료: userId={}, enqueuedCount={}개 채널", userId, enqueuedCount);
+            log.info("증분 Redis 동기화 완료: userId={}, 비디오={}개, 댓글={}개, 채널={}개", 
+                userId, savedVideoCount, totalCommentCount, videoIdsByChannel.size());
             
             return RedisSyncResult.builder()
                 .channelCount(videoIdsByChannel.size())
@@ -259,6 +272,7 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
      * Redis 큐 구조:
      * - Key: profiling_agent:tasks:queue
      * - Type: List
+     * - Database: DB 1 (queueRedisTemplate)
      * - Spring 백엔드: LPUSH로 작업 추가 (왼쪽에 추가)
      * - FastAPI Agent: RPOP/BRPOP으로 작업 꺼내기 (오른쪽에서 꺼내기, read + delete 동시 수행)
      * 
@@ -266,23 +280,54 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
      * 
      * @param channelId YouTube 채널 ID
      * @param videoIds 처리할 비디오 ID 리스트
+     * @param option 작업 옵션 ("profiling" 또는 "filtering")
      */
     private void enqueueAgentTask(String channelId, List<String> videoIds, String option) {
+        String queueKey = "profiling_agent:tasks:queue";
+        
         try {
+            // 큐 길이 확인 (추가 전)
+            Long queueLengthBefore = queueRedisTemplate.opsForList().size(queueKey);
+            if (queueLengthBefore == null) {
+                queueLengthBefore = 0L;
+            }
+            
+            log.info("📤 작업 큐 추가 시도: channelId={}, videoCount={}, option={}, queueKey={}, db=1, 현재큐길이={}", 
+                channelId, videoIds.size(), option, queueKey, queueLengthBefore);
+            
             Map<String, Object> task = new HashMap<>();
-            task.put("taskId", UUID.randomUUID().toString());
+            String taskId = UUID.randomUUID().toString();
+            task.put("taskId", taskId);
             task.put("channelId", channelId);
             task.put("videoIds", videoIds);
             task.put("createdAt", LocalDateTime.now().toString());
             task.put("option", option);
             
             String taskJson = objectMapper.writeValueAsString(task);
-            queueRedisTemplate.opsForList().leftPush("profiling_agent:tasks:queue", taskJson);
             
-            log.info("에이전트 작업 큐에 추가: channelId={}, videoCount={}", 
-                channelId, videoIds.size());
+            // 큐에 들어가는 데이터 일부 로깅 (디버깅용)
+            log.debug("📋 큐에 추가할 작업 데이터: taskId={}, channelId={}, videoIds={}", 
+                taskId, channelId, videoIds.subList(0, Math.min(3, videoIds.size())));
+            
+            // DB 1의 작업 큐에 추가
+            Long queueLengthAfter = queueRedisTemplate.opsForList().leftPush(queueKey, taskJson);
+            
+            if (queueLengthAfter == null) {
+                log.error("❌ 큐 추가 후 길이 확인 실패: queueKey={}, channelId={}", queueKey, channelId);
+            } else {
+                log.info("✅ 작업 큐에 추가 성공 (DB 1): channelId={}, taskId={}, videoCount={}, option={}, 큐길이={}→{}", 
+                    channelId, taskId, videoIds.size(), option, queueLengthBefore, queueLengthAfter);
+                
+                // 큐 길이가 증가하지 않았다면 경고
+                if (queueLengthAfter <= queueLengthBefore) {
+                    log.warn("⚠️ 큐 길이가 증가하지 않았습니다! 추가전={}, 추가후={}, taskId={}", 
+                        queueLengthBefore, queueLengthAfter, taskId);
+                }
+            }
+            
         } catch (Exception e) {
-            log.error("에이전트 작업 큐 추가 실패: channelId={}", channelId, e);
+            log.error("❌ 작업 큐 추가 실패 (DB 1): channelId={}, option={}, queueKey={}, error={}", 
+                channelId, option, queueKey, e.getMessage(), e);
             // 큐 추가 실패해도 Redis 동기화는 이미 완료되었으므로 예외를 던지지 않음
         }
     }
@@ -297,23 +342,53 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
     private Map<String, List<String>> groupVideoIdsByChannel(List<String> videoIds) {
         Map<String, List<String>> result = new HashMap<>();
         
+        log.info("🔍 channelId별 그룹화 시작: videoIds={}개", videoIds.size());
+        
+        int successCount = 0;
+        int failCount = 0;
+        
         for (String videoId : videoIds) {
             try {
                 // Redis에서 비디오 메타데이터 조회
                 String metaKey = "video:" + videoId + ":meta:json";
                 String metaJson = stringRedisTemplate.opsForValue().get(metaKey);
                 
-                if (metaJson != null) {
-                    // JSON 파싱하여 channelId 추출
-                    Map<String, Object> meta = objectMapper.readValue(metaJson, new TypeReference<Map<String, Object>>() {});
-                    String channelId = (String) meta.get("channel_id");
-                    
-                    if (channelId != null && !channelId.isBlank()) {
-                        result.computeIfAbsent(channelId, k -> new java.util.ArrayList<>()).add(videoId);
-                    }
+                if (metaJson == null) {
+                    log.warn("⚠️ 비디오 {}의 메타데이터가 Redis에 없습니다! key={}", videoId, metaKey);
+                    failCount++;
+                    continue;
                 }
+                
+                log.debug("✅ 비디오 {} 메타데이터 조회 성공: {}", videoId, metaJson.substring(0, Math.min(100, metaJson.length())));
+                
+                // JSON 파싱하여 channelId 추출
+                Map<String, Object> meta = objectMapper.readValue(metaJson, new TypeReference<Map<String, Object>>() {});
+                String channelId = (String) meta.get("channel_id");
+                
+                if (channelId == null || channelId.isBlank()) {
+                    log.warn("⚠️ 비디오 {}의 channel_id가 없거나 비어있습니다. meta={}", videoId, meta);
+                    failCount++;
+                    continue;
+                }
+                
+                result.computeIfAbsent(channelId, k -> new java.util.ArrayList<>()).add(videoId);
+                successCount++;
+                log.debug("✅ 비디오 {} → channelId {} 매핑 완료", videoId, channelId);
+                
             } catch (Exception e) {
-                log.warn("비디오 {}의 channelId 추출 실패", videoId, e);
+                log.error("❌ 비디오 {}의 channelId 추출 실패", videoId, e);
+                failCount++;
+            }
+        }
+        
+        log.info("🔍 channelId별 그룹화 완료: {}개 채널, 성공={}개, 실패={}개", 
+            result.size(), successCount, failCount);
+        
+        if (result.isEmpty()) {
+            log.error("❌ 모든 비디오의 channelId 추출 실패! 작업 큐에 추가되지 않습니다. videoIds={}", videoIds);
+        } else {
+            for (Map.Entry<String, List<String>> entry : result.entrySet()) {
+                log.info("📦 채널 {}: {}개 비디오", entry.getKey(), entry.getValue().size());
             }
         }
         
