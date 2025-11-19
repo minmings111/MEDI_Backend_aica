@@ -21,9 +21,7 @@ public class AgentServiceImpl implements AgentService{
     private final AgentMapper agentMapper; // for DB
     private final StringRedisTemplate stringRedisTemplate; // for Redis
     
-    public AgentServiceImpl(
-            AgentMapper agentMapper, 
-            StringRedisTemplate stringRedisTemplate) {
+    public AgentServiceImpl(AgentMapper agentMapper, StringRedisTemplate stringRedisTemplate) {
         this.agentMapper = agentMapper;
         this.stringRedisTemplate = stringRedisTemplate;
     }
