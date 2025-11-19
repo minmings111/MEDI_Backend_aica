@@ -12,6 +12,7 @@
         <result property="channelName" column="channel_name"/>
         <result property="channelHandle" column="channel_handle"/>
         <result property="thumbnailUrl" column="thumbnail_url"/>
+        <result property="subscriberCount" column="subscriber_count"/>
         <result property="createdAt" column="created_at"/>
         <result property="updatedAt" column="updated_at"/>
         <result property="lastSyncedAt" column="last_synced_at"/>
@@ -25,11 +26,13 @@
             user_id, oauth_token_id, youtube_channel_id,
             channel_name, channel_handle, thumbnail_url,
             uploads_playlist_id, last_synced_at, last_video_published_at,
+            subscriber_count,
             created_at
         ) VALUES (
             #{userId}, #{oauthTokenId}, #{youtubeChannelId},
             #{channelName}, #{channelHandle}, #{thumbnailUrl},
             #{uploadsPlaylistId}, #{lastSyncedAt}, #{lastVideoPublishedAt},
+            #{subscriberCount},
             NOW()
         )
         ON DUPLICATE KEY UPDATE
@@ -40,6 +43,7 @@
             uploads_playlist_id = VALUES(uploads_playlist_id),
             last_synced_at = VALUES(last_synced_at),
             last_video_published_at = VALUES(last_video_published_at),
+            subscriber_count = VALUES(subscriber_count),
             deleted_at = NULL,
             updated_at = NOW()
     </insert>
