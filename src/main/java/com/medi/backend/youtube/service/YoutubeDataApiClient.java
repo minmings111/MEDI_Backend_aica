@@ -14,8 +14,11 @@ import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.services.youtube.YouTube;
+import com.google.api.services.youtube.model.CaptionListResponse;
 import com.google.api.services.youtube.model.ChannelListResponse;
+import com.google.api.services.youtube.model.CommentThreadListResponse;
 import com.google.api.services.youtube.model.PlaylistItemListResponse;
+import com.google.api.services.youtube.model.SearchListResponse;
 import com.google.api.services.youtube.model.VideoListResponse;
 import com.medi.backend.youtube.config.YoutubeDataApiProperties;
 import com.medi.backend.youtube.exception.NoAvailableApiKeyException;
@@ -73,11 +76,103 @@ public class YoutubeDataApiClient {
         });
     }
 
+    /**
+     * 비디오 상세 정보 조회 (API 키 사용)
+     * snippet, statistics, contentDetails 포함
+     * 
+     * @param videoIds 비디오 ID 리스트
+     * @return 비디오 상세 정보 응답
+     * @throws IOException API 호출 실패 시
+     */
+    public VideoListResponse fetchVideoDetails(List<String> videoIds) throws IOException {
+        return executeWithApiKey(apiKey -> {
+            YouTube.Videos.List request = youtube.videos()
+                    .list(List.of("snippet", "statistics", "contentDetails"));
+            request.setId(videoIds);
+            request.setKey(apiKey);
+            return request.execute();
+        });
+    }
+
     public ChannelListResponse fetchChannelDetails(String channelId) throws IOException {
         return executeWithApiKey(apiKey -> {
             YouTube.Channels.List request = youtube.channels()
                     .list(List.of("snippet", "contentDetails", "statistics"));
             request.setId(List.of(channelId));
+            request.setKey(apiKey);
+            return request.execute();
+        });
+    }
+
+    /**
+     * 댓글 스레드 조회 (API 키 사용)
+     * 
+     * @param videoId 비디오 ID
+     * @param pageToken 페이지네이션 토큰 (null이면 첫 페이지)
+     * @param maxResults 최대 결과 수 (기본 100)
+     * @return 댓글 스레드 목록 응답
+     * @throws IOException API 호출 실패 시
+     */
+    public CommentThreadListResponse fetchCommentThreads(String videoId, String pageToken, Long maxResults) 
+            throws IOException {
+        return executeWithApiKey(apiKey -> {
+            YouTube.CommentThreads.List request = youtube.commentThreads()
+                    .list(List.of("snippet", "replies"));
+            request.setVideoId(videoId);
+            request.setOrder("time");
+            if (maxResults != null) {
+                request.setMaxResults(maxResults);
+            } else {
+                request.setMaxResults(100L);
+            }
+            if (pageToken != null) {
+                request.setPageToken(pageToken);
+            }
+            request.setKey(apiKey);
+            return request.execute();
+        });
+    }
+
+    /**
+     * 영상 검색 (API 키 사용)
+     * 
+     * @param channelId 채널 ID
+     * @param pageToken 페이지네이션 토큰 (null이면 첫 페이지)
+     * @param maxResults 최대 결과 수 (기본 50)
+     * @return 검색 결과 목록 응답
+     * @throws IOException API 호출 실패 시
+     */
+    public SearchListResponse fetchSearch(String channelId, String pageToken, Long maxResults) 
+            throws IOException {
+        return executeWithApiKey(apiKey -> {
+            YouTube.Search.List request = youtube.search().list(List.of("snippet"));
+            request.setChannelId(channelId);
+            request.setType(List.of("video"));
+            request.setOrder("date");
+            if (maxResults != null) {
+                request.setMaxResults(maxResults);
+            } else {
+                request.setMaxResults(50L);
+            }
+            if (pageToken != null) {
+                request.setPageToken(pageToken);
+            }
+            request.setKey(apiKey);
+            return request.execute();
+        });
+    }
+
+    /**
+     * 자막 목록 조회 (API 키 사용)
+     * 
+     * @param videoId 비디오 ID
+     * @return 자막 목록 응답
+     * @throws IOException API 호출 실패 시
+     */
+    public CaptionListResponse fetchCaptions(String videoId) throws IOException {
+        return executeWithApiKey(apiKey -> {
+            YouTube.Captions.List request = youtube.captions()
+                    .list(List.of("snippet"), videoId);
             request.setKey(apiKey);
             return request.execute();
         });

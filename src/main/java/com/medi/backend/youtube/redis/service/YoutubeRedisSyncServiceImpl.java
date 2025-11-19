@@ -222,9 +222,19 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
             
             // 2단계: 비디오 댓글 저장 (전체 댓글, 제한 없음)
             // ⭐ API 호출: 각 비디오마다 댓글 조회 (옵션에 따라 제한 없음)
-            long totalCommentCount = commentService.syncVideoComments(userId, videoIds, incrementalOptions);
+            long totalCommentCount = 0;
+            boolean commentSyncSuccess = true;
+            try {
+                totalCommentCount = commentService.syncVideoComments(userId, videoIds, incrementalOptions);
+                log.info("댓글 동기화 성공: userId={}, 댓글={}개", userId, totalCommentCount);
+            } catch (Exception commentEx) {
+                commentSyncSuccess = false;
+                log.error("⚠️ 댓글 동기화 실패: userId={}, error={}", userId, commentEx.getMessage(), commentEx);
+                // ⚠️ 댓글 실패해도 메타데이터는 저장되었으므로 큐 추가는 진행
+            }
             
             // Redis에서 video 메타데이터를 조회하여 channelId별로 그룹화
+            // ⚠️ 댓글 실패해도 메타데이터는 저장되었으므로 큐 추가는 필수
             log.info("🔄 channelId별 그룹화 시작: userId={}, videoIds={}개", userId, videoIds.size());
             Map<String, List<String>> videoIdsByChannel = groupVideoIdsByChannel(videoIds);
             
@@ -244,14 +254,21 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
             }
             
             log.info("✅ 작업 큐 추가 완료: userId={}, enqueuedCount={}개 채널", userId, enqueuedCount);
-            log.info("증분 Redis 동기화 완료: userId={}, 비디오={}개, 댓글={}개, 채널={}개", 
-                userId, savedVideoCount, totalCommentCount, videoIdsByChannel.size());
+            
+            // 댓글 실패 여부에 따라 로그 및 성공 여부 결정
+            if (!commentSyncSuccess) {
+                log.warn("⚠️ 댓글 동기화 실패했으나 메타데이터는 저장되었고 작업 큐는 추가됨: userId={}, 비디오={}개, 채널={}개", 
+                    userId, savedVideoCount, videoIdsByChannel.size());
+            }
+            
+            log.info("증분 Redis 동기화 완료: userId={}, 비디오={}개, 댓글={}개, 채널={}개, 댓글성공={}", 
+                userId, savedVideoCount, totalCommentCount, videoIdsByChannel.size(), commentSyncSuccess);
             
             return RedisSyncResult.builder()
                 .channelCount(videoIdsByChannel.size())
                 .videoCount(savedVideoCount)
                 .commentCount(totalCommentCount)
-                .success(true)
+                .success(commentSyncSuccess && videoIdsByChannel.size() > 0) // 댓글 성공 + 큐 추가 성공
                 .build();
                 
         } catch (Exception e) {

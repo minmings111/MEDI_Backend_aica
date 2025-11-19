@@ -93,11 +93,26 @@ public class YoutubeSyncScheduler {
                         try {
                             log.info("[YouTube] 기존 영상들의 새 댓글 동기화 시작: userId={}, channelId={}, 영상={}개",
                                 userId, youtubeChannelId, allVideoIds.size());
-                            youtubeRedisSyncService.syncIncrementalToRedis(userId, allVideoIds);
-                            log.info("[YouTube] 기존 영상들의 새 댓글 동기화 완료: userId={}", userId);
+                            var syncResult = youtubeRedisSyncService.syncIncrementalToRedis(userId, allVideoIds);
+                            
+                            if (syncResult.isSuccess()) {
+                                log.info("[YouTube] 기존 영상들의 새 댓글 동기화 완료: userId={}, 비디오={}개, 댓글={}개, 채널={}개, 큐추가됨={}",
+                                    userId, syncResult.getVideoCount(), syncResult.getCommentCount(), 
+                                    syncResult.getChannelCount(), syncResult.getChannelCount() > 0);
+                            } else {
+                                log.warn("[YouTube] 기존 영상들의 새 댓글 동기화 부분 실패: userId={}, 비디오={}개, 댓글={}개, 채널={}개, error={}",
+                                    userId, syncResult.getVideoCount(), syncResult.getCommentCount(), 
+                                    syncResult.getChannelCount(), syncResult.getErrorMessage());
+                            }
+                            
+                            // ⚠️ 큐 추가 여부 확인 (큐 추가는 댓글 실패해도 실행됨)
+                            if (syncResult.getChannelCount() == 0) {
+                                log.error("❌ [YouTube] 작업 큐에 추가되지 않았습니다! userId={}, channelId={}, videoIds={}개",
+                                    userId, youtubeChannelId, allVideoIds.size());
+                            }
                         } catch (Exception e) {
-                            log.warn("[YouTube] 기존 영상들의 새 댓글 동기화 실패: userId={}, channelId={}, error={}",
-                                userId, youtubeChannelId, e.getMessage());
+                            log.error("❌ [YouTube] 기존 영상들의 새 댓글 동기화 실패: userId={}, channelId={}, error={}",
+                                userId, youtubeChannelId, e.getMessage(), e);
                             // 댓글 동기화 실패해도 영상 동기화는 성공한 것으로 간주
                         }
                     }
