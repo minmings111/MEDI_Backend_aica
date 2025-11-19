@@ -28,7 +28,7 @@ public class AgentController {
     }
     
     @PostMapping("filtered-results")
-    public ResponseEntity<?> receiveFilteredComments(@RequestBody List<AgentFilteredResult> filteredResults) { // JSON -> DTO
+    public ResponseEntity<Map<String, Object>> receiveFilteredComments(@RequestBody List<AgentFilteredResult> filteredResults) { // JSON -> DTO
         
         Integer savedCount = agentService.insertFilteredComment(filteredResults);
 
@@ -51,7 +51,7 @@ public class AgentController {
      * @return 저장 성공 응답
      */
     @PostMapping("/profile-results")
-    public ResponseEntity<?> receiveChannelResult(@RequestBody AgentChannelResult result) {
+    public ResponseEntity<Map<String, Object>> receiveChannelResult(@RequestBody AgentChannelResult result) {
         
         try {
             agentService.saveChannelResult(result);

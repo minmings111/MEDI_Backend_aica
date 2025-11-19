@@ -202,7 +202,7 @@ public class BillingController {
     
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/admin/subscriptions")
-    public ResponseEntity<?> getAllSubscriptions(
+    public ResponseEntity<List<UserSubscriptionDto>> getAllSubscriptions(
         @RequestParam(name = "status", required = false) String status,
         @RequestParam(name = "planId",required = false) Integer planId,
         @RequestParam(name = "after", required = false)
