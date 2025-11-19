@@ -61,5 +61,24 @@ public class YoutubeSyncConfigProperties {
     @Positive(message = "max-videos-initial는 양수여야 합니다")
     @Max(value = 20, message = "max-videos-initial는 20을 초과할 수 없습니다")
     private int maxVideosInitial = 5;
+
+    /**
+     * yt-dlp를 사용하여 자막 추출 여부
+     * 
+     * true: yt-dlp 사용 (0 units, YouTube Data API 호출 없음)
+     * false: YouTube Data API 사용 (50 units/video)
+     * 
+     * 기본값: true
+     */
+    private boolean enableYtDlp = true;
+
+    /**
+     * yt-dlp 실행 경로
+     * 
+     * 기본값: "yt-dlp" (PATH에서 자동 검색)
+     * Windows: "yt-dlp.exe" 또는 전체 경로 (예: "C:\\Program Files\\yt-dlp\\yt-dlp.exe")
+     * Linux/Mac: "yt-dlp" 또는 전체 경로 (예: "/usr/local/bin/yt-dlp")
+     */
+    private String ytDlpPath = "yt-dlp";
 }
 

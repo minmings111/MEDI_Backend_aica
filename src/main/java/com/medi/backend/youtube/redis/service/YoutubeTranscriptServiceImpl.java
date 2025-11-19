@@ -1,12 +1,18 @@
 package com.medi.backend.youtube.redis.service;
 
 import java.io.ByteArrayOutputStream;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
 import java.io.IOException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -17,6 +23,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.api.services.youtube.YouTube;
 import com.google.api.services.youtube.model.Caption;
 import com.google.api.services.youtube.model.CaptionListResponse;
+import com.medi.backend.youtube.config.YoutubeSyncConfigProperties;
 import com.medi.backend.youtube.redis.util.YoutubeApiClientUtil;
 import com.medi.backend.youtube.service.YoutubeOAuthService;
 
@@ -61,6 +68,7 @@ public class YoutubeTranscriptServiceImpl implements YoutubeTranscriptService {
     private final ObjectMapper objectMapper;
     private final com.medi.backend.youtube.service.YoutubeDataApiClient youtubeDataApiClient;
     private final com.medi.backend.youtube.config.YoutubeDataApiProperties youtubeDataApiProperties;
+    private final YoutubeSyncConfigProperties youtubeSyncConfigProperties;
 
     /**
      * 특정 비디오의 스크립트(자막)를 Redis에 저장
@@ -112,7 +120,12 @@ public class YoutubeTranscriptServiceImpl implements YoutubeTranscriptService {
                 return false;
             }
 
-            // 2. 자막 목록 조회
+            // 2. yt-dlp 사용 여부 확인
+            if (youtubeSyncConfigProperties.isEnableYtDlp()) {
+                return saveTranscriptWithYtDlp(videoId);
+            }
+
+            // 3. 자막 목록 조회 (기존 YouTube Data API 방식)
             // API 키 fallback: API 키 우선, 실패 시 OAuth 토큰으로 fallback
             CaptionListResponse captionsResponse;
             try {
@@ -479,5 +492,249 @@ public class YoutubeTranscriptServiceImpl implements YoutubeTranscriptService {
         }
         
         return result.toString().trim();
+    }
+
+    /**
+     * yt-dlp를 사용하여 자막 추출 및 Redis 저장
+     * 
+     * @param videoId YouTube 비디오 ID
+     * @return 저장 성공 여부
+     */
+    private boolean saveTranscriptWithYtDlp(String videoId) {
+        String tempFile = null;
+        try {
+            log.info("영상 {}의 자막 추출 시작 (yt-dlp): videoId={}", videoId, videoId);
+            
+            // 1. yt-dlp로 VTT 파일 다운로드
+            tempFile = fetchTranscriptWithYtDlp(videoId, Arrays.asList("ko", "en"));
+            
+            if (tempFile == null || !new File(tempFile).exists()) {
+                log.warn("영상 {}의 자막 파일을 찾을 수 없습니다: videoId={}", videoId, videoId);
+                return false;
+            }
+            
+            log.info("영상 {}의 VTT 파일 다운로드 성공: file={}", videoId, tempFile);
+            
+            // 2. VTT 파일 파싱
+            List<String> lines = parseVttFile(tempFile);
+            
+            if (lines.isEmpty()) {
+                log.warn("영상 {}의 자막 텍스트가 비어있습니다: videoId={}", videoId, videoId);
+                return false;
+            }
+            
+            log.info("영상 {}의 VTT 파싱 완료: 라인수={}개", videoId, lines.size());
+            
+            // 3. 텍스트 정리 (공백 제거, \n으로 연결)
+            String cleanedTranscript = cleanTranscriptTextWithYtDlp(lines);
+            
+            if (cleanedTranscript == null || cleanedTranscript.isBlank()) {
+                log.warn("영상 {}의 자막 텍스트 정리 후 비어있습니다: videoId={}", videoId, videoId);
+                return false;
+            }
+            
+            log.info("영상 {}의 자막 텍스트 정리 완료: 정리 후 길이={}자", videoId, cleanedTranscript.length());
+            
+            // 4. 레디스에서 비디오 메타데이터 조회 (video_title 가져오기)
+            String videoTitle = getVideoTitleFromRedis(videoId);
+            
+            // 5. JSON 형식으로 변환
+            Map<String, String> transcriptData = new LinkedHashMap<>();
+            transcriptData.put("video_id", videoId);
+            transcriptData.put("video_title", videoTitle != null ? videoTitle : "");
+            transcriptData.put("transcript", cleanedTranscript);
+            
+            String jsonValue;
+            try {
+                jsonValue = objectMapper.writeValueAsString(transcriptData);
+            } catch (JsonProcessingException e) {
+                log.error("영상 {}의 JSON 변환 실패: {}", videoId, e.getMessage(), e);
+                return false;
+            }
+            
+            // 6. Redis에 저장
+            String redisKey = "video:" + videoId + ":transcript";
+            stringRedisTemplate.opsForValue().set(redisKey, jsonValue);
+            stringRedisTemplate.expire(redisKey, Duration.ofDays(3));
+
+            log.info("영상 {}의 자막 저장 완료: Redis key={}, JSON 길이={}자", 
+                videoId, redisKey, jsonValue.length());
+            return true;
+            
+        } catch (Exception e) {
+            log.error("영상 {}의 자막 추출 실패 (yt-dlp): {}", videoId, e.getMessage(), e);
+            return false;
+        } finally {
+            // 7. 임시 파일 정리
+            if (tempFile != null) {
+                cleanupTempFiles(tempFile, videoId);
+            }
+        }
+    }
+
+    /**
+     * yt-dlp를 사용하여 VTT 자막 파일 다운로드
+     * 
+     * @param videoId YouTube 비디오 ID
+     * @param languages 자막 언어 목록 (예: ["ko", "en"])
+     * @return 다운로드된 VTT 파일 경로 (실패 시 null)
+     */
+    private String fetchTranscriptWithYtDlp(String videoId, List<String> languages) throws Exception {
+        String videoUrl = "https://www.youtube.com/watch?v=" + videoId;
+        String tempDir = System.getProperty("java.io.tmpdir");
+        String tempOutputTemplate = tempDir + File.separator + "temp_transcript_" + videoId;
+        
+        // yt-dlp 명령어 생성
+        List<String> command = new ArrayList<>();
+        command.add(youtubeSyncConfigProperties.getYtDlpPath());
+        command.add("--skip-download");
+        command.add("--write-subs");
+        command.add("--write-auto-subs");
+        command.add("--sub-langs");
+        command.add(String.join(",", languages));
+        command.add("--sub-format");
+        command.add("vtt");
+        command.add("-o");
+        command.add(tempOutputTemplate + ".%(ext)s");
+        command.add(videoUrl);
+        
+        log.debug("yt-dlp 명령어 실행: {}", String.join(" ", command));
+        
+        ProcessBuilder processBuilder = new ProcessBuilder(command);
+        processBuilder.directory(new File(tempDir));
+        Process process = processBuilder.start();
+        
+        // stdout/stderr 읽기
+        String stdout = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        String stderr = new String(process.getErrorStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        
+        int exitCode = process.waitFor();
+        
+        // stdout에서 저장된 파일 경로 파싱
+        String tempFile = null;
+        String[] stdoutLines = stdout.split("\n");
+        for (String line : stdoutLines) {
+            if (line.contains("[info] Writing video subtitles to:")) {
+                int start = line.indexOf("Writing video subtitles to:") + "Writing video subtitles to:".length();
+                String path = line.substring(start).trim();
+                if (new File(path).exists()) {
+                    tempFile = path;
+                    break;
+                }
+            }
+        }
+        
+        // 폴백: 파일 시스템 스캔
+        if (tempFile == null) {
+            File tempDirFile = new File(tempDir);
+            File[] files = tempDirFile.listFiles((dir, name) -> 
+                name.startsWith("temp_transcript_" + videoId) && name.endsWith(".vtt"));
+            if (files != null && files.length > 0) {
+                tempFile = files[0].getAbsolutePath();
+            }
+        }
+        
+        // 성공/실패 판단
+        if (tempFile != null && new File(tempFile).exists()) {
+            log.debug("yt-dlp 실행 성공: videoId={}, file={}", videoId, tempFile);
+            return tempFile;
+        } else {
+            if (stderr.toLowerCase().contains("subtitles")) {
+                throw new Exception("자막이 없습니다 (No subtitles): videoId=" + videoId);
+            }
+            throw new Exception("yt-dlp 실행 실패: videoId=" + videoId + ", exitCode=" + exitCode + ", stderr=" + stderr.substring(0, Math.min(200, stderr.length())));
+        }
+    }
+
+    /**
+     * VTT 파일을 파싱하여 순수 텍스트 라인 추출
+     * 
+     * @param filePath VTT 파일 경로
+     * @return 텍스트 라인 목록
+     */
+    private List<String> parseVttFile(String filePath) {
+        List<String> textLines = new ArrayList<>();
+        String lastLine = "";
+        
+        try (BufferedReader reader = new BufferedReader(new FileReader(filePath, java.nio.charset.StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                
+                // 메타데이터 라인 스킵
+                if (line.isEmpty() || 
+                    line.startsWith("WEBVTT") || 
+                    line.startsWith("Kind:") || 
+                    line.startsWith("Language:") ||
+                    line.startsWith("NOTE")) {
+                    continue;
+                }
+                
+                // 타임스탬프 라인 제거
+                if (line.contains("-->") || 
+                    Pattern.matches("^\\d{1,2}:\\d{2}:\\d{2}[.,]\\d{3}.*", line) ||
+                    Pattern.matches("^\\d+$", line)) {
+                    continue;
+                }
+                
+                // HTML 태그 및 엔티티 제거
+                line = line.replaceAll("<[^>]+>", "");
+                line = line.replaceAll("&[^;]+;", " ");
+                
+                // 중복 라인 제거
+                if (!line.isEmpty() && !line.equals(lastLine)) {
+                    textLines.add(line);
+                    lastLine = line;
+                }
+            }
+        } catch (IOException e) {
+            log.error("VTT 파일 파싱 오류: file={}, error={}", filePath, e.getMessage(), e);
+        }
+        
+        return textLines;
+    }
+
+    /**
+     * VTT 파싱 결과를 정리 (공백 제거, \n으로 연결)
+     * 
+     * @param lines 텍스트 라인 목록
+     * @return 정리된 텍스트 (\n으로 구분)
+     */
+    private String cleanTranscriptTextWithYtDlp(List<String> lines) {
+        return lines.stream()
+            .map(line -> line.replaceAll("\\s+", ""))  // 모든 공백 제거
+            .filter(line -> !line.isEmpty())
+            .collect(Collectors.joining("\n"));
+    }
+
+    /**
+     * 임시 파일 정리
+     * 
+     * @param tempFile 임시 파일 경로
+     * @param videoId 비디오 ID
+     */
+    private void cleanupTempFiles(String tempFile, String videoId) {
+        try {
+            String tempDir = System.getProperty("java.io.tmpdir");
+            File tempDirFile = new File(tempDir);
+            File[] files = tempDirFile.listFiles((dir, name) -> 
+                name.startsWith("temp_transcript_" + videoId));
+            
+            if (files != null) {
+                for (File file : files) {
+                    try {
+                        if (file.delete()) {
+                            log.debug("임시 파일 삭제 성공: {}", file.getName());
+                        } else {
+                            log.warn("임시 파일 삭제 실패: {}", file.getName());
+                        }
+                    } catch (Exception e) {
+                        log.warn("임시 파일 삭제 중 오류: {}, error={}", file.getName(), e.getMessage());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("임시 파일 정리 중 오류: videoId={}, error={}", videoId, e.getMessage());
+        }
     }
 }
