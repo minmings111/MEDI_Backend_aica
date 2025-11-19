@@ -2,8 +2,8 @@ package com.medi.backend.agent.service;
 
 import java.util.List;
 
-import com.medi.backend.agent.dto.AgentFilteredComment;
-import com.medi.backend.agent.dto.AgentIndividualResult;
+import com.medi.backend.agent.dto.AgentFilteredResult;
+import com.medi.backend.agent.dto.AgentChannelResult;
 
 public interface AgentService {
 
@@ -13,9 +13,14 @@ public interface AgentService {
     
     Integer findUserIdByChannelId(Integer channelId);
     
-    Integer insertFilteredComment(List<AgentFilteredComment> agentFilteredComments);
+    // 유틸리티 메서드: ID 변환
+    Integer findChannelIdByVideoId(Integer videoId);
+    String findYoutubeChannelIdByChannelId(Integer channelId);
     
-    // 개별 분석 결과 수집 및 저장
-    void collectIndividualResult(AgentIndividualResult result);
+    // insert filtered comments to DB
+    Integer insertFilteredComment(List<AgentFilteredResult> agentFilteredResults);
+    
+    // 채널별 통합 분석 결과 저장 (채널별로 모든 결과가 묶여서 전달됨)
+    void saveChannelResult(AgentChannelResult result);
 
 }
