@@ -185,15 +185,36 @@ public class YoutubeDataApiClient {
         }
 
         int start = Math.floorMod(rotatingIndex.getAndIncrement(), validKeys.size());
+        log.info("🔄 API 키 rotation 시작: totalKeys={}, startIndex={}", validKeys.size(), start);
+        
         for (int i = 0; i < validKeys.size(); i++) {
-            String key = validKeys.get((start + i) % validKeys.size());
+            int currentIndex = (start + i) % validKeys.size();
+            String key = validKeys.get(currentIndex);
+            String keyPreview = key != null && key.length() > 10 ? key.substring(0, 10) + "..." : key;
+            
+            log.info("🔑 API 키 시도 중: index={}/{}, key={}", currentIndex, validKeys.size() - 1, keyPreview);
+            
             try {
-                return call.execute(key);
+                T result = call.execute(key);
+                log.info("✅ API 키 사용 성공: index={}, key={}", currentIndex, keyPreview);
+                return result;
             } catch (GoogleJsonResponseException e) {
                 if (isQuotaError(e)) {
-                    log.warn("YouTube Data API quota 소진: key index={} reason={}", (start + i) % validKeys.size(), extractReason(e));
+                    String reason = extractReason(e);
+                    log.warn("⚠️ YouTube Data API quota 소진: key index={}/{}, reason={}, key={}, 다음 키로 시도...", 
+                        currentIndex, validKeys.size() - 1, reason, keyPreview);
+                    
+                    // 마지막 키인 경우
+                    if (i == validKeys.size() - 1) {
+                        log.error("❌ 모든 YouTube Data API 키의 할당량이 소진되었습니다! (총 {}개 키 모두 시도)", validKeys.size());
+                    } else {
+                        log.info("⏭️ 다음 API 키로 시도: {}/{}", i + 1, validKeys.size());
+                    }
                     continue;
                 }
+                // quota 에러가 아닌 다른 403 에러는 그대로 던지기
+                log.error("❌ API 키 사용 실패 (quota 이외의 에러): index={}, key={}, status={}, reason={}", 
+                    currentIndex, keyPreview, e.getStatusCode(), extractReason(e));
                 throw e;
             }
         }

@@ -24,6 +24,7 @@ import java.net.URI;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -116,12 +117,22 @@ public class YoutubeOAuthController {
 
             // Optional: 콜백 직후 채널을 즉시 동기화하여 UX 향상
             if (userId != null) {
+                log.info("🔄 [OAuth 콜백] 채널 동기화 시작: userId={}", userId);
                 try {
-                    youtubeService.syncChannels(userId, true);
-                    log.info("[YouTube] 콜백 직후 채널 동기화 완료 - userId={}", userId);
+                    List<com.medi.backend.youtube.dto.YoutubeChannelDto> syncedChannels = youtubeService.syncChannels(userId, true);
+                    log.info("✅ [OAuth 콜백] 채널 동기화 완료: userId={}, 동기화된채널수={}개", 
+                        userId, syncedChannels != null ? syncedChannels.size() : 0);
+                    
+                    if (syncedChannels == null || syncedChannels.isEmpty()) {
+                        log.warn("⚠️ [OAuth 콜백] 동기화된 채널이 없습니다: userId={}", userId);
+                    }
                 } catch (Exception syncEx) {
-                    log.warn("[YouTube] 콜백 직후 채널 동기화 실패 - userId={}, error={}", userId, syncEx.getMessage());
+                    log.error("❌ [OAuth 콜백] 채널 동기화 실패: userId={}, errorType={}, errorMessage={}", 
+                        userId, syncEx.getClass().getSimpleName(), syncEx.getMessage(), syncEx);
+                    // 예외를 다시 던지지 않음 (OAuth 콜백은 성공한 것으로 간주)
                 }
+            } else {
+                log.warn("⚠️ [OAuth 콜백] userId가 null입니다. 채널 동기화를 건너뜁니다.");
             }
 
             response.sendRedirect(frontendBase + "/dashboard?youtube=connected");
