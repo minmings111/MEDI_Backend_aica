@@ -48,7 +48,7 @@
             comment_text,
             commenter_name,
             published_at,
-            like_count
+            like_count,
             author_channel_id,
             updated_at,
             parent_id,
@@ -63,7 +63,14 @@
             STR_TO_DATE(#{publishedAt}, '%Y-%m-%dT%H:%i:%sZ'),
             #{likeCount},
             #{authorChannelId},
-            STR_TO_DATE(#{updatedAt}, '%Y-%m-%dT%H:%i:%sZ'),
+            <choose>
+                <when test="updatedAt != null">
+                    STR_TO_DATE(#{updatedAt}, '%Y-%m-%dT%H:%i:%sZ')
+                </when>
+                <otherwise>
+                    NULL
+                </otherwise>
+            </choose>,
             #{parentId},
             #{totalReplyCount},
             #{canRate},
@@ -73,7 +80,7 @@
             comment_text = VALUES(comment_text),
             commenter_name = VALUES(commenter_name),
             published_at = VALUES(published_at),
-            like_count = VALUES(like_count)
+            like_count = VALUES(like_count),
             author_channel_id = VALUES(author_channel_id),
             updated_at = VALUES(updated_at),
             parent_id = VALUES(parent_id),
@@ -82,37 +89,89 @@
             viewer_rating = VALUES(viewer_rating)
     </insert>
 
+    <select id="findCommentIdByYoutubeCommentId" resultType="java.lang.Integer">
+        SELECT id 
+        FROM youtube_comments
+        WHERE video_id = #{videoId} 
+          AND youtube_comment_id = #{youtubeCommentId}
+        LIMIT 1
+    </select>
+
+    <insert id="insertCommentAnalysisResult">
+        INSERT INTO ai_comment_analysis_result (
+            youtube_comment_id,
+            status,
+            filter_reason
+        ) VALUES (
+            #{youtubeCommentId},
+            #{status},
+            #{filterReason}
+        )
+        ON DUPLICATE KEY UPDATE
+            status = VALUES(status),
+            filter_reason = VALUES(filter_reason)
+    </insert>
+
     <insert id="insertResultVideo">
         INSERT INTO ai_video_analysis_result (
             video_id,
             summarize,
-            communication
+            communication,
+            video_title,
+            summarized_at,
+            char_count,
+            model
         ) VALUES (
             #{videoId},
             #{summary},
-            #{communicationReport}
+            #{communicationReport},
+            #{videoTitle},
+            <choose>
+                <when test="summarizedAt != null">
+                    STR_TO_DATE(#{summarizedAt}, '%Y-%m-%dT%H:%i:%s.%f')
+                </when>
+                <otherwise>
+                    NULL
+                </otherwise>
+            </choose>,
+            #{charCount},
+            #{model}
         )
         ON DUPLICATE KEY UPDATE
             summarize = VALUES(summarize),
-            communication = VALUES(communication)
+            communication = VALUES(communication),
+            video_title = VALUES(video_title),
+            summarized_at = VALUES(summarized_at),
+            char_count = VALUES(char_count),
+            model = VALUES(model)
     </insert>
 
     <insert id="insertResultChannel">
         INSERT INTO ai_channel_analysis_result (
             channel_id,
-            analysis_result
+            profile,
+            ecosystem,
+            profiled_at,
+            model
         ) VALUES (
             #{channelId},
-            JSON_OBJECT(
-                'profile', #{profileReport},
-                'ecosystem', #{ecosystemReport}
-            )
+            #{profileReport},
+            #{ecosystemReport},
+            <choose>
+                <when test="profiledAt != null">
+                    STR_TO_DATE(#{profiledAt}, '%Y-%m-%dT%H:%i:%s.%f')
+                </when>
+                <otherwise>
+                    NULL
+                </otherwise>
+            </choose>,
+            #{model}
         )
         ON DUPLICATE KEY UPDATE
-            analysis_result = JSON_OBJECT(
-                'profile', #{profileReport},
-                'ecosystem', #{ecosystemReport}
-            )
+            profile = VALUES(profile),
+            ecosystem = VALUES(ecosystem),
+            profiled_at = VALUES(profiled_at),
+            model = VALUES(model)
     </insert>
 
 </mapper>

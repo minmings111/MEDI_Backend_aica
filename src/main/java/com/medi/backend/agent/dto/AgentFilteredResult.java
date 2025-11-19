@@ -6,10 +6,10 @@ import lombok.Getter;
 
 
 
-// same the Redis's RedisYoutubeCommentFull + video_id(key)
+// same the Redis's RedisYoutubeCommentFull + video_id(key) + status
 
 @Getter
-public class AgentFilteredComment {
+public class AgentFilteredResult {
     @JsonProperty("video_id")
     private final String videoId;
     
@@ -45,9 +45,15 @@ public class AgentFilteredComment {
     
     @JsonProperty("viewer_rating")
     private final String viewerRating;
+    
+    @JsonProperty("status")
+    private final String status;  // "normal", "filtered", "content_suggestion"
+    
+    @JsonProperty("reason")
+    private final String reason;  // 필터링 이유 (예: "hate_speech", "auto_detected")
 
     @JsonCreator
-    public AgentFilteredComment(
+    public AgentFilteredResult(
         @JsonProperty("video_id") String videoId,
         @JsonProperty("comment_id") String commentId,
         @JsonProperty("text_original") String textOriginal,
@@ -59,7 +65,9 @@ public class AgentFilteredComment {
         @JsonProperty("parent_id") String parentId,
         @JsonProperty("total_reply_count") Long totalReplyCount,
         @JsonProperty("can_rate") Boolean canRate,
-        @JsonProperty("viewer_rating") String viewerRating
+        @JsonProperty("viewer_rating") String viewerRating,
+        @JsonProperty("status") String status,
+        @JsonProperty("reason") String reason
     ) {
         this.videoId = videoId;
         this.commentId = commentId;
@@ -73,5 +81,43 @@ public class AgentFilteredComment {
         this.totalReplyCount = totalReplyCount;
         this.canRate = canRate;
         this.viewerRating = viewerRating;
+        this.status = status;
+        this.reason = reason;
     }
 }
+
+// ex
+// [
+//   {
+//     "video_id": "td7kfwpTDcA",
+//     "comment_id": "UgyQbxEOl74hRc1xkQl4AaABAg",
+//     "text_original": "댓글 내용...",
+//     "author_name": "작성자명",
+//     "author_channel_id": "UC...",
+//     "like_count": 5,
+//     "published_at": "2025-01-18T10:30:00Z",
+//     "updated_at": "2025-01-18T11:00:00Z",
+//     "parent_id": null,
+//     "total_reply_count": 2,
+//     "can_rate": true,
+//     "viewer_rating": "like",
+//     "status": "filtered",
+//     "reason": "hate_speech"
+//   },
+//   {
+//     "video_id": "td7kfwpTDcA",
+//     "comment_id": "ADFjYOKUh-sADa-V9q-trq",
+//     "text_original": "다른 댓글...",
+//     "author_name": "다른 작성자",
+//     "author_channel_id": "UC...",
+//     "like_count": 10,
+//     "published_at": "2025-01-18T11:00:00Z",
+//     "updated_at": null,
+//     "parent_id": null,
+//     "total_reply_count": 0,
+//     "can_rate": true,
+//     "viewer_rating": "none",
+//     "status": "content_suggestion",
+//     "reason": "auto_detected"
+//   }
+// ]
