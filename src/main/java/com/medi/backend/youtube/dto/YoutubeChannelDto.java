@@ -17,6 +17,7 @@ public class YoutubeChannelDto {
     private String channelName;
     private String channelHandle;
     private String thumbnailUrl;
+    private Long subscriberCount;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private LocalDateTime lastSyncedAt;
