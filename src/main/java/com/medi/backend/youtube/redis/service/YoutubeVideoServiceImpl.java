@@ -50,6 +50,8 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
     private final YoutubeVideoMapper redisMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
+    private final com.medi.backend.youtube.service.YoutubeDataApiClient youtubeDataApiClient;
+    private final com.medi.backend.youtube.config.YoutubeDataApiProperties youtubeDataApiProperties;
 
     @Override
     public Map<String, List<RedisYoutubeVideo>> getTop20VideosByChannel(YouTube yt, List<String> channelIds) {
@@ -72,7 +74,39 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                     }
                     
                     // 2-1. get the list of videos of the channel from YouTube API
-                    List<SearchResult> searchResults = fetchChannelVideos(yt, channelId);
+                    // API 키 fallback: API 키 우선, 실패 시 OAuth 토큰으로 fallback
+                    List<SearchResult> searchResults;
+                    try {
+                        if (youtubeDataApiClient.hasApiKeys()) {
+                            try {
+                                searchResults = fetchChannelVideosWithApiKey(channelId);
+                                log.debug("영상 검색 성공 (API 키): channelId={}, videoCount={}", channelId, searchResults.size());
+                            } catch (com.medi.backend.youtube.exception.NoAvailableApiKeyException ex) {
+                                if (!youtubeDataApiProperties.isEnableFallback()) {
+                                    throw ex;
+                                }
+                                log.debug("YouTube Data API 키 사용 불가, OAuth 토큰으로 폴백: channelId={}", channelId);
+                                searchResults = fetchChannelVideos(yt, channelId);
+                            }
+                        } else {
+                            searchResults = fetchChannelVideos(yt, channelId);
+                        }
+                    } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
+                        // API 키 쿼터 초과 등 403 에러 처리
+                        if (youtubeDataApiClient.hasApiKeys() && youtubeDataApiProperties.isEnableFallback() 
+                                && e.getStatusCode() == 403) {
+                            String errorReason = com.medi.backend.youtube.redis.util.YoutubeErrorUtil.extractErrorReason(e);
+                            if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason) 
+                                    || "userRateLimitExceeded".equals(errorReason)) {
+                                log.debug("YouTube Data API 키 쿼터 초과, OAuth 토큰으로 폴백: channelId={}", channelId);
+                                searchResults = fetchChannelVideos(yt, channelId);
+                            } else {
+                                throw e;
+                            }
+                        } else {
+                            throw e;
+                        }
+                    }
                     
                     if (searchResults.isEmpty()) {
                         videosByChannel.put(channelId, Collections.emptyList());
@@ -144,7 +178,37 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
 
 
     /**
-     * 채널의 영상 목록 조회 (social-comment-saas 방식: youtube.search.list 사용)
+     * 채널의 영상 목록 조회 (API 키 사용)
+     */
+    private List<SearchResult> fetchChannelVideosWithApiKey(String channelId) throws Exception {
+        List<SearchResult> allResults = new ArrayList<>();
+        String nextPageToken = null;
+
+        do {
+            try {
+                SearchListResponse response = youtubeDataApiClient.fetchSearch(channelId, nextPageToken, 50L);
+                if (response.getItems() != null) {
+                    allResults.addAll(response.getItems());
+                }
+                nextPageToken = response.getNextPageToken();
+            } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
+                // API 키 쿼터 초과 시 예외 다시 던져서 상위에서 fallback 처리
+                if (e.getStatusCode() == 403) {
+                    String errorReason = com.medi.backend.youtube.redis.util.YoutubeErrorUtil.extractErrorReason(e);
+                    if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason) 
+                            || "userRateLimitExceeded".equals(errorReason)) {
+                        throw e;  // 상위로 전달하여 fallback 처리
+                    }
+                }
+                throw e;
+            }
+        } while (nextPageToken != null);
+
+        return allResults;
+    }
+
+    /**
+     * 채널의 영상 목록 조회 (OAuth 토큰 사용)
      */
     private List<SearchResult> fetchChannelVideos(YouTube yt, String channelId) throws Exception {
         List<SearchResult> allResults = new ArrayList<>();
@@ -179,7 +243,40 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
     }
 
     /**
-     * 비디오 상세 정보 조회 (조회수 등 통계 포함)
+     * 비디오 상세 정보 조회 (API 키 사용)
+     * snippet, statistics, contentDetails 포함
+     */
+    private List<Video> fetchVideoDetailsWithApiKey(List<String> videoIds) throws Exception {
+        List<Video> videos = new ArrayList<>();
+
+        // YouTube API는 한 번에 최대 50개까지만 조회 가능
+        for (int i = 0; i < videoIds.size(); i += 50) {
+            int end = Math.min(i + 50, videoIds.size());
+            List<String> batch = videoIds.subList(i, end);
+
+            try {
+                VideoListResponse resp = youtubeDataApiClient.fetchVideoDetails(batch);
+                if (resp.getItems() != null) {
+                    videos.addAll(resp.getItems());
+                }
+            } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
+                // API 키 쿼터 초과 시 예외 다시 던져서 상위에서 fallback 처리
+                if (e.getStatusCode() == 403) {
+                    String errorReason = com.medi.backend.youtube.redis.util.YoutubeErrorUtil.extractErrorReason(e);
+                    if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason) 
+                            || "userRateLimitExceeded".equals(errorReason)) {
+                        throw e;  // 상위로 전달하여 fallback 처리
+                    }
+                }
+                throw e;
+            }
+        }
+
+        return videos;
+    }
+
+    /**
+     * 비디오 상세 정보 조회 (OAuth 토큰 사용)
      */
     private List<Video> fetchVideoDetails(YouTube yt, List<String> videoIds) throws Exception {
         List<Video> videos = new ArrayList<>();
@@ -278,13 +375,44 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                 return 0;
             }
             
-            // OAuth 토큰 가져오기
+            // OAuth 토큰 가져오기 (fallback용)
             String token = youtubeOAuthService.getValidAccessToken(userId);
             YouTube yt = YoutubeApiClientUtil.buildClient(token);
             
             // 비디오 상세 정보 조회 (배치 처리로 API 호출 최소화)
-            // ⭐ YouTube Videos API 호출: 50개씩 묶어서 한 번에 조회
-            List<Video> videos = fetchVideoDetails(yt, videoIds);
+            // ⭐ YouTube Videos API 호출: API 키 우선, 실패 시 OAuth 토큰으로 fallback
+            List<Video> videos;
+            try {
+                if (youtubeDataApiClient.hasApiKeys()) {
+                    try {
+                        videos = fetchVideoDetailsWithApiKey(videoIds);
+                        log.debug("비디오 메타데이터 조회 성공 (API 키): userId={}, videoCount={}", userId, videos.size());
+                    } catch (com.medi.backend.youtube.exception.NoAvailableApiKeyException ex) {
+                        if (!youtubeDataApiProperties.isEnableFallback()) {
+                            throw ex;
+                        }
+                        log.debug("YouTube Data API 키 사용 불가, OAuth 토큰으로 폴백: userId={}", userId);
+                        videos = fetchVideoDetails(yt, videoIds);
+                    }
+                } else {
+                    videos = fetchVideoDetails(yt, videoIds);
+                }
+            } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
+                // API 키 쿼터 초과 등 403 에러 처리
+                if (youtubeDataApiClient.hasApiKeys() && youtubeDataApiProperties.isEnableFallback() 
+                        && e.getStatusCode() == 403) {
+                    String errorReason = com.medi.backend.youtube.redis.util.YoutubeErrorUtil.extractErrorReason(e);
+                    if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason) 
+                            || "userRateLimitExceeded".equals(errorReason)) {
+                        log.debug("YouTube Data API 키 쿼터 초과, OAuth 토큰으로 폴백: userId={}", userId);
+                        videos = fetchVideoDetails(yt, videoIds);
+                    } else {
+                        throw e;
+                    }
+                } else {
+                    throw e;
+                }
+            }
             
             if (videos.isEmpty()) {
                 log.warn("비디오 상세 정보를 가져올 수 없습니다: userId={}, videoIds={}", userId, videoIds.size());

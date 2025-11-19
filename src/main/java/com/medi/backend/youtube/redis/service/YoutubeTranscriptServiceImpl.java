@@ -59,6 +59,8 @@ public class YoutubeTranscriptServiceImpl implements YoutubeTranscriptService {
     private final YoutubeOAuthService youtubeOAuthService;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
+    private final com.medi.backend.youtube.service.YoutubeDataApiClient youtubeDataApiClient;
+    private final com.medi.backend.youtube.config.YoutubeDataApiProperties youtubeDataApiProperties;
 
     /**
      * 특정 비디오의 스크립트(자막)를 Redis에 저장
@@ -111,10 +113,45 @@ public class YoutubeTranscriptServiceImpl implements YoutubeTranscriptService {
             }
 
             // 2. 자막 목록 조회
-            YouTube.Captions.List captionsRequest = yt.captions()
-                .list(Arrays.asList("snippet"), videoId);
-            
-            CaptionListResponse captionsResponse = captionsRequest.execute();
+            // API 키 fallback: API 키 우선, 실패 시 OAuth 토큰으로 fallback
+            CaptionListResponse captionsResponse;
+            try {
+                if (youtubeDataApiClient.hasApiKeys()) {
+                    try {
+                        captionsResponse = youtubeDataApiClient.fetchCaptions(videoId);
+                        log.debug("자막 목록 조회 성공 (API 키): videoId={}", videoId);
+                    } catch (com.medi.backend.youtube.exception.NoAvailableApiKeyException ex) {
+                        if (!youtubeDataApiProperties.isEnableFallback()) {
+                            throw ex;
+                        }
+                        log.debug("YouTube Data API 키 사용 불가, OAuth 토큰으로 폴백: videoId={}", videoId);
+                        YouTube.Captions.List captionsRequest = yt.captions()
+                            .list(Arrays.asList("snippet"), videoId);
+                        captionsResponse = captionsRequest.execute();
+                    }
+                } else {
+                    YouTube.Captions.List captionsRequest = yt.captions()
+                        .list(Arrays.asList("snippet"), videoId);
+                    captionsResponse = captionsRequest.execute();
+                }
+            } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
+                // API 키 쿼터 초과 등 403 에러 처리
+                if (youtubeDataApiClient.hasApiKeys() && youtubeDataApiProperties.isEnableFallback() 
+                        && e.getStatusCode() == 403) {
+                    String errorReason = com.medi.backend.youtube.redis.util.YoutubeErrorUtil.extractErrorReason(e);
+                    if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason) 
+                            || "userRateLimitExceeded".equals(errorReason)) {
+                        log.debug("YouTube Data API 키 쿼터 초과, OAuth 토큰으로 폴백: videoId={}", videoId);
+                        YouTube.Captions.List captionsRequest = yt.captions()
+                            .list(Arrays.asList("snippet"), videoId);
+                        captionsResponse = captionsRequest.execute();
+                    } else {
+                        throw e;
+                    }
+                } else {
+                    throw e;
+                }
+            }
 
             if (captionsResponse.getItems() == null || captionsResponse.getItems().isEmpty()) {
                 log.info("영상 {}에 자막이 없습니다", videoId);

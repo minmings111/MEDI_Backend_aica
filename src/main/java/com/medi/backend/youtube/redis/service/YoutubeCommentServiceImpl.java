@@ -68,6 +68,8 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
     private final YoutubeCommentSyncCursorMapper cursorMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
+    private final com.medi.backend.youtube.service.YoutubeDataApiClient youtubeDataApiClient;
+    private final com.medi.backend.youtube.config.YoutubeDataApiProperties youtubeDataApiProperties;
 
 private static final Duration COMMENT_HASH_TTL = Duration.ofDays(3);
 private static final Duration PROCESSED_SET_TTL = Duration.ofDays(30);
@@ -291,8 +293,38 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
             }
 
             // ⭐ 실제 YouTube CommentThreads API 호출 실행
-            // 이 시점에서 YouTube 서버로 HTTP 요청이 전송됨
-            CommentThreadListResponse resp = req.execute();
+            // API 키 fallback: API 키 우선 시도, 실패 시 OAuth 토큰 사용
+            CommentThreadListResponse resp;
+            try {
+                if (youtubeDataApiClient.hasApiKeys()) {
+                    try {
+                        resp = youtubeDataApiClient.fetchCommentThreads(videoId, nextPageToken, 100L);
+                    } catch (com.medi.backend.youtube.exception.NoAvailableApiKeyException ex) {
+                        if (!youtubeDataApiProperties.isEnableFallback()) {
+                            throw ex;
+                        }
+                        log.debug("YouTube Data API 키 사용 불가, OAuth 토큰으로 폴백: videoId={}", videoId);
+                        resp = req.execute();
+                    }
+                } else {
+                    resp = req.execute();
+                }
+            } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
+                // API 키 쿼터 초과 등 403 에러 처리
+                if (youtubeDataApiClient.hasApiKeys() && youtubeDataApiProperties.isEnableFallback() 
+                        && e.getStatusCode() == 403) {
+                    String errorReason = com.medi.backend.youtube.redis.util.YoutubeErrorUtil.extractErrorReason(e);
+                    if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason) 
+                            || "userRateLimitExceeded".equals(errorReason)) {
+                        log.debug("YouTube Data API 키 쿼터 초과, OAuth 토큰으로 폴백: videoId={}", videoId);
+                        resp = req.execute();
+                    } else {
+                        throw e;
+                    }
+                } else {
+                    throw e;
+                }
+            }
 
             // Python 코드 참고: items = response.get("items", [])
             int newInPage = 0;
@@ -448,7 +480,39 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                 req.setPageToken(nextPageToken);
             }
 
-            CommentThreadListResponse resp = req.execute();
+            // ⭐ 실제 YouTube CommentThreads API 호출 실행
+            // API 키 fallback: API 키 우선 시도, 실패 시 OAuth 토큰 사용
+            CommentThreadListResponse resp;
+            try {
+                if (youtubeDataApiClient.hasApiKeys()) {
+                    try {
+                        resp = youtubeDataApiClient.fetchCommentThreads(videoId, nextPageToken, 100L);
+                    } catch (com.medi.backend.youtube.exception.NoAvailableApiKeyException ex) {
+                        if (!youtubeDataApiProperties.isEnableFallback()) {
+                            throw ex;
+                        }
+                        log.debug("YouTube Data API 키 사용 불가, OAuth 토큰으로 폴백: videoId={}", videoId);
+                        resp = req.execute();
+                    }
+                } else {
+                    resp = req.execute();
+                }
+            } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
+                // API 키 쿼터 초과 등 403 에러 처리
+                if (youtubeDataApiClient.hasApiKeys() && youtubeDataApiProperties.isEnableFallback() 
+                        && e.getStatusCode() == 403) {
+                    String errorReason = com.medi.backend.youtube.redis.util.YoutubeErrorUtil.extractErrorReason(e);
+                    if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason) 
+                            || "userRateLimitExceeded".equals(errorReason)) {
+                        log.debug("YouTube Data API 키 쿼터 초과, OAuth 토큰으로 폴백: videoId={}", videoId);
+                        resp = req.execute();
+                    } else {
+                        throw e;
+                    }
+                } else {
+                    throw e;
+                }
+            }
             if (resp.getItems() != null) {
                 for (CommentThread thread : resp.getItems()) {
                     if (maxCommentCount != null && maxCommentCount > 0 && allComments.size() >= maxCommentCount) {
