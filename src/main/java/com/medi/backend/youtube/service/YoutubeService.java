@@ -607,6 +607,9 @@ public class YoutubeService {
         dto.setChannelName(ch.getSnippet() != null ? ch.getSnippet().getTitle() : null);
         dto.setChannelHandle(ch.getSnippet() != null ? ch.getSnippet().getCustomUrl() : null);
         dto.setThumbnailUrl(extractThumbnail(ch));
+        if (ch.getStatistics() != null) {
+            dto.setSubscriberCount(toLong(ch.getStatistics().getSubscriberCount()));
+        }
         dto.setLastSyncedAt(now);
         if (ch.getContentDetails() != null && ch.getContentDetails().getRelatedPlaylists() != null) {
             dto.setUploadsPlaylistId(ch.getContentDetails().getRelatedPlaylists().getUploads());
