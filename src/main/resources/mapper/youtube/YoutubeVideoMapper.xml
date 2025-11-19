@@ -46,6 +46,14 @@
         SELECT * FROM youtube_videos WHERE channel_id = #{channelId} ORDER BY published_at DESC
     </select>
 
+    <select id="findYoutubeChannelIdByVideoId" parameterType="string" resultType="string">
+        SELECT c.youtube_channel_id
+        FROM youtube_videos v
+        INNER JOIN youtube_channels c ON v.channel_id = c.id
+        WHERE v.youtube_video_id = #{youtubeVideoId}
+        LIMIT 1
+    </select>
+
 </mapper>
 
 

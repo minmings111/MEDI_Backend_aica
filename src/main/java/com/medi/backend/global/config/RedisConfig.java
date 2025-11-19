@@ -43,8 +43,8 @@ public class RedisConfig {
     /**
      * 작업 큐 전용 Redis 템플릿 (db=1)
      */
-    @Bean(name = "queueRedisTemplate")
-    public StringRedisTemplate queueRedisTemplate() {
+    @Bean(name = "redisQueueTemplate")
+    public StringRedisTemplate redisQueueTemplate() {
         RedisStandaloneConfiguration config = new RedisStandaloneConfiguration();
         config.setHostName(redisHost);
         config.setPort(redisPort);
@@ -54,6 +54,14 @@ public class RedisConfig {
         connectionFactory.afterPropertiesSet();
 
         return new StringRedisTemplate(connectionFactory);
+    }
+
+    /**
+     * 기존 호환성을 위한 별칭 (queueRedisTemplate)
+     */
+    @Bean(name = "queueRedisTemplate")
+    public StringRedisTemplate queueRedisTemplate() {
+        return redisQueueTemplate();
     }
 }
 

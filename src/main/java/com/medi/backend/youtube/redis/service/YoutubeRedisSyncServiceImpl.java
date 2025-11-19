@@ -1,13 +1,10 @@
 package com.medi.backend.youtube.redis.service;
 
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,6 +12,8 @@ import org.springframework.transaction.annotation.Transactional;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.api.services.youtube.YouTube;
+import com.medi.backend.youtube.mapper.YoutubeVideoMapper;
+import com.medi.backend.youtube.dto.YoutubeVideoDto;
 import com.medi.backend.youtube.redis.dto.RedisSyncResult;
 import com.medi.backend.youtube.redis.dto.RedisYoutubeVideo;
 import com.medi.backend.youtube.redis.dto.SyncOptions;
@@ -62,11 +61,11 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
     private final YoutubeCommentService commentService;
     private final YoutubeOAuthService youtubeOAuthService;
     private final YoutubeTranscriptService youtubeTranscriptService;
+    private final YoutubeVideoMapper youtubeVideoMapper;
+    private final RedisQueueService redisQueueService;
     
     // Redis 템플릿
     private final StringRedisTemplate stringRedisTemplate;
-    @Qualifier("queueRedisTemplate")
-    private final StringRedisTemplate queueRedisTemplate;
     private final ObjectMapper objectMapper;
 
     // full sync process (initial sync)
@@ -207,17 +206,21 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
             
             // 1단계: 비디오 메타데이터 저장 (전체 메타데이터)
             // ⭐ API 호출: 비디오 ID 리스트를 50개씩 묶어서 한 번에 조회
-            int savedVideoCount = videoService.syncVideoMetadata(userId, videoIds, incrementalOptions);
-            
-            if (savedVideoCount == 0) {
-                log.warn("비디오 메타데이터 저장 실패: userId={}", userId);
-                return RedisSyncResult.builder()
-                    .channelCount(0)
-                    .videoCount(0)
-                    .commentCount(0)
-                    .success(false)
-                    .errorMessage("비디오 메타데이터 저장 실패")
-                    .build();
+            // ⚠️ 메타데이터 저장 실패해도 이미 Redis에 있을 수 있으므로, 작업 큐 추가는 시도
+            int savedVideoCount = 0;
+            boolean metadataSyncSuccess = true;
+            try {
+                savedVideoCount = videoService.syncVideoMetadata(userId, videoIds, incrementalOptions);
+                if (savedVideoCount == 0) {
+                    log.warn("⚠️ 비디오 메타데이터 저장 실패 (0개): userId={}, 이미 Redis에 있을 수 있음", userId);
+                    metadataSyncSuccess = false;
+                } else {
+                    log.info("비디오 메타데이터 저장 성공: userId={}, videoCount={}개", userId, savedVideoCount);
+                }
+            } catch (Exception metadataEx) {
+                metadataSyncSuccess = false;
+                log.error("⚠️ 비디오 메타데이터 저장 실패: userId={}, error={}", userId, metadataEx.getMessage(), metadataEx);
+                // ⚠️ 메타데이터 저장 실패해도 이미 Redis에 있을 수 있으므로 큐 추가는 진행
             }
             
             // 2단계: 비디오 댓글 저장 (전체 댓글, 제한 없음)
@@ -234,7 +237,7 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
             }
             
             // Redis에서 video 메타데이터를 조회하여 channelId별로 그룹화
-            // ⚠️ 댓글 실패해도 메타데이터는 저장되었으므로 큐 추가는 필수
+            // ⚠️ 메타데이터/댓글 실패해도 이미 Redis에 있을 수 있으므로 큐 추가는 필수
             log.info("🔄 channelId별 그룹화 시작: userId={}, videoIds={}개", userId, videoIds.size());
             Map<String, List<String>> videoIdsByChannel = groupVideoIdsByChannel(videoIds);
             
@@ -255,20 +258,38 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
             
             log.info("✅ 작업 큐 추가 완료: userId={}, enqueuedCount={}개 채널", userId, enqueuedCount);
             
-            // 댓글 실패 여부에 따라 로그 및 성공 여부 결정
-            if (!commentSyncSuccess) {
-                log.warn("⚠️ 댓글 동기화 실패했으나 메타데이터는 저장되었고 작업 큐는 추가됨: userId={}, 비디오={}개, 채널={}개", 
-                    userId, savedVideoCount, videoIdsByChannel.size());
+            // 메타데이터/댓글 실패 여부에 따라 로그 및 성공 여부 결정
+            if (!metadataSyncSuccess || !commentSyncSuccess) {
+                if (!metadataSyncSuccess && !commentSyncSuccess) {
+                    log.warn("⚠️ 메타데이터 및 댓글 동기화 실패했으나 작업 큐는 추가 시도: userId={}, 비디오={}개, 채널={}개", 
+                        userId, savedVideoCount, videoIdsByChannel.size());
+                } else if (!metadataSyncSuccess) {
+                    log.warn("⚠️ 메타데이터 동기화 실패했으나 댓글은 성공하고 작업 큐는 추가됨: userId={}, 비디오={}개, 채널={}개", 
+                        userId, savedVideoCount, videoIdsByChannel.size());
+                } else {
+                    log.warn("⚠️ 댓글 동기화 실패했으나 메타데이터는 저장되었고 작업 큐는 추가됨: userId={}, 비디오={}개, 채널={}개", 
+                        userId, savedVideoCount, videoIdsByChannel.size());
+                }
             }
             
-            log.info("증분 Redis 동기화 완료: userId={}, 비디오={}개, 댓글={}개, 채널={}개, 댓글성공={}", 
-                userId, savedVideoCount, totalCommentCount, videoIdsByChannel.size(), commentSyncSuccess);
+            // 작업 큐 추가 여부 확인
+            if (videoIdsByChannel.isEmpty()) {
+                log.error("❌ channelId별 그룹화 결과가 비어있습니다! 작업 큐에 추가되지 않았습니다. userId={}, videoIds={}개",
+                    userId, videoIds.size());
+            } else if (enqueuedCount == 0) {
+                log.error("❌ 작업 큐에 추가된 채널이 0개입니다! userId={}, videoIdsByChannel={}개", 
+                    userId, videoIdsByChannel.size());
+            }
+            
+            log.info("증분 Redis 동기화 완료: userId={}, 비디오={}개, 댓글={}개, 채널={}개, 메타성공={}, 댓글성공={}, 큐추가={}", 
+                userId, savedVideoCount, totalCommentCount, videoIdsByChannel.size(), 
+                metadataSyncSuccess, commentSyncSuccess, enqueuedCount > 0);
             
             return RedisSyncResult.builder()
                 .channelCount(videoIdsByChannel.size())
                 .videoCount(savedVideoCount)
                 .commentCount(totalCommentCount)
-                .success(commentSyncSuccess && videoIdsByChannel.size() > 0) // 댓글 성공 + 큐 추가 성공
+                .success(metadataSyncSuccess && commentSyncSuccess && videoIdsByChannel.size() > 0) // 메타데이터 성공 + 댓글 성공 + 큐 추가 성공
                 .build();
                 
         } catch (Exception e) {
@@ -287,9 +308,10 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
      * 에이전트 작업 큐에 작업 추가
      * 
      * Redis 큐 구조:
-     * - Key: profiling_agent:tasks:queue
+     * - Profiling: profiling_agent:tasks:queue
+     * - Filtering: filtering_agent:tasks:queue
      * - Type: List
-     * - Database: DB 1 (queueRedisTemplate)
+     * - Database: DB 1 (redisQueueTemplate)
      * - Spring 백엔드: LPUSH로 작업 추가 (왼쪽에 추가)
      * - FastAPI Agent: RPOP/BRPOP으로 작업 꺼내기 (오른쪽에서 꺼내기, read + delete 동시 수행)
      * 
@@ -300,51 +322,22 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
      * @param option 작업 옵션 ("profiling" 또는 "filtering")
      */
     private void enqueueAgentTask(String channelId, List<String> videoIds, String option) {
-        String queueKey = "profiling_agent:tasks:queue";
-        
         try {
-            // 큐 길이 확인 (추가 전)
-            Long queueLengthBefore = queueRedisTemplate.opsForList().size(queueKey);
-            if (queueLengthBefore == null) {
-                queueLengthBefore = 0L;
-            }
-            
-            log.info("📤 작업 큐 추가 시도: channelId={}, videoCount={}, option={}, queueKey={}, db=1, 현재큐길이={}", 
-                channelId, videoIds.size(), option, queueKey, queueLengthBefore);
-            
-            Map<String, Object> task = new HashMap<>();
-            String taskId = UUID.randomUUID().toString();
-            task.put("taskId", taskId);
-            task.put("channelId", channelId);
-            task.put("videoIds", videoIds);
-            task.put("createdAt", LocalDateTime.now().toString());
-            task.put("option", option);
-            
-            String taskJson = objectMapper.writeValueAsString(task);
-            
-            // 큐에 들어가는 데이터 일부 로깅 (디버깅용)
-            log.debug("📋 큐에 추가할 작업 데이터: taskId={}, channelId={}, videoIds={}", 
-                taskId, channelId, videoIds.subList(0, Math.min(3, videoIds.size())));
-            
-            // DB 1의 작업 큐에 추가
-            Long queueLengthAfter = queueRedisTemplate.opsForList().leftPush(queueKey, taskJson);
-            
-            if (queueLengthAfter == null) {
-                log.error("❌ 큐 추가 후 길이 확인 실패: queueKey={}, channelId={}", queueKey, channelId);
+            if ("filtering".equals(option)) {
+                // ⭐ Filtering Queue에 추가 (filtering_agent:tasks:queue)
+                redisQueueService.enqueueFiltering(channelId, videoIds);
+                log.info("✅ Filtering 작업 큐 추가: channelId={}, videoCount={}", channelId, videoIds.size());
+            } else if ("profiling".equals(option)) {
+                // ⭐ Profiling Queue에 추가 (profiling_agent:tasks:queue)
+                redisQueueService.enqueueProfiling(channelId, videoIds);
+                log.info("✅ Profiling 작업 큐 추가: channelId={}, videoCount={}", 
+                    channelId, videoIds != null ? videoIds.size() : 0);
             } else {
-                log.info("✅ 작업 큐에 추가 성공 (DB 1): channelId={}, taskId={}, videoCount={}, option={}, 큐길이={}→{}", 
-                    channelId, taskId, videoIds.size(), option, queueLengthBefore, queueLengthAfter);
-                
-                // 큐 길이가 증가하지 않았다면 경고
-                if (queueLengthAfter <= queueLengthBefore) {
-                    log.warn("⚠️ 큐 길이가 증가하지 않았습니다! 추가전={}, 추가후={}, taskId={}", 
-                        queueLengthBefore, queueLengthAfter, taskId);
-                }
+                log.warn("⚠️ 알 수 없는 작업 옵션: option={}, channelId={}", option, channelId);
             }
-            
         } catch (Exception e) {
-            log.error("❌ 작업 큐 추가 실패 (DB 1): channelId={}, option={}, queueKey={}, error={}", 
-                channelId, option, queueKey, e.getMessage(), e);
+            log.error("❌ 작업 큐 추가 실패: channelId={}, option={}, error={}", 
+                channelId, option, e.getMessage(), e);
             // 큐 추가 실패해도 Redis 동기화는 이미 완료되었으므로 예외를 던지지 않음
         }
     }
@@ -371,9 +364,59 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
                 String metaJson = stringRedisTemplate.opsForValue().get(metaKey);
                 
                 if (metaJson == null) {
-                    log.warn("⚠️ 비디오 {}의 메타데이터가 Redis에 없습니다! key={}", videoId, metaKey);
-                    failCount++;
-                    continue;
+                    log.warn("⚠️ 비디오 {}의 메타데이터가 Redis에 없습니다! key={}, MySQL에서 조회 시도", videoId, metaKey);
+                    
+                    // MySQL fallback: Redis에 없으면 DB에서 조회하고 Redis에 저장
+                    try {
+                        // 1. 채널ID 조회
+                        String youtubeChannelId = youtubeVideoMapper.findYoutubeChannelIdByVideoId(videoId);
+                        if (youtubeChannelId == null || youtubeChannelId.isBlank()) {
+                            log.warn("⚠️ MySQL에서도 비디오 {}의 channelId를 찾을 수 없습니다", videoId);
+                            failCount++;
+                            continue;
+                        }
+                        
+                        // 2. 비디오 정보 조회 (title 등 메타데이터용)
+                        YoutubeVideoDto videoDto = youtubeVideoMapper.findByYoutubeVideoId(videoId);
+                        if (videoDto == null) {
+                            log.warn("⚠️ MySQL에서 비디오 {}의 정보를 찾을 수 없습니다", videoId);
+                            // channelId는 있으니 작업 큐에는 추가하지만 Redis 저장은 스킵
+                            result.computeIfAbsent(youtubeChannelId, k -> new java.util.ArrayList<>()).add(videoId);
+                            successCount++;
+                            log.info("✅ MySQL에서 channelId 조회 성공 (메타데이터 없음): videoId={}, channelId={}", videoId, youtubeChannelId);
+                            continue;
+                        }
+                        
+                        // 3. RedisYoutubeVideo 객체 생성 (최소한의 메타데이터)
+                        RedisYoutubeVideo redisVideo = RedisYoutubeVideo.builder()
+                            .youtubeVideoId(videoDto.getYoutubeVideoId())
+                            .title(videoDto.getTitle() != null ? videoDto.getTitle() : "")
+                            .channelId(youtubeChannelId)
+                            .tags(java.util.Collections.emptyList())  // MySQL에는 tags가 없음
+                            .build();
+                        
+                        // 4. Redis에 저장 (TTL 3일)
+                        try {
+                            String metaJsonFromDb = objectMapper.writeValueAsString(redisVideo);
+                            stringRedisTemplate.opsForValue().set(metaKey, metaJsonFromDb);
+                            stringRedisTemplate.expire(metaKey, java.time.Duration.ofDays(3));
+                            log.info("✅ MySQL에서 조회한 메타데이터를 Redis에 저장 완료: videoId={}, channelId={}", videoId, youtubeChannelId);
+                        } catch (Exception redisEx) {
+                            log.warn("⚠️ Redis 메타데이터 저장 실패 (하지만 작업 큐에는 추가): videoId={}, error={}", videoId, redisEx.getMessage());
+                            // Redis 저장 실패해도 작업 큐에는 추가
+                        }
+                        
+                        // 5. 작업 큐에 추가할 수 있도록 결과에 추가
+                        result.computeIfAbsent(youtubeChannelId, k -> new java.util.ArrayList<>()).add(videoId);
+                        successCount++;
+                        log.info("✅ MySQL에서 channelId 조회 및 Redis 저장 성공: videoId={}, channelId={}", videoId, youtubeChannelId);
+                        continue;
+                        
+                    } catch (Exception dbEx) {
+                        log.error("❌ MySQL에서 channelId 조회 실패: videoId={}", videoId, dbEx);
+                        failCount++;
+                        continue;
+                    }
                 }
                 
                 log.debug("✅ 비디오 {} 메타데이터 조회 성공: {}", videoId, metaJson.substring(0, Math.min(100, metaJson.length())));
