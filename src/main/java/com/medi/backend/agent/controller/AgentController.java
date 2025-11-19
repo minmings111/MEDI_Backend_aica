@@ -3,7 +3,6 @@ package com.medi.backend.agent.controller;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.medi.backend.agent.dto.AgentFilteredResult;
 import com.medi.backend.agent.dto.AgentChannelResult;
 import com.medi.backend.agent.service.AgentService;
