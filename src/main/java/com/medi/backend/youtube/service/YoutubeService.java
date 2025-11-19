@@ -93,26 +93,128 @@ public class YoutubeService {
      */
     @Transactional
     public List<YoutubeChannelDto> syncChannels(Integer userId, boolean syncVideosEveryTime) {
+        log.info("🔄 [트랜잭션 시작] 채널 동기화 시작: userId={}, syncVideosEveryTime={}", userId, syncVideosEveryTime);
         try {
             YoutubeOAuthTokenDto tokenDto = tokenMapper.findByUserId(userId);
             if (tokenDto == null) {
+                log.error("❌ YouTube OAuth 토큰이 존재하지 않습니다: userId={}", userId);
                 throw new IllegalStateException("YouTube OAuth 토큰이 존재하지 않습니다. 다시 연결해 주세요.");
             }
+            log.debug("✅ OAuth 토큰 조회 성공: userId={}, tokenId={}", userId, tokenDto.getId());
 
             // DB에서 사용자의 모든 채널 목록을 가져옴 (삭제된 채널 포함 - 동기화 시 체크용)
             List<YoutubeChannelDto> existingChannels = channelMapper.findByUserIdIncludingDeleted(userId);
+            log.info("📋 기존 채널 조회 (삭제된 것 포함): userId={}, 기존채널수={}개", userId, existingChannels.size());
+            
             Map<String, YoutubeChannelDto> existingChannelMap = new HashMap<>();
             for (YoutubeChannelDto channel : existingChannels) {
                 existingChannelMap.put(channel.getYoutubeChannelId(), channel);
+                log.debug("📋 기존 채널 매핑: channelId={}, name={}, deletedAt={}", 
+                    channel.getYoutubeChannelId(), channel.getChannelName(), channel.getDeletedAt());
             }
 
-            String token = youtubeOAuthService.getValidAccessToken(userId);
-            YouTube yt = buildClient(token);
-            YouTube.Channels.List req = yt.channels().list(Arrays.asList("snippet","contentDetails","statistics"));
-            req.setMine(true);
-            ChannelListResponse resp = req.execute();
+            // ⭐ OAuth 토큰 가져오기 (실패 시 기존 DB 채널 반환)
+            String token;
+            YouTube yt;
+            try {
+                token = youtubeOAuthService.getValidAccessToken(userId);
+                yt = buildClient(token);
+                log.debug("✅ OAuth 토큰 검증 성공: userId={}", userId);
+            } catch (RuntimeException tokenEx) {
+                // OAuth 토큰 만료 또는 refresh token 만료 시 기존 DB 채널 반환
+                String errorMsg = tokenEx.getMessage();
+                if (errorMsg != null && (errorMsg.contains("Refresh token") || errorMsg.contains("reconnect required") 
+                        || errorMsg.contains("not found") || errorMsg.contains("YouTube token not found"))) {
+                    log.warn("⚠️ OAuth 토큰 만료/없음 - 기존 DB 채널 정보 반환: userId={}, error={}", userId, errorMsg);
+                    List<YoutubeChannelDto> existingChannelsList = channelMapper.findByUserId(userId);
+                    if (!existingChannelsList.isEmpty()) {
+                        log.info("✅ 기존 DB 채널 정보 반환: userId={}, 채널={}개", userId, existingChannelsList.size());
+                        return existingChannelsList;
+                    } else {
+                        log.error("❌ OAuth 토큰 만료 및 DB에 기존 채널 정보가 없습니다: userId={}", userId);
+                        throw new RuntimeException("OAuth 토큰이 만료되었습니다. 다시 연결해주세요.", tokenEx);
+                    }
+                }
+                // 다른 예외는 그대로 던지기
+                log.error("❌ OAuth 토큰 가져오기 실패 (예상치 못한 에러): userId={}, error={}", userId, errorMsg);
+                throw tokenEx;
+            }
             
+            // ⭐ 채널 목록 조회 (setMine(true)는 OAuth 토큰 필수, API 키로는 불가능)
+            ChannelListResponse resp;
+            try {
+                YouTube.Channels.List req = yt.channels().list(Arrays.asList("snippet","contentDetails","statistics"));
+                req.setMine(true);
+                resp = req.execute();
+            } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
+                // ⚠️ catch 블록 진입 확인 로그
+                log.info("🔍 YouTube 채널 조회 예외 발생: userId={}, statusCode={}, exceptionType={}", 
+                    userId, e.getStatusCode(), e.getClass().getSimpleName());
+                
+                // 401 Unauthorized: OAuth 토큰 만료 (API 호출 시점에 만료된 경우)
+                if (e.getStatusCode() == 401) {
+                    log.warn("⚠️ YouTube 채널 조회 401 에러 (OAuth 토큰 만료) - userId={}, 기존 DB 채널 정보 반환", userId);
+                    List<YoutubeChannelDto> existingChannelsList = channelMapper.findByUserId(userId);
+                    if (!existingChannelsList.isEmpty()) {
+                        log.info("✅ 기존 DB 채널 정보 반환: userId={}, 채널={}개", userId, existingChannelsList.size());
+                        return existingChannelsList;
+                    } else {
+                        log.error("❌ OAuth 토큰 만료 및 DB에 기존 채널 정보가 없습니다: userId={}", userId);
+                        throw new RuntimeException("OAuth 토큰이 만료되었습니다. 다시 연결해주세요.", e);
+                    }
+                }
+                
+                // 쿼터 초과 등 403 에러 처리
+                if (e.getStatusCode() == 403) {
+                    String errorReason = com.medi.backend.youtube.redis.util.YoutubeErrorUtil.extractErrorReason(e);
+                    log.info("🔍 YouTube 채널 조회 403 에러 처리 시작: userId={}, statusCode={}, errorReason={}", 
+                        userId, e.getStatusCode(), errorReason);
+                    
+                    if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason) 
+                            || "userRateLimitExceeded".equals(errorReason)) {
+                        log.warn("⚠️ YouTube 채널 조회 쿼터 초과 - userId={}, errorReason={}, 기존 DB 채널 정보 반환", 
+                            userId, errorReason);
+                        // ⚠️ 쿼터 초과 시 기존 DB의 채널 정보를 반환 (사용자 경험 개선)
+                        List<YoutubeChannelDto> existingChannelsList = channelMapper.findByUserId(userId);
+                        if (existingChannelsList.isEmpty()) {
+                            // DB에도 없으면 예외 던지기 (사용자가 알 수 있도록)
+                            // ⚠️ 프로젝트 전체 쿼터가 소진된 경우이므로, 다른 계정으로 로그인해도 같은 에러 발생
+                            log.error("❌ DB에 기존 채널 정보가 없습니다 (프로젝트 전체 쿼터 소진): userId={}, errorReason={}", 
+                                userId, errorReason);
+                            throw new RuntimeException(
+                                "YouTube API 일일 할당량이 모두 소진되었습니다. " +
+                                "프로젝트 전체의 쿼터가 소진된 상태이므로, 다른 계정으로 로그인해도 같은 오류가 발생합니다. " +
+                                "24시간 후 자동으로 복구되거나, Google Cloud Console에서 할당량을 늘릴 수 있습니다. " +
+                                "잠시 후 다시 시도해주세요.", e);
+                        } else {
+                            log.info("✅ 기존 DB 채널 정보 반환: userId={}, 채널={}개", userId, existingChannelsList.size());
+                            return existingChannelsList;
+                        }
+                    } else {
+                        log.warn("⚠️ YouTube 채널 조회 403 에러 (quota 이외): userId={}, errorReason={}", userId, errorReason);
+                    }
+                } else {
+                    log.info("🔍 YouTube 채널 조회 에러 (401/403 아님): userId={}, statusCode={}", userId, e.getStatusCode());
+                }
+                // 다른 종류의 403 에러나 다른 예외는 그대로 던지기
+                log.info("🔍 예외를 다시 던집니다: userId={}, statusCode={}", userId, e.getStatusCode());
+                throw e;
+            }
+            
+            if (resp.getItems() == null || resp.getItems().isEmpty()) {
+                log.warn("⚠️ YouTube API를 통해 조회된 채널이 없습니다: userId={}", userId);
+                // API에서 채널이 없으면 기존 DB 채널 정보 반환
+                List<YoutubeChannelDto> existingChannelsList = channelMapper.findByUserId(userId);
+                log.info("📋 기존 DB 채널 정보 반환: userId={}, 채널수={}개", userId, existingChannelsList.size());
+                return existingChannelsList;
+            }
+            
+            log.info("✅ YouTube API 채널 조회 성공: userId={}, API채널수={}개", userId, resp.getItems().size());
+            
+            int upsertCount = 0;
+            int skipCount = 0;
             for (Channel ch : resp.getItems()) {
+                log.debug("🔄 채널 처리 시작: channelId={}, userId={}", ch.getId(), userId);
                 YoutubeChannelDto existing = existingChannelMap.get(ch.getId());
                 boolean wasDeletedChannel = existing != null && existing.getDeletedAt() != null;
                 
@@ -122,6 +224,7 @@ public class YoutubeService {
                 if (wasDeletedChannel && !syncVideosEveryTime) {
                     log.debug("채널({})은 삭제된 채널이므로 동기화를 건너뜁니다. userId={}", 
                             ch.getId(), userId);
+                    skipCount++;
                     continue;
                 }
                 if (wasDeletedChannel && syncVideosEveryTime) {
@@ -137,6 +240,7 @@ public class YoutubeService {
                 if (existing == null && !syncVideosEveryTime) {
                     log.debug("채널({})은 DB에 존재하지 않으므로 동기화를 건너뜁니다 (새 채널, 수동 동기화 모드). userId={}", 
                             ch.getId(), userId);
+                    skipCount++;
                     continue;
                 }
                 
@@ -152,9 +256,21 @@ public class YoutubeService {
                 }
 
                 YoutubeChannelDto dto = mapChannelToDto(ch, userId, tokenDto.getId(), existing);
+                log.info("💾 채널 저장 준비: channelId={}, channelName={}, isNew={}, wasDeleted={}, deletedAt={}", 
+                    dto.getYoutubeChannelId(), dto.getChannelName(), 
+                    existing == null, wasDeletedChannel, dto.getDeletedAt());
 
                 // 1. MySQL에 저장 (트랜잭션 내)
-                channelMapper.upsert(dto);
+                try {
+                    channelMapper.upsert(dto);
+                    upsertCount++;
+                    log.info("✅ 채널 DB 저장 성공: channelId={}, channelName={}, userId={}", 
+                        dto.getYoutubeChannelId(), dto.getChannelName(), userId);
+                } catch (Exception upsertEx) {
+                    log.error("❌ 채널 DB 저장 실패: channelId={}, channelName={}, userId={}, error={}", 
+                        dto.getYoutubeChannelId(), dto.getChannelName(), userId, upsertEx.getMessage(), upsertEx);
+                    throw upsertEx; // 트랜잭션 롤백을 위해 예외 다시 던지기
+                }
 
                 // 영상 동기화 조건:
                 // - syncVideosEveryTime=true: 항상 동기화 (OAuth 콜백 시)
@@ -180,6 +296,9 @@ public class YoutubeService {
                 }
             }
             
+            log.info("📊 채널 처리 완료: userId={}, 처리된채널={}개, 저장성공={}개, 스킵={}개", 
+                userId, resp.getItems().size(), upsertCount, skipCount);
+            
             // 2. MySQL 저장 완료 후 Redis 초기 동기화
             // syncVideosEveryTime이 true일 때만 실행 (OAuth 콜백 직후 또는 수동 동기화 시)
             if (youtubeRedisSyncService == null) {
@@ -198,10 +317,24 @@ public class YoutubeService {
             }
             
             // 동기화 후 DB에서 최신 채널 목록을 가져와서 반환 (삭제된 채널 제외)
+            log.info("📋 최종 채널 목록 조회 시작: userId={}", userId);
             List<YoutubeChannelDto> latestChannels = channelMapper.findByUserId(userId);
+            log.info("✅ [트랜잭션 성공] 채널 동기화 완료: userId={}, 반환채널수={}개, 저장성공={}개", 
+                userId, latestChannels != null ? latestChannels.size() : 0, upsertCount);
+            
+            if (latestChannels != null && !latestChannels.isEmpty()) {
+                for (YoutubeChannelDto channel : latestChannels) {
+                    log.debug("✅ 반환 채널: channelId={}, name={}, deletedAt={}", 
+                        channel.getYoutubeChannelId(), channel.getChannelName(), channel.getDeletedAt());
+                }
+            } else {
+                log.warn("⚠️ 최종 채널 목록이 비어있습니다: userId={}, 저장성공={}개", userId, upsertCount);
+            }
+            
             return latestChannels;
         } catch (Exception e) {
-            log.error("YouTube 채널 동기화 실패: userId={}", userId, e);
+            log.error("❌ [트랜잭션 롤백] YouTube 채널 동기화 실패: userId={}, errorType={}, errorMessage={}", 
+                userId, e.getClass().getSimpleName(), e.getMessage(), e);
             markUserChannelsFailed(userId, e.getMessage());
             throw new RuntimeException("syncChannels failed", e);
         }

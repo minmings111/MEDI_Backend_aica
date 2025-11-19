@@ -50,10 +50,15 @@ public class ChannelController {
     public ResponseEntity<?> getChannelsByUserId() {
         Integer userId = authUtil.getCurrentUserId();
         if (userId == null) {
+            log.warn("❌ 채널 목록 조회 요청 - 비로그인 사용자");
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
+        log.info("📡 [API 요청] 채널 목록 조회: userId={}", userId);
         List<YoutubeChannelDto> youtubeChannelDtos = channelService.getChannelsByUserId(userId);
+        log.info("📡 [API 응답] 채널 목록 조회 완료: userId={}, 채널수={}개", 
+            userId, youtubeChannelDtos != null ? youtubeChannelDtos.size() : 0);
+        
         return ResponseEntity.ok(youtubeChannelDtos);
     }
 
