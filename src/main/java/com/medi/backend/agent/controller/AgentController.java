@@ -4,7 +4,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.medi.backend.agent.dto.AgentFilteredComment;
+import com.medi.backend.agent.dto.AgentFilteredResult;
 import com.medi.backend.agent.dto.AgentChannelResult;
 import com.medi.backend.agent.service.AgentService;
 
@@ -23,26 +23,24 @@ import org.springframework.web.bind.annotation.RequestBody;
 public class AgentController {
 
     private final AgentService agentService;
-    private final ObjectMapper objectMapper;
 
-    public AgentController(AgentService agentService, ObjectMapper objectMapper) {
+    public AgentController(AgentService agentService) {
         this.agentService = agentService;
-        this.objectMapper = objectMapper;
     }
     
-    // @PostMapping("/filtered")
-    // public ResponseEntity<?> receiveFilteredComments(@RequestBody List<AgentFilteredComment> filteredComments) { // JSON -> DTO
+    @PostMapping("filtered-results")
+    public ResponseEntity<?> receiveFilteredComments(@RequestBody List<AgentFilteredResult> filteredResults) { // JSON -> DTO
         
-    //     Integer savedCount = agentService.insertFilteredComment(filteredComments);
+        Integer savedCount = agentService.insertFilteredComment(filteredResults);
 
-    //     Map<String, Object> response = new HashMap<>();
-    //     response.put("message", "Filtered comments saved successfully");
-    //     response.put("savedCount", savedCount);
-    //     response.put("totalReceived", filteredComments.size());
+        Map<String, Object> response = new HashMap<>();
+        response.put("message", "Filtered comments saved successfully");
+        response.put("savedCount", savedCount);
+        response.put("totalReceived", filteredResults.size());
         
-    //     return ResponseEntity.ok(response);
+        return ResponseEntity.ok(response);
         
-    // }
+    }
 
 
     /**
@@ -72,16 +70,6 @@ public class AgentController {
             errorResponse.put("error", e.getMessage());
             return ResponseEntity.internalServerError().body(errorResponse);
         }
-    }
-
-    // TODO: AI 서버에서 필터링된 댓글 결과를 받는 엔드포인트 (구현 예정)
-    @PostMapping("/filtered-results")
-    public ResponseEntity<?> receiveFilteredResults() {
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("message", "Filtered results endpoint - not implemented yet");
-        return ResponseEntity.ok(response);
-
     }
 
 }

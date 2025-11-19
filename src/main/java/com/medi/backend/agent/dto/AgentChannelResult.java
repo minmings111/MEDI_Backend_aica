@@ -25,7 +25,7 @@ import lombok.Getter;
  *       "char_count": 941,
  *       "model": "gpt-4o-mini"
  *     },
- *     ...
+ *     ...20개 반복
  *   ],
  *   "profile_report": "## 1. IDENTITY_DESCRIPTOR...",
  *   "ecosystem_report": "## 1. BASELINE_TONE...",

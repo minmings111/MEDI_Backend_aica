@@ -48,7 +48,7 @@
             comment_text,
             commenter_name,
             published_at,
-            like_count
+            like_count,
             author_channel_id,
             updated_at,
             parent_id,
@@ -63,7 +63,14 @@
             STR_TO_DATE(#{publishedAt}, '%Y-%m-%dT%H:%i:%sZ'),
             #{likeCount},
             #{authorChannelId},
-            STR_TO_DATE(#{updatedAt}, '%Y-%m-%dT%H:%i:%sZ'),
+            <choose>
+                <when test="updatedAt != null">
+                    STR_TO_DATE(#{updatedAt}, '%Y-%m-%dT%H:%i:%sZ')
+                </when>
+                <otherwise>
+                    NULL
+                </otherwise>
+            </choose>,
             #{parentId},
             #{totalReplyCount},
             #{canRate},
@@ -73,13 +80,36 @@
             comment_text = VALUES(comment_text),
             commenter_name = VALUES(commenter_name),
             published_at = VALUES(published_at),
-            like_count = VALUES(like_count)
+            like_count = VALUES(like_count),
             author_channel_id = VALUES(author_channel_id),
             updated_at = VALUES(updated_at),
             parent_id = VALUES(parent_id),
             total_reply_count = VALUES(total_reply_count),
             can_rate = VALUES(can_rate),
             viewer_rating = VALUES(viewer_rating)
+    </insert>
+
+    <select id="findCommentIdByYoutubeCommentId" resultType="java.lang.Integer">
+        SELECT id 
+        FROM youtube_comments
+        WHERE video_id = #{videoId} 
+          AND youtube_comment_id = #{youtubeCommentId}
+        LIMIT 1
+    </select>
+
+    <insert id="insertCommentAnalysisResult">
+        INSERT INTO ai_comment_analysis_result (
+            youtube_comment_id,
+            status,
+            filter_reason
+        ) VALUES (
+            #{youtubeCommentId},
+            #{status},
+            #{filterReason}
+        )
+        ON DUPLICATE KEY UPDATE
+            status = VALUES(status),
+            filter_reason = VALUES(filter_reason)
     </insert>
 
     <insert id="insertResultVideo">

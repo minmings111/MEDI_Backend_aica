@@ -2,7 +2,7 @@ package com.medi.backend.agent.service;
 
 import java.util.List;
 
-import com.medi.backend.agent.dto.AgentFilteredComment;
+import com.medi.backend.agent.dto.AgentFilteredResult;
 import com.medi.backend.agent.dto.AgentChannelResult;
 
 public interface AgentService {
@@ -18,7 +18,7 @@ public interface AgentService {
     String findYoutubeChannelIdByChannelId(Integer channelId);
     
     // insert filtered comments to DB
-    Integer insertFilteredComment(List<AgentFilteredComment> agentFilteredComments);
+    Integer insertFilteredComment(List<AgentFilteredResult> agentFilteredResults);
     
     // 채널별 통합 분석 결과 저장 (채널별로 모든 결과가 묶여서 전달됨)
     void saveChannelResult(AgentChannelResult result);

@@ -8,7 +8,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.medi.backend.agent.dto.AgentFilteredComment;
+import com.medi.backend.agent.dto.AgentFilteredResult;
 import com.medi.backend.agent.dto.AgentChannelResult;
 import com.medi.backend.agent.mapper.AgentMapper;
 
@@ -143,34 +143,58 @@ public class AgentServiceImpl implements AgentService{
         }
     }
 
-    // insert filtered comments to DB
+    // insert filtered comments to DB (별도 테이블 방식: youtube_comments + ai_comment_analysis_result)
     @Override
     @Transactional
-    public Integer insertFilteredComment(List<AgentFilteredComment> agentFilteredComments) {
+    public Integer insertFilteredComment(List<AgentFilteredResult> agentFilteredResults) {
         int savedCount = 0;
 
-        for (AgentFilteredComment comment : agentFilteredComments) {
-            // 1. videoId(String) → Integer
-            Integer videoId = findVideoIdByYoutubeVideoId(comment.getVideoId());
-            
-            // 2. save to youtube_comments of DB
-            Integer result = agentMapper.insertFilteredComment(
-                videoId,
-                comment.getCommentId(),
-                comment.getTextOriginal(),
-                comment.getAuthorName(),
-                comment.getPublishedAt(),
-                comment.getLikeCount(),
-                comment.getAuthorChannelId(),
-                comment.getUpdatedAt(),
-                comment.getParentId(),
-                comment.getTotalReplyCount(),
-                comment.getCanRate(),
-                comment.getViewerRating()
-            );
-            
-            if (result > 0) {
-                savedCount++;
+        for (AgentFilteredResult result : agentFilteredResults) {
+            try {
+                // 1. videoId(String) → Integer
+                Integer videoId = findVideoIdByYoutubeVideoId(result.getVideoId());
+                if (videoId == null) {
+                    log.warn("Video not found: {}", result.getVideoId());
+                    continue;
+                }
+                
+                // 2. Step 1: youtube_comments 테이블에 기본 댓글 정보 저장
+                Integer insertResult = agentMapper.insertFilteredComment(
+                    videoId,
+                    result.getCommentId(),
+                    result.getTextOriginal(),
+                    result.getAuthorName(),
+                    result.getPublishedAt(),
+                    result.getLikeCount(),
+                    result.getAuthorChannelId(),
+                    result.getUpdatedAt(),
+                    result.getParentId(),
+                    result.getTotalReplyCount(),
+                    result.getCanRate(),
+                    result.getViewerRating()
+                );
+                
+                if (insertResult > 0) {
+                    // 3. Step 2: 저장된 댓글의 id 조회
+                    Integer commentId = agentMapper.findCommentIdByYoutubeCommentId(videoId, result.getCommentId());
+                    
+                    if (commentId != null) {
+                        // 4. Step 3: ai_comment_analysis_result 테이블에 분석 결과 저장
+                        // AI 서버의 status 값을 그대로 저장 (예: "filtered", "content_suggestion")
+                        agentMapper.insertCommentAnalysisResult(
+                            commentId,
+                            result.getStatus(),  // AI 서버의 원본 status 값
+                            result.getReason()   // AI 서버의 reason 값
+                        );
+                        savedCount++;
+                    } else {
+                        log.warn("Failed to find comment id after insert: videoId={}, youtubeCommentId={}", 
+                            videoId, result.getCommentId());
+                    }
+                }
+            } catch (Exception e) {
+                log.error("Failed to save filtered comment: videoId={}, commentId={}", 
+                    result.getVideoId(), result.getCommentId(), e);
             }
         }
         
