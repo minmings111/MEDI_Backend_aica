@@ -1,7 +1,6 @@
 package com.medi.backend.youtube.redis.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -20,15 +19,20 @@ import java.util.Map;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class RedisQueueService {
 
-    @Qualifier("redisQueueTemplate")
     private final StringRedisTemplate redisQueueTemplate;
-    
     private final ObjectMapper objectMapper;
     private static final String PROFILING_QUEUE_KEY = "profiling_agent:tasks:queue";
     private static final String FILTERING_QUEUE_KEY = "filtering_agent:tasks:queue";
+
+    public RedisQueueService(
+        @Qualifier("redisQueueTemplate") StringRedisTemplate redisQueueTemplate,
+        ObjectMapper objectMapper
+    ) {
+        this.redisQueueTemplate = redisQueueTemplate;
+        this.objectMapper = objectMapper;
+    }
 
     /**
      * Profiling Agent 작업 추가
