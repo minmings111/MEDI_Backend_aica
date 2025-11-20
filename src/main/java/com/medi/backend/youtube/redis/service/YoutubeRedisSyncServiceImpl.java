@@ -144,7 +144,7 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
                     log.warn("⚠️ 채널 {}의 비디오 리스트가 비어있습니다. 작업 큐에 추가하지 않습니다.", channelId);
                 }
             }
-            
+
             log.info("✅ 작업 큐 추가 완료 (초기 동기화): userId={}, enqueuedCount={}개 채널", userId, enqueuedCount);
             log.info("Redis 동기화 완료: userId={}, 채널={}개, 비디오={}개, 댓글={}개", 
                 userId, videosByChannel.size(), totalVideoCount, totalCommentCount);
@@ -211,7 +211,7 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
             boolean metadataSyncSuccess = true;
             try {
                 savedVideoCount = videoService.syncVideoMetadata(userId, videoIds, incrementalOptions);
-                if (savedVideoCount == 0) {
+            if (savedVideoCount == 0) {
                     log.warn("⚠️ 비디오 메타데이터 저장 실패 (0개): userId={}, 이미 Redis에 있을 수 있음", userId);
                     metadataSyncSuccess = false;
                 } else {
@@ -421,17 +421,17 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
                 
                 log.debug("✅ 비디오 {} 메타데이터 조회 성공: {}", videoId, metaJson.substring(0, Math.min(100, metaJson.length())));
                 
-                // JSON 파싱하여 channelId 추출
-                Map<String, Object> meta = objectMapper.readValue(metaJson, new TypeReference<Map<String, Object>>() {});
-                String channelId = (String) meta.get("channel_id");
-                
+                    // JSON 파싱하여 channelId 추출
+                    Map<String, Object> meta = objectMapper.readValue(metaJson, new TypeReference<Map<String, Object>>() {});
+                    String channelId = (String) meta.get("channel_id");
+                    
                 if (channelId == null || channelId.isBlank()) {
                     log.warn("⚠️ 비디오 {}의 channel_id가 없거나 비어있습니다. meta={}", videoId, meta);
                     failCount++;
                     continue;
                 }
                 
-                result.computeIfAbsent(channelId, k -> new java.util.ArrayList<>()).add(videoId);
+                        result.computeIfAbsent(channelId, k -> new java.util.ArrayList<>()).add(videoId);
                 successCount++;
                 log.debug("✅ 비디오 {} → channelId {} 매핑 완료", videoId, channelId);
                 
