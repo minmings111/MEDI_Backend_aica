@@ -11,6 +11,7 @@
         SELECT
             id, user_id, oauth_token_id, 
             youtube_channel_id, channel_name, channel_handle, thumbnail_url, 
+            subscriber_count, last_synced_at, last_video_published_at, uploads_playlist_id,
             created_at, updated_at, deleted_at
         FROM youtube_channels
         WHERE user_id = #{userId}
@@ -22,6 +23,7 @@
         SELECT
             id, user_id, oauth_token_id, 
             youtube_channel_id, channel_name, channel_handle, thumbnail_url, 
+            subscriber_count, last_synced_at, last_video_published_at, uploads_playlist_id,
             created_at, updated_at, deleted_at
         FROM youtube_channels
         WHERE 
@@ -36,6 +38,7 @@
         SELECT
             id, user_id, oauth_token_id, 
             youtube_channel_id, channel_name, channel_handle, thumbnail_url, 
+            subscriber_count, last_synced_at, last_video_published_at, uploads_playlist_id,
             created_at, updated_at, deleted_at
         FROM youtube_channels
         WHERE (deleted_at IS NULL)

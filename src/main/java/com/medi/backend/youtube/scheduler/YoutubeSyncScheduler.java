@@ -18,7 +18,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 매 시간마다 등록된 채널의 영상을 동기화하는 스케줄러.
+ * 매 시간마다 등록된 채널의 정보와 영상을 동기화하는 스케줄러.
+ * - 채널 정보 동기화: 구독자 수, 채널명 등 채널 정보 최신화
+ * - 영상 동기화: 새 영상 및 댓글 동기화
  * 채널마다 일정 간격을 두어 API 호출이 몰리지 않도록 한다.
  * 토큰이 만료된 채널은 스킵하여 불필요한 API 호출을 방지한다.
  */
@@ -72,6 +74,17 @@ public class YoutubeSyncScheduler {
             }
 
             try {
+                // 0. 채널 정보 동기화 (구독자 수 등 채널 정보 최신화)
+                try {
+                    youtubeService.syncChannels(userId, false);
+                    log.debug("[YouTube] 스케줄링 채널 정보 동기화 완료 - userId={}, channelId={} (구독자 수 등 업데이트됨)",
+                        userId, youtubeChannelId);
+                } catch (Exception channelSyncEx) {
+                    log.warn("[YouTube] 스케줄링 채널 정보 동기화 실패 (영상 동기화는 계속 진행) - userId={}, channelId={}, error={}",
+                        userId, youtubeChannelId, channelSyncEx.getMessage());
+                    // 채널 정보 동기화 실패해도 영상 동기화는 계속 진행
+                }
+
                 // 1. 새 영상 동기화 (MySQL 저장만, 댓글 동기화 건너뜀)
                 // skipCommentSync=true로 설정하여 중복 API 호출 방지
                 List<YoutubeVideoDto> newVideos = youtubeService.syncVideos(
