@@ -224,7 +224,6 @@ public class SecurityConfig {
             
             // OAuth2 로그인 설정 (Google)
             .oauth2Login(oauth2 -> oauth2
-                .loginPage("/oauth2/authorization/google")                    // OAuth2 로그인 페이지
                 .redirectionEndpoint(redirection -> redirection
                     .baseUri("/login/oauth2/code/*")                         // OAuth2 리다이렉트 엔드포인트
                 )
