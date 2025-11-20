@@ -80,5 +80,15 @@ public class YoutubeSyncConfigProperties {
      * Linux/Mac: "yt-dlp" 또는 전체 경로 (예: "/usr/local/bin/yt-dlp")
      */
     private String ytDlpPath = "yt-dlp";
+
+    /**
+     * 자막 추출 병렬 처리 여부
+     * 
+     * true: 병렬 처리 (8-15개 스레드, 빠름, 10-12초)
+     * false: 순차 처리 (1개씩, 느림, 60초)
+     * 
+     * 기본값: true
+     */
+    private boolean enableParallelTranscript = true;
 }
 
