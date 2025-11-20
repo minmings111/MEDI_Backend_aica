@@ -143,8 +143,8 @@ public class YoutubeService {
             // ⭐ 채널 목록 조회 (setMine(true)는 OAuth 토큰 필수, API 키로는 불가능)
             ChannelListResponse resp;
             try {
-                YouTube.Channels.List req = yt.channels().list(Arrays.asList("snippet","contentDetails","statistics"));
-                req.setMine(true);
+            YouTube.Channels.List req = yt.channels().list(Arrays.asList("snippet","contentDetails","statistics"));
+            req.setMine(true);
                 resp = req.execute();
             } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
                 // ⚠️ catch 블록 진입 확인 로그
@@ -262,7 +262,7 @@ public class YoutubeService {
 
                 // 1. MySQL에 저장 (트랜잭션 내)
                 try {
-                    channelMapper.upsert(dto);
+                channelMapper.upsert(dto);
                     upsertCount++;
                     log.info("✅ 채널 DB 저장 성공: channelId={}, channelName={}, userId={}", 
                         dto.getYoutubeChannelId(), dto.getChannelName(), userId);

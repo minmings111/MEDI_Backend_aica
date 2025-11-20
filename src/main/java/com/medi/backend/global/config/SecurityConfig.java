@@ -4,6 +4,7 @@ import com.medi.backend.global.security.service.CustomUserDetailsService;
 import com.medi.backend.global.security.service.CustomOAuth2UserService;
 import com.medi.backend.global.security.handler.OAuth2AuthenticationSuccessHandler;
 import com.medi.backend.global.security.handler.OAuth2AuthenticationFailureHandler;
+import com.medi.backend.global.security.resolver.CustomOAuth2AuthorizationRequestResolver;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -25,6 +26,7 @@ import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.client.web.HttpSessionOAuth2AuthorizationRequestRepository;
 
 import jakarta.servlet.http.HttpServletResponse;
@@ -56,6 +58,9 @@ public class SecurityConfig {
     
     @Autowired
     private OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler;  // OAuth2 실패 핸들러
+    
+    @Autowired
+    private ClientRegistrationRepository clientRegistrationRepository;  // OAuth2 클라이언트 등록 정보
     
     /**
      * 비밀번호 암호화 Bean (BCrypt 알고리즘)
@@ -225,6 +230,7 @@ public class SecurityConfig {
                 )
                 .authorizationEndpoint(authorization -> authorization
                     .authorizationRequestRepository(authorizationRequestRepository())  // OAuth2 인증 요청 저장소 명시적 설정
+                    .authorizationRequestResolver(customOAuth2AuthorizationRequestResolver())  // 커스텀 리졸버 적용 (prompt=select_account 강제)
                 )
                 .userInfoEndpoint(userInfo -> userInfo
                     .oidcUserService(customOAuth2UserService)
@@ -276,5 +282,20 @@ public class SecurityConfig {
     @Bean
     public HttpSessionOAuth2AuthorizationRequestRepository authorizationRequestRepository() {
         return new HttpSessionOAuth2AuthorizationRequestRepository();
+    }
+    
+    /**
+     * 커스텀 OAuth2 인증 요청 리졸버 Bean
+     * Google OAuth 로그인 시 prompt=select_account를 강제로 추가하여
+     * 로그아웃 후에도 자동 로그인되는 문제를 해결합니다.
+     * 
+     * @return CustomOAuth2AuthorizationRequestResolver
+     */
+    @Bean
+    public CustomOAuth2AuthorizationRequestResolver customOAuth2AuthorizationRequestResolver() {
+        return new CustomOAuth2AuthorizationRequestResolver(
+                clientRegistrationRepository,
+                "/oauth2/authorization"  // OAuth2 인증 요청 기본 URI
+        );
     }
 }
