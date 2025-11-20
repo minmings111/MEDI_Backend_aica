@@ -1,5 +1,7 @@
 package com.medi.backend.auth.controller;
 
+import com.medi.backend.global.security.dto.CustomUserDetails;
+import com.medi.backend.global.util.AuthUtil;
 import com.medi.backend.user.dto.UserDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -26,6 +28,8 @@ import java.util.Map;
 @Tag(name = "OAuth2 인증", description = "Google OAuth2 회원가입 및 로그인 API")
 public class OAuth2AuthController {
     
+    private final AuthUtil authUtil;
+    
     /**
      * Google OAuth2 로그인 URL 제공
      * 프론트엔드에서 이 URL로 리다이렉트하여 Google 로그인 시작
@@ -48,7 +52,7 @@ public class OAuth2AuthController {
     
     /**
      * OAuth2 로그인 사용자 정보 조회
-     * 로그인 성공 후 세션에서 사용자 정보 가져오기
+     * 로그인 성공 후 SecurityContext에서 사용자 정보 가져오기
      * 
      * @param session HTTP 세션
      * @return 사용자 정보
@@ -58,15 +62,25 @@ public class OAuth2AuthController {
     public ResponseEntity<Map<String, Object>> getOAuth2User(HttpSession session) {
         log.info("OAuth2 사용자 정보 조회 요청");
         
-        UserDTO user = (UserDTO) session.getAttribute("user");
+        // SecurityContext에서 사용자 정보 조회 (일반 로그인과 동일한 방식)
+        CustomUserDetails customUserDetails = authUtil.getCurrentUser();
         
-        if (user == null) {
+        if (customUserDetails == null) {
             log.warn("세션에 사용자 정보가 없습니다.");
             return ResponseEntity.status(401).body(Map.of(
                 "success", false,
                 "message", "로그인이 필요합니다."
             ));
         }
+        
+        // CustomUserDetails를 UserDTO로 변환
+        UserDTO user = UserDTO.builder()
+            .id(customUserDetails.getId())
+            .email(customUserDetails.getEmail())
+            .name(customUserDetails.getName())
+            .role(customUserDetails.getRole())
+            .provider("GOOGLE")  // OAuth2는 Google만 지원
+            .build();
         
         Map<String, Object> response = new HashMap<>();
         response.put("success", true);
@@ -87,15 +101,16 @@ public class OAuth2AuthController {
     public ResponseEntity<Map<String, Object>> getOAuth2Status(HttpSession session) {
         log.info("OAuth2 로그인 상태 확인 요청");
         
-        UserDTO user = (UserDTO) session.getAttribute("user");
+        // SecurityContext에서 사용자 정보 조회 (일반 로그인과 동일한 방식)
+        CustomUserDetails customUserDetails = authUtil.getCurrentUser();
         
         Map<String, Object> response = new HashMap<>();
         
-        if (user != null) {
+        if (customUserDetails != null) {
             response.put("isLoggedIn", true);
-            response.put("provider", user.getProvider());
-            response.put("email", user.getEmail());
-            response.put("name", user.getName());
+            response.put("provider", "GOOGLE");  // OAuth2는 Google만 지원
+            response.put("email", customUserDetails.getEmail());
+            response.put("name", customUserDetails.getName());
         } else {
             response.put("isLoggedIn", false);
         }
