@@ -3,6 +3,9 @@ package com.medi.backend.auth.controller;
 import com.medi.backend.user.dto.UserDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -85,15 +88,16 @@ public class OAuth2AuthController {
         log.info("OAuth2 로그인 상태 확인 요청");
         
         UserDTO user = (UserDTO) session.getAttribute("user");
-        boolean isLoggedIn = user != null;
         
         Map<String, Object> response = new HashMap<>();
-        response.put("isLoggedIn", isLoggedIn);
         
-        if (isLoggedIn) {
+        if (user != null) {
+            response.put("isLoggedIn", true);
             response.put("provider", user.getProvider());
             response.put("email", user.getEmail());
             response.put("name", user.getName());
+        } else {
+            response.put("isLoggedIn", false);
         }
         
         return ResponseEntity.ok(response);
@@ -102,15 +106,46 @@ public class OAuth2AuthController {
     /**
      * OAuth2 로그아웃
      * 
-     * @param session HTTP 세션
+     * @param request HTTP 요청
+     * @param httpResponse HTTP 응답
      * @return 로그아웃 결과
      */
     @PostMapping("/logout")
     @Operation(summary = "OAuth2 로그아웃", description = "OAuth2 로그인 세션을 종료합니다.")
-    public ResponseEntity<Map<String, Object>> logout(HttpSession session) {
+    public ResponseEntity<Map<String, Object>> logout(
+            HttpServletRequest request, 
+            HttpServletResponse httpResponse) {
         log.info("OAuth2 로그아웃 요청");
         
-        session.invalidate();
+        HttpSession session = request.getSession(false);
+        String sessionId = session != null ? session.getId() : "없음";
+        
+        // 1. SecurityContext 클리어
+        org.springframework.security.core.context.SecurityContextHolder.clearContext();
+        
+        // 2. 세션 무효화
+        if (session != null) {
+            session.invalidate();
+        }
+        
+        // 3. 세션 쿠키 명시적으로 삭제 (브라우저에서 완전 제거)
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                String cookieName = cookie.getName();
+                if ("MEDI_SESSION".equals(cookieName) || "JSESSIONID".equals(cookieName)) {
+                    Cookie deleteCookie = new Cookie(cookieName, null);
+                    deleteCookie.setPath("/");
+                    deleteCookie.setMaxAge(0);  // 즉시 만료
+                    deleteCookie.setHttpOnly(true);
+                    deleteCookie.setSecure(false);  // 개발환경: false, 배포환경: true
+                    httpResponse.addCookie(deleteCookie);
+                    log.debug("세션 쿠키 삭제: {}", cookieName);
+                }
+            }
+        }
+        
+        log.info("OAuth2 로그아웃 완료 (세션 ID: {})", sessionId);
         
         Map<String, Object> response = new HashMap<>();
         response.put("success", true);

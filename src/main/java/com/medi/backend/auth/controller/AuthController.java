@@ -6,7 +6,9 @@ import com.medi.backend.global.security.dto.CustomUserDetails;
 import com.medi.backend.global.util.AuthUtil;
 import com.medi.backend.user.dto.UserDTO;
 import com.medi.backend.user.mapper.UserMapper;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
@@ -149,7 +151,9 @@ public class AuthController {
      * POST /api/auth/logout
      */
     @PostMapping("/logout")
-    public ResponseEntity<Map<String, Object>> logout(HttpServletRequest request) {
+    public ResponseEntity<Map<String, Object>> logout(
+            HttpServletRequest request, 
+            HttpServletResponse httpResponse) {
         Map<String, Object> response = new HashMap<>();
         
         try {
@@ -163,6 +167,9 @@ public class AuthController {
             if (session != null) {
                 session.invalidate();
             }
+            
+            // 3. 세션 쿠키 명시적으로 삭제 (브라우저에서 완전 제거)
+            clearSessionCookies(request, httpResponse);
             
             log.info("로그아웃 완료 (세션 ID: {})", sessionId);
             
@@ -186,16 +193,27 @@ public class AuthController {
      * GET /api/auth/me
      */
     @GetMapping("/me")
-    public ResponseEntity<Map<String, Object>> getCurrentUser(HttpServletRequest request) {
+    public ResponseEntity<Map<String, Object>> getCurrentUser(
+            HttpServletRequest request, 
+            HttpServletResponse httpResponse) {
         Map<String, Object> response = new HashMap<>();
         
         try {
+            // 무효한 세션 ID가 전달될 수 있으므로 안전하게 처리
+            HttpSession session = null;
+            try {
+                session = request.getSession(false);
+            } catch (IllegalStateException e) {
+                // 세션이 이미 무효화된 경우 (invalid session id)
+                log.debug("무효한 세션 ID 감지: {}", e.getMessage());
+                // 무효한 세션 쿠키 삭제
+                clearSessionCookies(request, httpResponse);
+            }
+            
             // AuthUtil을 사용하여 DB 조회 없이 사용자 정보 가져오기
             CustomUserDetails user = authUtil.getCurrentUser();
             
-            if (user != null) {
-                HttpSession session = request.getSession(false);
-
+            if (user != null && session != null) {
                 response.put("success", true);
                 response.put("authenticated", true);
 
@@ -206,10 +224,15 @@ public class AuthController {
                 userInfo.put("role", user.getRole() != null ? user.getRole() : "USER");
                 response.put("user", userInfo);
 
-                response.put("sessionId", session != null ? session.getId() : null);
+                response.put("sessionId", session.getId());
 
                 return ResponseEntity.ok(response);
             } else {
+                // 세션이 없거나 무효한 경우 쿠키 정리
+                if (session == null) {
+                    clearSessionCookies(request, httpResponse);
+                }
+                
                 response.put("success", true);
                 response.put("authenticated", false);
                 response.put("message", "로그인되지 않음");
@@ -226,6 +249,27 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
         }
     }
+    
+    /**
+     * 세션 쿠키 삭제 헬퍼 메서드
+     */
+    private void clearSessionCookies(HttpServletRequest request, HttpServletResponse httpResponse) {
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                String cookieName = cookie.getName();
+                if ("MEDI_SESSION".equals(cookieName) || "JSESSIONID".equals(cookieName)) {
+                    Cookie deleteCookie = new Cookie(cookieName, null);
+                    deleteCookie.setPath("/");
+                    deleteCookie.setMaxAge(0);
+                    deleteCookie.setHttpOnly(true);
+                    deleteCookie.setSecure(false);
+                    httpResponse.addCookie(deleteCookie);
+                    log.debug("무효한 세션 쿠키 삭제: {}", cookieName);
+                }
+            }
+        }
+    }
 
     /**
      * 회원탈퇴 API
@@ -234,7 +278,9 @@ public class AuthController {
      * 프론트엔드에서 비밀번호 확인 후 호출
      */
     @DeleteMapping("/withdraw")
-    public ResponseEntity<Map<String, Object>> withdrawUser(HttpServletRequest request) {
+    public ResponseEntity<Map<String, Object>> withdrawUser(
+            HttpServletRequest request, 
+            HttpServletResponse httpResponse) {
         Map<String, Object> response = new HashMap<>();
         String currentUserEmail = null;  // catch 블록에서도 사용 가능하도록 밖에 선언
         
@@ -273,8 +319,8 @@ public class AuthController {
                         log.debug("세션 무효화 완료: {}", sessionId);
                     }
                     
-                    // 응답 헤더에 세션 쿠키 삭제 지시
-                    // (브라우저에서 쿠키 완전 제거)
+                    // 응답 헤더에 세션 쿠키 삭제 지시 (브라우저에서 쿠키 완전 제거)
+                    clearSessionCookies(request, httpResponse);
                     
                 } catch (Exception sessionError) {
                     log.warn("세션 무효화 중 오류 발생: {}", sessionError.getMessage());
