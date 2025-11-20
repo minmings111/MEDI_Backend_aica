@@ -11,10 +11,22 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -69,6 +81,40 @@ public class YoutubeTranscriptServiceImpl implements YoutubeTranscriptService {
     private final com.medi.backend.youtube.service.YoutubeDataApiClient youtubeDataApiClient;
     private final com.medi.backend.youtube.config.YoutubeDataApiProperties youtubeDataApiProperties;
     private final YoutubeSyncConfigProperties youtubeSyncConfigProperties;
+
+    @Autowired
+    @Qualifier("transcriptExecutor")
+    private Executor transcriptExecutor;
+
+    /**
+     * Executor 주입 검증
+     * 
+     * 애플리케이션 시작 시점에 Executor가 제대로 주입되었는지 확인
+     */
+    @PostConstruct
+    public void validateDependencies() {
+        if (transcriptExecutor == null) {
+            throw new IllegalStateException(
+                "transcriptExecutor bean not injected! Check AsyncConfig."
+            );
+        }
+        log.info("✅ Transcript Executor 초기화 완료");
+    }
+
+    /**
+     * Executor 명시적 shutdown
+     * 
+     * 애플리케이션 종료 시 Executor를 정리하여 메모리 누수 방지
+     */
+    @PreDestroy
+    public void shutdownExecutor() {
+        if (transcriptExecutor instanceof ThreadPoolTaskExecutor) {
+            ThreadPoolTaskExecutor executor = (ThreadPoolTaskExecutor) transcriptExecutor;
+            log.info("🛑 Transcript Executor 종료 시작");
+            executor.shutdown();
+            log.info("✅ Transcript Executor 종료 완료");
+        }
+    }
 
     /**
      * 특정 비디오의 스크립트(자막)를 Redis에 저장
@@ -330,6 +376,8 @@ public class YoutubeTranscriptServiceImpl implements YoutubeTranscriptService {
      * 동기화 서비스에서 이미 생성한 YouTube API 클라이언트를 재사용하여
      * OAuth 토큰 조회 및 클라이언트 생성을 생략합니다.
      * 
+     * 플래그에 따라 병렬 처리 또는 순차 처리로 분기합니다.
+     * 
      * @param videoIds YouTube 비디오 ID 목록
      * @param yt YouTube API 클라이언트 (재사용)
      * @return 저장 성공한 비디오 개수
@@ -346,7 +394,91 @@ public class YoutubeTranscriptServiceImpl implements YoutubeTranscriptService {
             return 0;
         }
 
+        // 플래그 기반 분기 처리
+        if (youtubeSyncConfigProperties.isEnableParallelTranscript()) {
+            return saveTranscriptsToRedisParallel(videoIds, yt);
+        } else {
+            return saveTranscriptsToRedisSequential(videoIds, yt);
+        }
+    }
+
+    /**
+     * 병렬 처리 방식으로 여러 비디오의 자막을 Redis에 저장
+     * 
+     * CompletableFuture와 @Async를 사용하여 8-15개 스레드로 동시 처리
+     * 
+     * @param videoIds YouTube 비디오 ID 목록
+     * @param yt YouTube API 클라이언트 (재사용, 병렬 처리에서는 사용 안 함)
+     * @return 저장 성공한 비디오 개수
+     */
+    private long saveTranscriptsToRedisParallel(List<String> videoIds, YouTube yt) {
+        if (transcriptExecutor instanceof ThreadPoolTaskExecutor) {
+            ThreadPoolTaskExecutor executor = (ThreadPoolTaskExecutor) transcriptExecutor;
+            log.info("🚀 병렬 자막 추출 시작: {}개 영상, 스레드풀: {}-{}개", 
+                     videoIds.size(), executor.getCorePoolSize(), executor.getMaxPoolSize());
+        } else {
+            log.info("🚀 병렬 자막 추출 시작: {}개 영상", videoIds.size());
+        }
+        
+        long startTime = System.currentTimeMillis();
+        
+        // 1. 모든 비디오에 대해 비동기 작업 시작
+        List<CompletableFuture<Boolean>> futures = videoIds.stream()
+            .map(this::fetchTranscriptAsync)
+            .collect(Collectors.toList());
+        
+        // 2. 모든 작업 완료 대기
+        CompletableFuture<Void> allOf = CompletableFuture.allOf(
+            futures.toArray(new CompletableFuture[0])
+        );
+        
+        try {
+            // 전체 타임아웃: 90초
+            allOf.get(90, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            log.warn("⚠️ 자막 추출 타임아웃 (90초 초과), 완료된 작업만 처리");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("자막 추출 중단됨");
+            return 0;
+        } catch (ExecutionException e) {
+            log.error("자막 추출 실행 오류: {}", e.getMessage(), e);
+        }
+        
+        // 3. 결과 수집 (완료된 작업만)
+        long successCount = futures.stream()
+            .filter(f -> f.isDone() && !f.isCompletedExceptionally())
+            .mapToLong(f -> {
+                try {
+                    return f.getNow(false) ? 1 : 0;
+                } catch (Exception e) {
+                    return 0;
+                }
+            })
+            .sum();
+        
+        long duration = System.currentTimeMillis() - startTime;
+        long avgTime = videoIds.isEmpty() ? 0 : duration / videoIds.size();
+        
+        log.info("✅ 병렬 자막 추출 완료: 성공={}/{}, 소요시간={}ms, 평균={}ms/개", 
+                 successCount, videoIds.size(), duration, avgTime);
+        
+        return successCount;
+    }
+
+    /**
+     * 순차 처리 방식으로 여러 비디오의 자막을 Redis에 저장
+     * 
+     * 기존 for 루프 방식 유지 (호환성 보장)
+     * 
+     * @param videoIds YouTube 비디오 ID 목록
+     * @param yt YouTube API 클라이언트 (재사용)
+     * @return 저장 성공한 비디오 개수
+     */
+    private long saveTranscriptsToRedisSequential(List<String> videoIds, YouTube yt) {
+        long startTime = System.currentTimeMillis();
         long successCount = 0;
+        
         for (String videoId : videoIds) {
             try {
                 if (saveTranscriptToRedisWithClient(videoId, yt)) {
@@ -358,8 +490,41 @@ public class YoutubeTranscriptServiceImpl implements YoutubeTranscriptService {
             }
         }
 
-        log.info("일괄 자막 저장 완료: 성공={}개, 전체={}개", successCount, videoIds.size());
+        long duration = System.currentTimeMillis() - startTime;
+        long avgTime = videoIds.isEmpty() ? 0 : duration / videoIds.size();
+        
+        log.info("일괄 자막 저장 완료 (순차 처리): 성공={}개, 전체={}개, 소요시간={}ms, 평균={}ms/개", 
+                 successCount, videoIds.size(), duration, avgTime);
         return successCount;
+    }
+
+    /**
+     * 비동기 자막 추출 (@Async 사용)
+     * 
+     * 별도 스레드에서 실행되며, 개별 작업 타임아웃 35초 설정
+     * 
+     * @param videoId YouTube 비디오 ID
+     * @return CompletableFuture<Boolean> 저장 성공 여부
+     */
+    @Async("transcriptExecutor")
+    public CompletableFuture<Boolean> fetchTranscriptAsync(String videoId) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return saveTranscriptWithYtDlp(videoId);
+            } catch (Exception e) {
+                log.error("비디오 {}의 자막 추출 실패 (비동기): {}", videoId, e.getMessage());
+                return false;
+            }
+        }, transcriptExecutor)
+        .orTimeout(35, TimeUnit.SECONDS)
+        .exceptionally(ex -> {
+            if (ex instanceof TimeoutException) {
+                log.warn("비디오 {}의 자막 추출 타임아웃 (35초 초과)", videoId);
+            } else {
+                log.error("비디오 {}의 자막 추출 오류: {}", videoId, ex.getMessage());
+            }
+            return false;
+        });
     }
 
     /**
