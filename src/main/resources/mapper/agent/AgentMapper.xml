@@ -5,39 +5,10 @@
 
 <mapper namespace="com.medi.backend.agent.mapper.AgentMapper">
 
-
     <select id="findVideoIdByYoutubeVideoId" resultType="java.lang.Integer">
         SELECT id 
         FROM youtube_videos
         WHERE youtube_video_id = #{youtubeVideoId} 
-        LIMIT 1
-    </select>
-
-    <select id="findChannelIdByYoutubeChannelId" resultType="java.lang.Integer">
-        SELECT id 
-        FROM youtube_channels
-        WHERE youtube_channel_id = #{youtubeChannelId} 
-        LIMIT 1
-    </select>
-
-    <select id="findUserIdByChannelId" resultType="java.lang.Integer">
-        SELECT user_id 
-        FROM youtube_channels
-        WHERE id = #{channelId} 
-        LIMIT 1
-    </select>
-
-    <select id="findChannelIdByVideoId" resultType="java.lang.Integer">
-        SELECT channel_id 
-        FROM youtube_videos
-        WHERE id = #{videoId} 
-        LIMIT 1
-    </select>
-
-    <select id="findYoutubeChannelIdByChannelId" resultType="java.lang.String">
-        SELECT youtube_channel_id 
-        FROM youtube_channels
-        WHERE id = #{channelId} 
         LIMIT 1
     </select>
 
@@ -48,52 +19,26 @@
             comment_text,
             commenter_name,
             published_at,
-            like_count,
-            author_channel_id,
-            updated_at,
-            parent_id,
-            total_reply_count,
-            can_rate,
-            viewer_rating
+            like_count
         ) VALUES (
             #{videoId},
             #{youtubeCommentId},
             #{commentText},
             #{commenterName},
-            STR_TO_DATE(#{publishedAt}, '%Y-%m-%dT%H:%i:%sZ'),
-            #{likeCount},
-            #{authorChannelId},
-            <choose>
-                <when test="updatedAt != null">
-                    STR_TO_DATE(#{updatedAt}, '%Y-%m-%dT%H:%i:%sZ')
-                </when>
-                <otherwise>
-                    NULL
-                </otherwise>
-            </choose>,
-            #{parentId},
-            #{totalReplyCount},
-            #{canRate},
-            #{viewerRating}
+            STR_TO_DATE(#{publishedAt}, '%Y-%m-%dT%H:%i:%s.%fZ'),
+            #{likeCount}
         )
         ON DUPLICATE KEY UPDATE
             comment_text = VALUES(comment_text),
             commenter_name = VALUES(commenter_name),
             published_at = VALUES(published_at),
-            like_count = VALUES(like_count),
-            author_channel_id = VALUES(author_channel_id),
-            updated_at = VALUES(updated_at),
-            parent_id = VALUES(parent_id),
-            total_reply_count = VALUES(total_reply_count),
-            can_rate = VALUES(can_rate),
-            viewer_rating = VALUES(viewer_rating)
+            like_count = VALUES(like_count)
     </insert>
 
     <select id="findCommentIdByYoutubeCommentId" resultType="java.lang.Integer">
         SELECT id 
         FROM youtube_comments
-        WHERE video_id = #{videoId} 
-          AND youtube_comment_id = #{youtubeCommentId}
+        WHERE youtube_comment_id = #{youtubeCommentId}
         LIMIT 1
     </select>
 
@@ -101,77 +46,38 @@
         INSERT INTO ai_comment_analysis_result (
             youtube_comment_id,
             status,
-            filter_reason
+            reason,
+            analyzed_at,
+            harmfulness_level,
+            detection_source
         ) VALUES (
             #{youtubeCommentId},
             #{status},
-            #{filterReason}
+            <choose>
+                <when test="reason != null and reason != ''">
+                    #{reason}
+                </when>
+                <otherwise>
+                    NULL
+                </otherwise>
+            </choose>,
+            <choose>
+                <when test="analyzedAt != null">
+                    STR_TO_DATE(#{analyzedAt}, '%Y-%m-%dT%H:%i:%s.%f')
+                </when>
+                <otherwise>
+                    NOW()
+                </otherwise>
+            </choose>,
+            'MEDIUM',
+            'AI_MODEL'
         )
         ON DUPLICATE KEY UPDATE
             status = VALUES(status),
-            filter_reason = VALUES(filter_reason)
-    </insert>
-
-    <insert id="insertResultVideo">
-        INSERT INTO ai_video_analysis_result (
-            video_id,
-            summarize,
-            communication,
-            video_title,
-            summarized_at,
-            char_count,
-            model
-        ) VALUES (
-            #{videoId},
-            #{summary},
-            #{communicationReport},
-            #{videoTitle},
-            <choose>
-                <when test="summarizedAt != null">
-                    STR_TO_DATE(#{summarizedAt}, '%Y-%m-%dT%H:%i:%s.%f')
-                </when>
-                <otherwise>
-                    NULL
-                </otherwise>
-            </choose>,
-            #{charCount},
-            #{model}
-        )
-        ON DUPLICATE KEY UPDATE
-            summarize = VALUES(summarize),
-            communication = VALUES(communication),
-            video_title = VALUES(video_title),
-            summarized_at = VALUES(summarized_at),
-            char_count = VALUES(char_count),
-            model = VALUES(model)
-    </insert>
-
-    <insert id="insertResultChannel">
-        INSERT INTO ai_channel_analysis_result (
-            channel_id,
-            profile,
-            ecosystem,
-            profiled_at,
-            model
-        ) VALUES (
-            #{channelId},
-            #{profileReport},
-            #{ecosystemReport},
-            <choose>
-                <when test="profiledAt != null">
-                    STR_TO_DATE(#{profiledAt}, '%Y-%m-%dT%H:%i:%s.%f')
-                </when>
-                <otherwise>
-                    NULL
-                </otherwise>
-            </choose>,
-            #{model}
-        )
-        ON DUPLICATE KEY UPDATE
-            profile = VALUES(profile),
-            ecosystem = VALUES(ecosystem),
-            profiled_at = VALUES(profiled_at),
-            model = VALUES(model)
+            reason = VALUES(reason),
+            analyzed_at = VALUES(analyzed_at),
+            updated_at = NOW()
     </insert>
 
 </mapper>
+

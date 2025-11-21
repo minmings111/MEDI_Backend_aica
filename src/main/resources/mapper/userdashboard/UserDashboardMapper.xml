@@ -16,49 +16,49 @@
              INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
              INNER JOIN youtube_videos v ON yc.video_id = v.id
              INNER JOIN youtube_channels c ON v.channel_id = c.id
-             WHERE c.user_id = #{userId} AND acar.status = 'HIDE') AS totalFilteredCount,
+             WHERE c.user_id = #{userId} AND acar.status = 'filtered') AS totalFilteredCount,
             (SELECT COUNT(*) FROM ai_comment_analysis_result acar
              INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
              INNER JOIN youtube_videos v ON yc.video_id = v.id
              INNER JOIN youtube_channels c ON v.channel_id = c.id
-             WHERE c.user_id = #{userId} AND acar.status = 'HIDE'
+             WHERE c.user_id = #{userId} AND acar.status = 'filtered'
              AND acar.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)) AS last7DaysFilteredCount,
             (SELECT COUNT(*) FROM ai_comment_analysis_result acar
              INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
              INNER JOIN youtube_videos v ON yc.video_id = v.id
              INNER JOIN youtube_channels c ON v.channel_id = c.id
-             WHERE c.user_id = #{userId} AND acar.status = 'HIDE'
+             WHERE c.user_id = #{userId} AND acar.status = 'filtered'
              AND DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')) AS thisMonthFilteredCount,
             (SELECT COUNT(*) FROM ai_comment_analysis_result acar
              INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
              INNER JOIN youtube_videos v ON yc.video_id = v.id
              INNER JOIN youtube_channels c ON v.channel_id = c.id
-             WHERE c.user_id = #{userId} AND acar.status = 'HIDE'
+             WHERE c.user_id = #{userId} AND acar.status = 'filtered'
              AND DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) AS lastMonthFilteredCount,
             CASE
                 WHEN (SELECT COUNT(*) FROM ai_comment_analysis_result acar
                       INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
                       INNER JOIN youtube_videos v ON yc.video_id = v.id
                       INNER JOIN youtube_channels c ON v.channel_id = c.id
-                      WHERE c.user_id = #{userId} AND acar.status = 'HIDE'
+                      WHERE c.user_id = #{userId} AND acar.status = 'filtered'
                       AND DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) > 0
                 THEN ROUND(((SELECT COUNT(*) FROM ai_comment_analysis_result acar
                              INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
                              INNER JOIN youtube_videos v ON yc.video_id = v.id
                              INNER JOIN youtube_channels c ON v.channel_id = c.id
-                             WHERE c.user_id = #{userId} AND acar.status = 'HIDE'
+                             WHERE c.user_id = #{userId} AND acar.status = 'filtered'
                              AND DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')) -
                             (SELECT COUNT(*) FROM ai_comment_analysis_result acar
                              INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
                              INNER JOIN youtube_videos v ON yc.video_id = v.id
                              INNER JOIN youtube_channels c ON v.channel_id = c.id
-                             WHERE c.user_id = #{userId} AND acar.status = 'HIDE'
+                             WHERE c.user_id = #{userId} AND acar.status = 'filtered'
                              AND DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) * 100.0 /
                             (SELECT COUNT(*) FROM ai_comment_analysis_result acar
                              INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
                              INNER JOIN youtube_videos v ON yc.video_id = v.id
                              INNER JOIN youtube_channels c ON v.channel_id = c.id
-                             WHERE c.user_id = #{userId} AND acar.status = 'HIDE'
+                             WHERE c.user_id = #{userId} AND acar.status = 'filtered'
                              AND DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')), 2)
                 ELSE 0.0
             END AS monthOverMonthGrowthRate
@@ -71,7 +71,7 @@
         INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'HIDE'
+        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
     </select>
 
     <!-- UDB-03: 최근 7일 필터링 수 -->
@@ -81,7 +81,7 @@
         INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'HIDE'
+        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
         AND acar.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
     </select>
 
@@ -92,7 +92,7 @@
         INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'HIDE'
+        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
         AND DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')
     </select>
 
@@ -103,7 +103,7 @@
         INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'HIDE'
+        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
         AND DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')
     </select>
 
@@ -117,7 +117,7 @@
         INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'HIDE'
+        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
         GROUP BY acar.harmfulness_level
         ORDER BY 
             CASE acar.harmfulness_level
@@ -138,7 +138,7 @@
         INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'HIDE'
+        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
         GROUP BY acar.detection_source
         ORDER BY count DESC
     </select>
@@ -153,7 +153,7 @@
         INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'HIDE'
+        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
         GROUP BY acar.detected_category
         ORDER BY count DESC
     </select>
@@ -168,7 +168,7 @@
         INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'HIDE'
+        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
         AND DATE(acar.created_at) BETWEEN #{from} AND #{to}
         GROUP BY DATE(acar.created_at)
         ORDER BY date ASC
@@ -185,7 +185,7 @@
         INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND c.id = #{channelId} AND acar.status = 'HIDE'
+        WHERE c.user_id = #{userId} AND c.id = #{channelId} AND acar.status = 'filtered'
         GROUP BY c.id, c.channel_name
     </select>
 
@@ -199,7 +199,7 @@
         INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND c.id = #{channelId} AND acar.status = 'HIDE'
+        WHERE c.user_id = #{userId} AND c.id = #{channelId} AND acar.status = 'filtered'
         GROUP BY acar.harmfulness_level
         ORDER BY 
             CASE acar.harmfulness_level
@@ -220,7 +220,7 @@
         INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND c.id = #{channelId} AND acar.status = 'HIDE'
+        WHERE c.user_id = #{userId} AND c.id = #{channelId} AND acar.status = 'filtered'
         GROUP BY acar.detected_category
         ORDER BY count DESC
     </select>
@@ -236,7 +236,7 @@
         INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND v.id = #{videoId} AND acar.status = 'HIDE'
+        WHERE c.user_id = #{userId} AND v.id = #{videoId} AND acar.status = 'filtered'
         GROUP BY v.id, v.title
     </select>
 
@@ -250,7 +250,7 @@
         INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND v.id = #{videoId} AND acar.status = 'HIDE'
+        WHERE c.user_id = #{userId} AND v.id = #{videoId} AND acar.status = 'filtered'
         GROUP BY acar.harmfulness_level
         ORDER BY 
             CASE acar.harmfulness_level
@@ -271,7 +271,7 @@
         INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND v.id = #{videoId} AND acar.status = 'HIDE'
+        WHERE c.user_id = #{userId} AND v.id = #{videoId} AND acar.status = 'filtered'
         GROUP BY acar.detected_category
         ORDER BY count DESC
     </select>
@@ -288,7 +288,7 @@
         INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'HIDE'
+        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
         GROUP BY c.id, c.channel_name
         ORDER BY filteredCount DESC
         LIMIT #{limit}
@@ -306,7 +306,7 @@
         INNER JOIN youtube_comments yc ON acar.comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'HIDE'
+        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
         GROUP BY v.id, v.title
         ORDER BY filteredCount DESC
         LIMIT #{limit}
