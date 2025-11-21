@@ -37,8 +37,14 @@ public class AgentController {
         Map<String, Object> response = new HashMap<>();
         response.put("message", "Filtered comments saved successfully");
         response.put("savedCount", savedCount);
-        response.put("totalReceived", request.getComments() != null ? request.getComments().size() : 0);
-        response.put("video_id", request.getVideoId());
+        
+        int totalReceived = 0;
+        if (request.getFilteredComments() != null) totalReceived += request.getFilteredComments().size();
+        if (request.getContentSuggestions() != null) totalReceived += request.getContentSuggestions().size();
+        
+        response.put("totalReceived", totalReceived);
+        response.put("videoId", request.getVideoId());
+        response.put("channelId", request.getChannelId());
         
         return ResponseEntity.ok(response);
     }

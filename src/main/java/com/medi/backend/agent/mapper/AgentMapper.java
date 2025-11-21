@@ -40,5 +40,19 @@ public interface AgentMapper {
         @Param("reason") String reason,  // AI 서버의 reason 값
         @Param("analyzedAt") String analyzedAt  // AI 서버의 analyzed_at 값
     );
+    
+    /**
+     * ai_analysis_summary 테이블에 분석 요약 저장
+     */
+    Integer insertAnalysisSummary(
+        @Param("videoId") Integer videoId,
+        @Param("youtubeVideoId") String youtubeVideoId,
+        @Param("youtubeChannelId") String youtubeChannelId,
+        @Param("neutralCount") Integer neutralCount,
+        @Param("filteredCount") Integer filteredCount,
+        @Param("suggestionCount") Integer suggestionCount,
+        @Param("riskSummary") String riskSummary,
+        @Param("analysisTimestamp") String analysisTimestamp
+    );
 }
 

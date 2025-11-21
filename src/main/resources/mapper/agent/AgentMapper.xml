@@ -79,5 +79,41 @@
             updated_at = NOW()
     </insert>
 
+    <insert id="insertAnalysisSummary">
+        INSERT INTO ai_analysis_summary (
+            video_id,
+            youtube_video_id,
+            youtube_channel_id,
+            neutral_count,
+            filtered_count,
+            suggestion_count,
+            risk_summary,
+            analysis_timestamp
+        ) VALUES (
+            #{videoId},
+            #{youtubeVideoId},
+            #{youtubeChannelId},
+            #{neutralCount},
+            #{filteredCount},
+            #{suggestionCount},
+            #{riskSummary},
+            <choose>
+                <when test="analysisTimestamp != null">
+                    STR_TO_DATE(#{analysisTimestamp}, '%Y-%m-%dT%H:%i:%s.%f')
+                </when>
+                <otherwise>
+                    NOW()
+                </otherwise>
+            </choose>
+        )
+        ON DUPLICATE KEY UPDATE
+            neutral_count = VALUES(neutral_count),
+            filtered_count = VALUES(filtered_count),
+            suggestion_count = VALUES(suggestion_count),
+            risk_summary = VALUES(risk_summary),
+            analysis_timestamp = VALUES(analysis_timestamp),
+            updated_at = NOW()
+    </insert>
+
 </mapper>
 
