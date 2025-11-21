@@ -1,26 +1,20 @@
 package com.medi.backend.agent.service;
 
-import java.util.List;
-
-import com.medi.backend.agent.dto.AgentFilteredResult;
-import com.medi.backend.agent.dto.AgentChannelResult;
+import com.medi.backend.agent.dto.AgentFilteredCommentsRequest;
 
 public interface AgentService {
-
-    // find int ID(using in mysql) by string youtube ID
+    
+    /**
+     * YouTube video_id로 내부 video_id 조회
+     */
     Integer findVideoIdByYoutubeVideoId(String youtubeVideoId);
-    Integer findChannelIdByYoutubeChannelId(String youtubeChannelId);
     
-    Integer findUserIdByChannelId(Integer channelId);
-    
-    // 유틸리티 메서드: ID 변환
-    Integer findChannelIdByVideoId(Integer videoId);
-    String findYoutubeChannelIdByChannelId(Integer channelId);
-    
-    // insert filtered comments to DB
-    Integer insertFilteredComment(List<AgentFilteredResult> agentFilteredResults);
-    
-    // 채널별 통합 분석 결과 저장 (채널별로 모든 결과가 묶여서 전달됨)
-    void saveChannelResult(AgentChannelResult result);
-
+    /**
+     * AI 분석 결과를 DB에 저장
+     * 
+     * @param request AI 분석 결과 (video_id 포함)
+     * @return 저장된 댓글 개수
+     */
+    Integer insertFilteredComment(AgentFilteredCommentsRequest request);
 }
+

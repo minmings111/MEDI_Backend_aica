@@ -59,3 +59,24 @@ dependencies {
 tasks.named('test') {
 	useJUnitPlatform()
 }
+
+// install the yt-dlp
+task ensureYtDlp {
+	doLast {
+		def result = exec {
+			commandLine 'yt-dlp', '--version'
+			ignoreExitValue = true
+		}
+		
+		if (result.exitValue == 0) {
+			return
+		}
+		
+		println "yt-dlp is not installed. Installing automatically..."
+		exec {
+			commandLine 'pip', 'install', 'yt-dlp>=2025.11.12'
+		}
+	}
+}
+
+compileJava.dependsOn ensureYtDlp

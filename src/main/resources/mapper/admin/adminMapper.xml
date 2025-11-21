@@ -22,14 +22,14 @@
             status = 'ACTIVE'
     </select>
 
-    <!-- ADM-03: 총 필터링 수 (status = 'HIDE'인 댓글 수) -->
+    <!-- ADM-03: 총 필터링 수 (status = 'filtered'인 댓글 수) -->
     <select id="getTotalFilteringCount" resultType="java.lang.Integer">
         SELECT 
             COUNT(*) 
         FROM 
             ai_comment_analysis_result
         WHERE 
-            status = 'HIDE'
+            status = 'filtered'
     </select>
 
     <!-- ADM-04-1: 해로움 수준별 분포 -->
@@ -41,7 +41,7 @@
         FROM 
             ai_comment_analysis_result
         WHERE 
-            status = 'HIDE'
+            status = 'filtered'
         GROUP BY 
             harmfulness_level
         ORDER BY 
@@ -62,7 +62,7 @@
         FROM 
             ai_comment_analysis_result
         WHERE 
-            status = 'HIDE'
+            status = 'filtered'
         GROUP BY 
             detection_source
         ORDER BY 
@@ -78,7 +78,7 @@
         FROM 
             ai_comment_analysis_result
         WHERE 
-            status = 'HIDE'
+            status = 'filtered'
         GROUP BY 
             detected_category
         ORDER BY 
@@ -112,10 +112,10 @@
                 WHERE role = 'USER'
                 AND DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) AS last_month_users,
                 (SELECT COUNT(*) FROM ai_comment_analysis_result
-                WHERE status = 'HIDE'
+                WHERE status = 'filtered'
                 AND DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')) AS this_month_filtering,
                 (SELECT COUNT(*) FROM ai_comment_analysis_result
-                WHERE status = 'HIDE'
+                WHERE status = 'filtered'
                 AND DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) AS last_month_filtering
         ) AS delta
     </select>
