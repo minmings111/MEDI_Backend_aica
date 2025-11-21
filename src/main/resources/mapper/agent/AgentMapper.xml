@@ -115,5 +115,56 @@
             updated_at = NOW()
     </insert>
 
+    <select id="findChannelIdByYoutubeChannelId" resultType="java.lang.Integer">
+        SELECT id 
+        FROM youtube_channels
+        WHERE youtube_channel_id = #{youtubeChannelId}
+        LIMIT 1
+    </select>
+
+    <insert id="insertChannelProfiling">
+        INSERT INTO ai_channel_profiling (
+            channel_id,
+            youtube_channel_id,
+            profile_data,
+            comment_ecosystem,
+            channel_communication,
+            metadata,
+            profiling_completed_at,
+            version
+        ) VALUES (
+            #{channelId},
+            #{youtubeChannelId},
+            CAST(#{profileData} AS JSON),
+            CAST(#{commentEcosystem} AS JSON),
+            CAST(#{channelCommunication} AS JSON),
+            CAST(#{metadata} AS JSON),
+            <choose>
+                <when test="profilingCompletedAt != null and profilingCompletedAt != ''">
+                    STR_TO_DATE(#{profilingCompletedAt}, '%Y-%m-%dT%H:%i:%s.%f')
+                </when>
+                <otherwise>
+                    NULL
+                </otherwise>
+            </choose>,
+            #{version}
+        )
+        ON DUPLICATE KEY UPDATE
+            profile_data = CAST(#{profileData} AS JSON),
+            comment_ecosystem = CAST(#{commentEcosystem} AS JSON),
+            channel_communication = CAST(#{channelCommunication} AS JSON),
+            metadata = CAST(#{metadata} AS JSON),
+            profiling_completed_at = <choose>
+                <when test="profilingCompletedAt != null and profilingCompletedAt != ''">
+                    STR_TO_DATE(#{profilingCompletedAt}, '%Y-%m-%dT%H:%i:%s.%f')
+                </when>
+                <otherwise>
+                    NULL
+                </otherwise>
+            </choose>,
+            version = #{version},
+            updated_at = NOW()
+    </insert>
+
 </mapper>
 

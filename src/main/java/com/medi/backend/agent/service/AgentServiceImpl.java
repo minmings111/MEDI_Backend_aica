@@ -3,7 +3,9 @@ package com.medi.backend.agent.service;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.medi.backend.agent.dto.AgentFilteredCommentsRequest;
+import com.medi.backend.agent.dto.AgentProfilingRequest;
 import com.medi.backend.agent.mapper.AgentMapper;
 
 import lombok.extern.slf4j.Slf4j;
@@ -13,9 +15,11 @@ import lombok.extern.slf4j.Slf4j;
 public class AgentServiceImpl implements AgentService {
 
     private final AgentMapper agentMapper;
+    private final ObjectMapper objectMapper;
     
-    public AgentServiceImpl(AgentMapper agentMapper) {
+    public AgentServiceImpl(AgentMapper agentMapper, ObjectMapper objectMapper) {
         this.agentMapper = agentMapper;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -123,6 +127,74 @@ public class AgentServiceImpl implements AgentService {
                 videoId, comment.getCommentId(), status, e);
         }
         return 0;
+    }
+    
+    @Override
+    @Transactional
+    public Integer insertChannelProfiling(AgentProfilingRequest request) {
+        try {
+            // 1. 요청에서 channelId 추출
+            String youtubeChannelId = request.getChannelId();
+            if (youtubeChannelId == null || youtubeChannelId.isBlank()) {
+                log.warn("Channel ID is missing in request");
+                return 0;
+            }
+            
+            // 2. YouTube channel_id → 내부 channel_id 변환
+            Integer internalChannelId = agentMapper.findChannelIdByYoutubeChannelId(youtubeChannelId);
+            if (internalChannelId == null) {
+                log.warn("Channel not found: {}", youtubeChannelId);
+                return 0;
+            }
+            
+            // 3. JSON 변환
+            // profileData 전체를 JSON으로 변환
+            String profileDataJson = objectMapper.writeValueAsString(request.getProfileData());
+            
+            // commentEcosystem만 추출하여 JSON으로 변환
+            String commentEcosystemJson = "{}";  // 기본값: 빈 JSON 객체
+            if (request.getProfileData() != null && request.getProfileData().getCommentEcosystem() != null) {
+                commentEcosystemJson = objectMapper.writeValueAsString(request.getProfileData().getCommentEcosystem());
+            }
+            
+            // channelCommunication만 추출하여 JSON으로 변환
+            String channelCommunicationJson = "{}";  // 기본값: 빈 JSON 객체
+            if (request.getProfileData() != null && request.getProfileData().getChannelCommunication() != null) {
+                channelCommunicationJson = objectMapper.writeValueAsString(request.getProfileData().getChannelCommunication());
+            }
+            
+            // metadata 전체를 JSON으로 변환
+            String metadataJson = objectMapper.writeValueAsString(request.getMetadata());
+            
+            // 4. metadata에서 주요 필드 추출
+            String profilingCompletedAt = null;
+            String version = null;
+            if (request.getMetadata() != null) {
+                profilingCompletedAt = request.getMetadata().getProfilingCompletedAt();
+                version = request.getMetadata().getVersion();
+            }
+            
+            // 5. ai_channel_profiling 테이블에 저장
+            Integer result = agentMapper.insertChannelProfiling(
+                internalChannelId,
+                youtubeChannelId,
+                profileDataJson,
+                commentEcosystemJson,
+                channelCommunicationJson,
+                metadataJson,
+                profilingCompletedAt,
+                version
+            );
+            
+            log.info("Channel profiling saved: channelId={}, youtubeChannelId={}, result={}", 
+                internalChannelId, youtubeChannelId, result);
+            
+            return result != null && result > 0 ? 1 : 0;
+            
+        } catch (Exception e) {
+            log.error("Failed to save channel profiling: channelId={}", request.getChannelId(), e);
+            return 0;
+        }
     }
 }
 

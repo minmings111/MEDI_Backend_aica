@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.http.ResponseEntity;
 
 import com.medi.backend.agent.dto.AgentFilteredCommentsRequest;
+import com.medi.backend.agent.dto.AgentProfilingRequest;
 import com.medi.backend.agent.service.AgentService;
 
 import java.util.HashMap;
@@ -44,6 +45,31 @@ public class AgentController {
         
         response.put("totalReceived", totalReceived);
         response.put("videoId", request.getVideoId());
+        response.put("channelId", request.getChannelId());
+        
+        return ResponseEntity.ok(response);
+    }
+    
+    /**
+     * AI 서버에서 프로파일링 결과를 받는 엔드포인트
+     * 
+     * @param request AI 프로파일링 결과 (channelId, profileData, metadata 포함)
+     * @return 저장 성공 응답
+     */
+    @PostMapping("/profile-results")
+    public ResponseEntity<Map<String, Object>> receiveProfilingResults(
+        @RequestBody AgentProfilingRequest request
+    ) {
+        Integer saved = agentService.insertChannelProfiling(request);
+        
+        Map<String, Object> response = new HashMap<>();
+        if (saved > 0) {
+            response.put("message", "Channel profiling saved successfully");
+            response.put("success", true);
+        } else {
+            response.put("message", "Failed to save channel profiling");
+            response.put("success", false);
+        }
         response.put("channelId", request.getChannelId());
         
         return ResponseEntity.ok(response);

@@ -54,5 +54,24 @@ public interface AgentMapper {
         @Param("riskSummary") String riskSummary,
         @Param("analysisTimestamp") String analysisTimestamp
     );
+    
+    /**
+     * YouTube channel_id로 내부 channel_id 조회
+     */
+    Integer findChannelIdByYoutubeChannelId(@Param("youtubeChannelId") String youtubeChannelId);
+    
+    /**
+     * ai_channel_profiling 테이블에 프로파일링 결과 저장
+     */
+    Integer insertChannelProfiling(
+        @Param("channelId") Integer channelId,
+        @Param("youtubeChannelId") String youtubeChannelId,
+        @Param("profileData") String profileDataJson,  // profileData 전체 JSON
+        @Param("commentEcosystem") String commentEcosystemJson,  // commentEcosystem JSON
+        @Param("channelCommunication") String channelCommunicationJson,  // channelCommunication JSON
+        @Param("metadata") String metadataJson,  // metadata 전체 JSON
+        @Param("profilingCompletedAt") String profilingCompletedAt,
+        @Param("version") String version
+    );
 }
 
