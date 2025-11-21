@@ -1,7 +1,11 @@
 package com.medi.backend.agent.mapper;
 
+import com.medi.backend.agent.dto.FilteredCommentResponse;
+import com.medi.backend.agent.dto.AnalysisSummaryResponse;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+
+import java.util.List;
 
 @Mapper
 public interface AgentMapper {
@@ -72,6 +76,58 @@ public interface AgentMapper {
         @Param("metadata") String metadataJson,  // metadata 전체 JSON
         @Param("profilingCompletedAt") String profilingCompletedAt,
         @Param("version") String version
+    );
+    
+    /**
+     * 비디오별 필터링된 댓글 조회
+     * 
+     * @param videoId 내부 비디오 ID
+     * @param userId 사용자 ID (권한 체크용)
+     * @param status 필터링 상태 (filtered, content_suggestion, normal) - null이면 전체
+     * @return 필터링된 댓글 목록
+     */
+    List<FilteredCommentResponse> findFilteredCommentsByVideoId(
+        @Param("videoId") Integer videoId,
+        @Param("userId") Integer userId,
+        @Param("status") String status
+    );
+    
+    /**
+     * 비디오별 분석 요약 조회
+     * 
+     * @param videoId 내부 비디오 ID
+     * @param userId 사용자 ID (권한 체크용)
+     * @return 분석 요약 정보
+     */
+    AnalysisSummaryResponse findAnalysisSummaryByVideoId(
+        @Param("videoId") Integer videoId,
+        @Param("userId") Integer userId
+    );
+    
+    /**
+     * 채널별 필터링된 댓글 조회
+     * 
+     * @param channelId 내부 채널 ID
+     * @param userId 사용자 ID (권한 체크용)
+     * @param status 필터링 상태 (filtered, content_suggestion, normal) - null이면 전체
+     * @return 필터링된 댓글 목록
+     */
+    List<FilteredCommentResponse> findFilteredCommentsByChannelId(
+        @Param("channelId") Integer channelId,
+        @Param("userId") Integer userId,
+        @Param("status") String status
+    );
+    
+    /**
+     * 사용자별 필터링된 댓글 조회
+     * 
+     * @param userId 사용자 ID
+     * @param status 필터링 상태 (filtered, content_suggestion, normal) - null이면 전체
+     * @return 필터링된 댓글 목록
+     */
+    List<FilteredCommentResponse> findFilteredCommentsByUserId(
+        @Param("userId") Integer userId,
+        @Param("status") String status
     );
 }
 

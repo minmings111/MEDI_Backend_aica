@@ -6,9 +6,13 @@ import org.springframework.transaction.annotation.Transactional;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.medi.backend.agent.dto.AgentFilteredCommentsRequest;
 import com.medi.backend.agent.dto.AgentProfilingRequest;
+import com.medi.backend.agent.dto.FilteredCommentResponse;
+import com.medi.backend.agent.dto.AnalysisSummaryResponse;
 import com.medi.backend.agent.mapper.AgentMapper;
 
 import lombok.extern.slf4j.Slf4j;
+
+import java.util.List;
 
 @Slf4j
 @Service
@@ -195,6 +199,34 @@ public class AgentServiceImpl implements AgentService {
             log.error("Failed to save channel profiling: channelId={}", request.getChannelId(), e);
             return 0;
         }
+    }
+    
+    @Override
+    @Transactional(readOnly = true)
+    public List<FilteredCommentResponse> getFilteredCommentsByVideoId(Integer videoId, Integer userId, String status) {
+        log.debug("비디오별 필터링된 댓글 조회: videoId={}, userId={}, status={}", videoId, userId, status);
+        return agentMapper.findFilteredCommentsByVideoId(videoId, userId, status);
+    }
+    
+    @Override
+    @Transactional(readOnly = true)
+    public AnalysisSummaryResponse getAnalysisSummaryByVideoId(Integer videoId, Integer userId) {
+        log.debug("비디오별 분석 요약 조회: videoId={}, userId={}", videoId, userId);
+        return agentMapper.findAnalysisSummaryByVideoId(videoId, userId);
+    }
+    
+    @Override
+    @Transactional(readOnly = true)
+    public List<FilteredCommentResponse> getFilteredCommentsByChannelId(Integer channelId, Integer userId, String status) {
+        log.debug("채널별 필터링된 댓글 조회: channelId={}, userId={}, status={}", channelId, userId, status);
+        return agentMapper.findFilteredCommentsByChannelId(channelId, userId, status);
+    }
+    
+    @Override
+    @Transactional(readOnly = true)
+    public List<FilteredCommentResponse> getFilteredCommentsByUserId(Integer userId, String status) {
+        log.debug("사용자별 필터링된 댓글 조회: userId={}, status={}", userId, status);
+        return agentMapper.findFilteredCommentsByUserId(userId, status);
     }
 }
 
