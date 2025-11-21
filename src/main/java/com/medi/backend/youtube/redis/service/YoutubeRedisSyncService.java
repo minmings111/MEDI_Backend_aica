@@ -1,6 +1,7 @@
 package com.medi.backend.youtube.redis.service;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import com.medi.backend.youtube.redis.dto.RedisSyncResult;
 
@@ -16,6 +17,9 @@ public interface YoutubeRedisSyncService {
     
     // full sync process (initial sync)
     RedisSyncResult syncToRedis(Integer userId);
+    
+    // full sync process (initial sync) - 비동기 버전
+    CompletableFuture<RedisSyncResult> syncToRedisAsync(Integer userId);
     
     // incremental sync process (incremental sync)
     // videoIds is from the previous sync process

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.medi.backend.youtube.mapper.YoutubeSyncStatusMapper">
+
+    <resultMap id="SyncStatusResultMap" type="com.medi.backend.youtube.dto.YoutubeSyncStatusDto">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="status" column="status" 
+                typeHandler="org.apache.ibatis.type.EnumOrdinalTypeHandler"
+                javaType="com.medi.backend.youtube.dto.YoutubeSyncStatusDto$SyncStatus"/>
+        <result property="startedAt" column="started_at"/>
+        <result property="completedAt" column="completed_at"/>
+        <result property="errorMessage" column="error_message"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="findLatestByUserId" parameterType="int" resultMap="SyncStatusResultMap">
+        SELECT * FROM youtube_sync_status
+        WHERE user_id = #{userId}
+        ORDER BY created_at DESC
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.medi.backend.youtube.dto.YoutubeSyncStatusDto" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO youtube_sync_status(
+            user_id, status, started_at, error_message, created_at, updated_at
+        ) VALUES (
+            #{userId}, #{status, typeHandler=org.apache.ibatis.type.EnumTypeHandler}, #{startedAt}, #{errorMessage}, NOW(), NOW()
+        )
+    </insert>
+
+    <update id="updateStatus">
+        UPDATE youtube_sync_status
+        SET status = #{status},
+            error_message = #{errorMessage},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateCompletedAt">
+        UPDATE youtube_sync_status
+        SET completed_at = NOW(),
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+</mapper>
+
