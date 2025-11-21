@@ -510,24 +510,24 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
                         
                     } catch (Exception dbEx) {
                         log.error("❌ MySQL에서 channelId 조회 실패: videoId={}", videoId, dbEx);
-                        failCount++;
-                        continue;
+                    failCount++;
+                    continue;
                     }
                 }
                 
                 log.debug("✅ 비디오 {} 메타데이터 조회 성공: {}", videoId, metaJson.substring(0, Math.min(100, metaJson.length())));
                 
-                    // JSON 파싱하여 channelId 추출
-                    Map<String, Object> meta = objectMapper.readValue(metaJson, new TypeReference<Map<String, Object>>() {});
-                    String channelId = (String) meta.get("channel_id");
-                    
+                // JSON 파싱하여 channelId 추출
+                Map<String, Object> meta = objectMapper.readValue(metaJson, new TypeReference<Map<String, Object>>() {});
+                String channelId = (String) meta.get("channel_id");
+                
                 if (channelId == null || channelId.isBlank()) {
                     log.warn("⚠️ 비디오 {}의 channel_id가 없거나 비어있습니다. meta={}", videoId, meta);
                     failCount++;
                     continue;
                 }
                 
-                        result.computeIfAbsent(channelId, k -> new java.util.ArrayList<>()).add(videoId);
+                result.computeIfAbsent(channelId, k -> new java.util.ArrayList<>()).add(videoId);
                 successCount++;
                 log.debug("✅ 비디오 {} → channelId {} 매핑 완료", videoId, channelId);
                 

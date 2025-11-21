@@ -115,5 +115,177 @@
             updated_at = NOW()
     </insert>
 
+    <select id="findChannelIdByYoutubeChannelId" resultType="java.lang.Integer">
+        SELECT id 
+        FROM youtube_channels
+        WHERE youtube_channel_id = #{youtubeChannelId}
+        LIMIT 1
+    </select>
+
+    <insert id="insertChannelProfiling">
+        INSERT INTO ai_channel_profiling (
+            channel_id,
+            youtube_channel_id,
+            profile_data,
+            comment_ecosystem,
+            channel_communication,
+            metadata,
+            profiling_completed_at,
+            version
+        ) VALUES (
+            #{channelId},
+            #{youtubeChannelId},
+            CAST(#{profileData} AS JSON),
+            CAST(#{commentEcosystem} AS JSON),
+            CAST(#{channelCommunication} AS JSON),
+            CAST(#{metadata} AS JSON),
+            <choose>
+                <when test="profilingCompletedAt != null and profilingCompletedAt != ''">
+                    STR_TO_DATE(#{profilingCompletedAt}, '%Y-%m-%dT%H:%i:%s.%f')
+                </when>
+                <otherwise>
+                    NULL
+                </otherwise>
+            </choose>,
+            #{version}
+        )
+        ON DUPLICATE KEY UPDATE
+            profile_data = CAST(#{profileData} AS JSON),
+            comment_ecosystem = CAST(#{commentEcosystem} AS JSON),
+            channel_communication = CAST(#{channelCommunication} AS JSON),
+            metadata = CAST(#{metadata} AS JSON),
+            profiling_completed_at = <choose>
+                <when test="profilingCompletedAt != null and profilingCompletedAt != ''">
+                    STR_TO_DATE(#{profilingCompletedAt}, '%Y-%m-%dT%H:%i:%s.%f')
+                </when>
+                <otherwise>
+                    NULL
+                </otherwise>
+            </choose>,
+            version = #{version},
+            updated_at = NOW()
+    </insert>
+
+    <!-- 비디오별 필터링된 댓글 조회 -->
+    <select id="findFilteredCommentsByVideoId" resultType="com.medi.backend.agent.dto.FilteredCommentResponse">
+        SELECT 
+            yc.id AS commentId,
+            yc.youtube_comment_id AS youtubeCommentId,
+            yc.comment_text AS commentText,
+            yc.commenter_name AS commenterName,
+            yc.published_at AS publishedAt,
+            yc.like_count AS likeCount,
+            yv.id AS videoId,
+            yv.youtube_video_id AS youtubeVideoId,
+            yv.title AS videoTitle,
+            ych.id AS channelId,
+            ych.youtube_channel_id AS youtubeChannelId,
+            ych.channel_name AS channelName,
+            acar.status AS status,
+            acar.reason AS reason,
+            acar.analyzed_at AS analyzedAt,
+            acar.harmfulness_level AS harmfulnessLevel,
+            acar.detection_source AS detectionSource
+        FROM ai_comment_analysis_result acar
+        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+        INNER JOIN youtube_videos yv ON yc.video_id = yv.id
+        INNER JOIN youtube_channels ych ON yv.channel_id = ych.id
+        WHERE yv.id = #{videoId}
+            AND ych.user_id = #{userId}
+            AND ych.deleted_at IS NULL
+            <if test="status != null and status != ''">
+                AND acar.status = #{status}
+            </if>
+        ORDER BY yc.published_at DESC
+        LIMIT 200
+    </select>
+
+    <!-- 비디오별 분석 요약 조회 -->
+    <select id="findAnalysisSummaryByVideoId" resultType="com.medi.backend.agent.dto.AnalysisSummaryResponse">
+        SELECT 
+            aas.video_id AS videoId,
+            aas.youtube_video_id AS youtubeVideoId,
+            aas.youtube_channel_id AS youtubeChannelId,
+            aas.neutral_count AS neutralCount,
+            aas.filtered_count AS filteredCount,
+            aas.suggestion_count AS suggestionCount,
+            aas.risk_summary AS riskSummary,
+            aas.analysis_timestamp AS analysisTimestamp
+        FROM ai_analysis_summary aas
+        INNER JOIN youtube_videos yv ON aas.video_id = yv.id
+        INNER JOIN youtube_channels ych ON yv.channel_id = ych.id
+        WHERE yv.id = #{videoId}
+            AND ych.user_id = #{userId}
+            AND ych.deleted_at IS NULL
+        LIMIT 1
+    </select>
+
+    <!-- 채널별 필터링된 댓글 조회 -->
+    <select id="findFilteredCommentsByChannelId" resultType="com.medi.backend.agent.dto.FilteredCommentResponse">
+        SELECT 
+            yc.id AS commentId,
+            yc.youtube_comment_id AS youtubeCommentId,
+            yc.comment_text AS commentText,
+            yc.commenter_name AS commenterName,
+            yc.published_at AS publishedAt,
+            yc.like_count AS likeCount,
+            yv.id AS videoId,
+            yv.youtube_video_id AS youtubeVideoId,
+            yv.title AS videoTitle,
+            ych.id AS channelId,
+            ych.youtube_channel_id AS youtubeChannelId,
+            ych.channel_name AS channelName,
+            acar.status AS status,
+            acar.reason AS reason,
+            acar.analyzed_at AS analyzedAt,
+            acar.harmfulness_level AS harmfulnessLevel,
+            acar.detection_source AS detectionSource
+        FROM ai_comment_analysis_result acar
+        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+        INNER JOIN youtube_videos yv ON yc.video_id = yv.id
+        INNER JOIN youtube_channels ych ON yv.channel_id = ych.id
+        WHERE ych.id = #{channelId}
+            AND ych.user_id = #{userId}
+            AND ych.deleted_at IS NULL
+            <if test="status != null and status != ''">
+                AND acar.status = #{status}
+            </if>
+        ORDER BY yv.published_at DESC, yc.published_at DESC
+        LIMIT 500
+    </select>
+
+    <!-- 사용자별 필터링된 댓글 조회 -->
+    <select id="findFilteredCommentsByUserId" resultType="com.medi.backend.agent.dto.FilteredCommentResponse">
+        SELECT 
+            yc.id AS commentId,
+            yc.youtube_comment_id AS youtubeCommentId,
+            yc.comment_text AS commentText,
+            yc.commenter_name AS commenterName,
+            yc.published_at AS publishedAt,
+            yc.like_count AS likeCount,
+            yv.id AS videoId,
+            yv.youtube_video_id AS youtubeVideoId,
+            yv.title AS videoTitle,
+            ych.id AS channelId,
+            ych.youtube_channel_id AS youtubeChannelId,
+            ych.channel_name AS channelName,
+            acar.status AS status,
+            acar.reason AS reason,
+            acar.analyzed_at AS analyzedAt,
+            acar.harmfulness_level AS harmfulnessLevel,
+            acar.detection_source AS detectionSource
+        FROM ai_comment_analysis_result acar
+        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+        INNER JOIN youtube_videos yv ON yc.video_id = yv.id
+        INNER JOIN youtube_channels ych ON yv.channel_id = ych.id
+        WHERE ych.user_id = #{userId}
+            AND ych.deleted_at IS NULL
+            <if test="status != null and status != ''">
+                AND acar.status = #{status}
+            </if>
+        ORDER BY ych.id, yv.published_at DESC, yc.published_at DESC
+        LIMIT 1000
+    </select>
+
 </mapper>
 
