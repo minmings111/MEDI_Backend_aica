@@ -3,9 +3,13 @@ package com.medi.backend.youtube.redis.service;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,7 +17,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.api.services.youtube.YouTube;
 import com.medi.backend.youtube.mapper.YoutubeVideoMapper;
+import com.medi.backend.youtube.mapper.YoutubeChannelMapper;
 import com.medi.backend.youtube.dto.YoutubeVideoDto;
+import com.medi.backend.youtube.dto.YoutubeChannelDto;
 import com.medi.backend.youtube.redis.dto.RedisSyncResult;
 import com.medi.backend.youtube.redis.dto.RedisYoutubeVideo;
 import com.medi.backend.youtube.redis.dto.SyncOptions;
@@ -62,11 +68,15 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
     private final YoutubeOAuthService youtubeOAuthService;
     private final YoutubeTranscriptService youtubeTranscriptService;
     private final YoutubeVideoMapper youtubeVideoMapper;
+    private final YoutubeChannelMapper youtubeChannelMapper;
     private final RedisQueueService redisQueueService;
     
     // Redis 템플릿
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
+    
+    // 동시 실행 제한: 동일 userId의 중복 실행 방지
+    private final Set<Integer> syncInProgress = ConcurrentHashMap.newKeySet();
 
     // full sync process (initial sync)
     @Override
@@ -155,7 +165,6 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
                 .commentCount(totalCommentCount)
                 .success(true)
                 .build();
-
         } catch (Exception e) {
             log.error("Redis 동기화 실패: userId={}", userId, e);
             return RedisSyncResult.builder()
@@ -166,6 +175,93 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
                 .errorMessage(e.getMessage())
                 .build();
         }
+    }
+
+    /**
+     * Redis 동기화 비동기 버전
+     * 채널 저장 후 즉시 응답을 위해 백그라운드에서 실행됩니다.
+     * 
+     * 개선 사항:
+     * 1. 동시 실행 제한: 동일 userId의 중복 실행 방지
+     * 2. 상태 추적: DB에 동기화 상태 저장 (에러 추적)
+     * 3. 데이터 정합성: Redis 동기화 전 채널 존재 여부 확인
+     * 4. 안전한 에러 처리: CompletableFuture 완료 보장
+     * 
+     * @param userId 사용자 ID
+     * @return CompletableFuture<RedisSyncResult> 비동기 동기화 결과
+     */
+    @Override
+    @Async("redisSyncExecutor")
+    public CompletableFuture<RedisSyncResult> syncToRedisAsync(Integer userId) {
+        // 동시 실행 제한: 동일 userId의 중복 실행 방지
+        if (syncInProgress.contains(userId)) {
+            log.warn("⚠️ [비동기] Redis 동기화 이미 실행 중: userId={} (중복 요청 스킵)", userId);
+            return CompletableFuture.completedFuture(
+                RedisSyncResult.builder()
+                    .channelCount(0)
+                    .videoCount(0)
+                    .commentCount(0)
+                    .success(false)
+                    .errorMessage("이미 동기화가 진행 중입니다. 잠시 후 다시 시도해주세요.")
+                    .build()
+            );
+        }
+        
+        // 실행 중 표시 추가
+        syncInProgress.add(userId);
+        log.info("🔄 [비동기] Redis 동기화 시작: userId={} (실행 중인 작업: {}개)", 
+            userId, syncInProgress.size());
+        
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // 데이터 정합성 체크: Redis 동기화 전 채널 존재 여부 확인
+                List<YoutubeChannelDto> channels = youtubeChannelMapper.findByUserId(userId);
+                if (channels == null || channels.isEmpty()) {
+                    String errorMsg = "채널이 삭제되어 동기화를 중단합니다.";
+                    log.warn("⚠️ [비동기] 데이터 정합성 체크 실패: userId={}, error={}", userId, errorMsg);
+                    
+                    return RedisSyncResult.builder()
+                        .channelCount(0)
+                        .videoCount(0)
+                        .commentCount(0)
+                        .success(false)
+                        .errorMessage(errorMsg)
+                        .build();
+                }
+                
+                log.debug("✅ [비동기] 데이터 정합성 체크 통과: userId={}, 채널수={}개", 
+                    userId, channels.size());
+                
+                // Redis 동기화 실행
+                RedisSyncResult result = syncToRedis(userId);
+                
+                log.info("✅ [비동기] Redis 동기화 완료: userId={}, 채널={}개, 비디오={}개, 댓글={}개", 
+                    userId, result.getChannelCount(), result.getVideoCount(), result.getCommentCount());
+                
+                return result;
+                
+            } catch (Exception e) {
+                log.error("❌ [비동기] Redis 동기화 실패: userId={}", userId, e);
+                
+                return RedisSyncResult.builder()
+                    .channelCount(0)
+                    .videoCount(0)
+                    .commentCount(0)
+                    .success(false)
+                    .errorMessage(e.getMessage() != null ? e.getMessage() : "동기화 중 오류가 발생했습니다.")
+                    .build();
+            }
+        }).whenComplete((result, ex) -> {
+            // 실행 완료 후 제거 (성공/실패 모두)
+            syncInProgress.remove(userId);
+            log.debug("🧹 [비동기] Redis 동기화 완료 처리: userId={} (남은 작업: {}개)", 
+                userId, syncInProgress.size());
+            
+            // 예외가 발생한 경우 추가 로깅
+            if (ex != null) {
+                log.error("❌ [비동기] CompletableFuture 예외 발생: userId={}", userId, ex);
+            }
+        });
     }
     
     /**

@@ -51,6 +51,36 @@ public class AsyncConfig implements AsyncConfigurer {
     }
 
     /**
+     * Redis 동기화 전용 Executor 빈
+     * 
+     * YouTube API 호출 및 Redis 저장 작업에 최적화된 스레드 풀 설정
+     * - corePoolSize: 4 (기본 스레드 수)
+     * - maxPoolSize: 8 (최대 스레드 수)
+     * - queueCapacity: 50 (대기 큐 크기)
+     * 
+     * 거부 정책: CallerRunsPolicy (큐가 꽉 차면 호출자 스레드에서 실행)
+     * 
+     * 주의: 동시 실행 제한은 서비스 레벨에서 처리 (동일 userId 중복 방지)
+     */
+    @Bean(name = "redisSyncExecutor")
+    public Executor redisSyncExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(4);
+        executor.setMaxPoolSize(8);
+        executor.setQueueCapacity(50);
+        executor.setKeepAliveSeconds(60);
+        executor.setThreadNamePrefix("RedisSync-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(60);
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        
+        log.info("✅ Redis Sync Executor 빈 생성 완료: corePoolSize=4, maxPoolSize=8, queueCapacity=50");
+        
+        return executor;
+    }
+
+    /**
      * 비동기 작업 예외 처리 핸들러
      * 
      * @Async 메서드에서 발생한 예외를 로깅

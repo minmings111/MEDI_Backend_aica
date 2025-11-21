@@ -146,6 +146,7 @@ public class ChannelController {
         }
     }
 
+
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/all")
     public ResponseEntity<List<YoutubeChannelDto>> getAllChannelsForAdmin() {

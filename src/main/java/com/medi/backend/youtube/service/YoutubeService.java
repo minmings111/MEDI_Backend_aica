@@ -26,6 +26,7 @@ import java.math.BigInteger;
 import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 @Slf4j
 @Service
@@ -299,24 +300,38 @@ public class YoutubeService {
             log.info("📊 채널 처리 완료: userId={}, 처리된채널={}개, 저장성공={}개, 스킵={}개", 
                 userId, resp.getItems().size(), upsertCount, skipCount);
             
-            // 2. MySQL 저장 완료 후 Redis 초기 동기화
+            // 2. MySQL 저장 완료 후 Redis 초기 동기화 (비동기로 실행)
             // syncVideosEveryTime이 true일 때만 실행 (OAuth 콜백 직후 또는 수동 동기화 시)
+            // ⚡ 비동기 처리: 사용자는 즉시 응답을 받고, Redis 동기화는 백그라운드에서 실행됩니다.
             if (youtubeRedisSyncService == null) {
                 log.warn("YoutubeRedisSyncService가 주입되지 않았습니다. Redis 동기화를 건너뜁니다. userId={}", userId);
             } else if (syncVideosEveryTime) {
-                try {
-                    log.info("Redis 초기 동기화 시작: userId={}", userId);
-                    youtubeRedisSyncService.syncToRedis(userId);
-                    log.info("Redis 초기 동기화 완료: userId={}", userId);
-                } catch (Exception redisEx) {
-                    log.error("Redis 초기 동기화 실패 - userId={}, error={}", userId, redisEx.getMessage(), redisEx);
-                    // Redis 실패해도 MySQL은 이미 저장되었으므로 예외를 던지지 않음
-                }
+                // 비동기로 Redis 동기화 시작 (사용자는 기다리지 않음)
+                log.info("🔄 [비동기] Redis 초기 동기화 시작: userId={} (백그라운드 실행)", userId);
+                
+                // ⚡ 안전한 CompletableFuture 처리: whenComplete로 완료 보장
+                youtubeRedisSyncService.syncToRedisAsync(userId)
+                    .whenComplete((result, ex) -> {
+                        if (ex != null) {
+                            // 예외 발생 시
+                            log.error("❌ [비동기] Redis 초기 동기화 예외 발생: userId={}", userId, ex);
+                        } else if (result != null) {
+                            // 정상 완료 시
+                            if (result.isSuccess()) {
+                                log.info("✅ [비동기] Redis 초기 동기화 완료: userId={}, 채널={}개, 비디오={}개, 댓글={}개", 
+                                    userId, result.getChannelCount(), result.getVideoCount(), result.getCommentCount());
+                            } else {
+                                log.error("❌ [비동기] Redis 초기 동기화 실패: userId={}, error={}", 
+                                    userId, result.getErrorMessage());
+                            }
+                        }
+                        // 완료되면 GC 대상이 되어 메모리 누수 방지
+                    });
             } else {
                 log.debug("Redis 동기화 스킵: syncVideosEveryTime=false, userId={}", userId);
             }
             
-            // 동기화 후 DB에서 최신 채널 목록을 가져와서 반환 (삭제된 채널 제외)
+            // ⚡ 즉시 DB에서 최신 채널 목록을 가져와서 반환 (Redis 동기화 완료를 기다리지 않음)
             log.info("📋 최종 채널 목록 조회 시작: userId={}", userId);
             List<YoutubeChannelDto> latestChannels = channelMapper.findByUserId(userId);
             log.info("✅ [트랜잭션 성공] 채널 동기화 완료: userId={}, 반환채널수={}개, 저장성공={}개", 
