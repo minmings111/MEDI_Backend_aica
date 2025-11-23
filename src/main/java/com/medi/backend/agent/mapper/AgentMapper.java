@@ -2,6 +2,7 @@ package com.medi.backend.agent.mapper;
 
 import com.medi.backend.agent.dto.FilteredCommentResponse;
 import com.medi.backend.agent.dto.AnalysisSummaryResponse;
+import com.medi.backend.agent.dto.DateStat;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -128,6 +129,26 @@ public interface AgentMapper {
     List<FilteredCommentResponse> findFilteredCommentsByUserId(
         @Param("userId") Integer userId,
         @Param("status") String status
+    );
+    
+    /**
+     * 날짜별 필터링된 댓글 통계 조회
+     * 
+     * @param userId 사용자 ID
+     * @param videoId 비디오 ID (선택사항, null이면 전체)
+     * @param channelId 채널 ID (선택사항, null이면 전체)
+     * @param periodType 날짜 단위 ("daily", "monthly", "yearly")
+     * @param startDate 시작 날짜 (선택사항, 형식: "YYYY-MM-DD")
+     * @param endDate 종료 날짜 (선택사항, 형식: "YYYY-MM-DD")
+     * @return 날짜별 통계 목록
+     */
+    List<DateStat> findFilteredCommentStatsByDate(
+        @Param("userId") Integer userId,
+        @Param("videoId") Integer videoId,
+        @Param("channelId") Integer channelId,
+        @Param("periodType") String periodType,
+        @Param("startDate") String startDate,
+        @Param("endDate") String endDate
     );
 }
 

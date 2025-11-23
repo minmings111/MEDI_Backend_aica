@@ -180,7 +180,12 @@
         SELECT
             c.id AS channelId,
             c.channel_name AS channelName,
-            COUNT(*) AS totalFilteredCount
+            COUNT(*) AS totalFilteredCount,
+            SUM(CASE 
+                WHEN DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') 
+                THEN 1 
+                ELSE 0 
+            END) AS thisMonthFilteredCount
         FROM ai_comment_analysis_result acar
         INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id

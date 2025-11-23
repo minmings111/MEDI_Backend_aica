@@ -15,6 +15,7 @@ import com.medi.backend.agent.dto.AgentFilteredCommentsRequest;
 import com.medi.backend.agent.dto.AgentProfilingRequest;
 import com.medi.backend.agent.dto.FilteredCommentResponse;
 import com.medi.backend.agent.dto.AnalysisSummaryResponse;
+import com.medi.backend.agent.dto.FilteredCommentStatsResponse;
 import com.medi.backend.agent.service.AgentService;
 import com.medi.backend.global.util.AuthUtil;
 
@@ -183,6 +184,43 @@ public class AgentController {
         log.info("📡 [API 응답] 사용자별 필터링된 댓글 조회 완료: userId={}, 댓글수={}개", userId, comments != null ? comments.size() : 0);
         
         return ResponseEntity.ok(response);
+    }
+    
+    /**
+     * 날짜별 필터링된 댓글 통계 조회
+     * 
+     * @param videoId 비디오 ID (선택사항)
+     * @param channelId 채널 ID (선택사항)
+     * @param periodType 날짜 단위 ("daily", "monthly", "yearly") - 기본값: "daily"
+     * @param startDate 시작 날짜 (선택사항, 형식: "YYYY-MM-DD")
+     * @param endDate 종료 날짜 (선택사항, 형식: "YYYY-MM-DD")
+     * @return 날짜별 통계
+     */
+    @PreAuthorize("isAuthenticated()")
+    @GetMapping("/comments/stats")
+    public ResponseEntity<FilteredCommentStatsResponse> getFilteredCommentStats(
+        @RequestParam(value = "videoId", required = false) Integer videoId,
+        @RequestParam(value = "channelId", required = false) Integer channelId,
+        @RequestParam(value = "period", defaultValue = "daily") String periodType,
+        @RequestParam(value = "startDate", required = false) String startDate,
+        @RequestParam(value = "endDate", required = false) String endDate
+    ) {
+        Integer userId = authUtil.getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        
+        log.info("📡 [API 요청] 날짜별 필터링된 댓글 통계 조회: userId={}, videoId={}, channelId={}, periodType={}, startDate={}, endDate={}", 
+            userId, videoId, channelId, periodType, startDate, endDate);
+        
+        FilteredCommentStatsResponse stats = agentService.getFilteredCommentStatsByDate(
+            userId, videoId, channelId, periodType, startDate, endDate
+        );
+        
+        log.info("📡 [API 응답] 날짜별 필터링된 댓글 통계 조회 완료: userId={}, 통계 항목수={}개", 
+            userId, stats != null && stats.getStats() != null ? stats.getStats().size() : 0);
+        
+        return ResponseEntity.ok(stats);
     }
 }
 

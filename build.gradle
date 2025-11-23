@@ -63,20 +63,87 @@ tasks.named('test') {
 // install the yt-dlp
 task ensureYtDlp {
 	doLast {
-		def result = exec {
+		// 1. yt-dlp 설치 여부 확인
+		def stdout = new ByteArrayOutputStream()
+		def stderr = new ByteArrayOutputStream()
+		def versionResult = exec {
 			commandLine 'yt-dlp', '--version'
 			ignoreExitValue = true
+			standardOutput = stdout
+			errorOutput = stderr
 		}
 		
-		if (result.exitValue == 0) {
+		if (versionResult.exitValue == 0) {
+			def version = stdout.toString().trim()
+			println "✅ yt-dlp 확인됨: ${version}"
+			
+			// 구버전 체크 (2025.11.12 이상 권장)
+			try {
+				def versionParts = version.split('\\.')
+				if (versionParts.length >= 3) {
+					def major = versionParts[0].toInteger()
+					def minor = versionParts[1].toInteger()
+					def patch = versionParts[2].split('-')[0].toInteger()
+					
+					if (major < 2025 || (major == 2025 && minor < 11) || 
+						(major == 2025 && minor == 11 && patch < 12)) {
+						println "⚠️ 구버전 감지 (${version}). 업그레이드 권장: pip3 install --upgrade yt-dlp"
+					}
+				}
+			} catch (NumberFormatException e) {
+				// 버전 파싱 실패 시 무시 (치명적이지 않음)
+				println "⚠️ 버전 파싱 실패: ${version}"
+			} catch (Exception e) {
+				// 기타 예외도 무시
+			}
 			return
 		}
 		
-		println "yt-dlp is not installed. Installing automatically..."
-		exec {
-			commandLine 'pip', 'install', 'yt-dlp>=2025.11.12'
+		println "⚠️ yt-dlp가 설치되어 있지 않습니다. 자동 설치를 시도합니다..."
+		
+		// 2. pip3 → pip → pip3 --user → pip --user 순차 시도
+		def installCommands = [
+			['pip3', 'install', '--upgrade', 'yt-dlp>=2025.11.12'],
+			['pip', 'install', '--upgrade', 'yt-dlp>=2025.11.12'],
+			['pip3', 'install', '--user', '--upgrade', 'yt-dlp>=2025.11.12'],
+			['pip', 'install', '--user', '--upgrade', 'yt-dlp>=2025.11.12']
+		]
+		
+		boolean installed = false
+		for (def cmd : installCommands) {
+			try {
+				println "🔄 시도: ${cmd.join(' ')}"
+				def installOut = new ByteArrayOutputStream()
+				def installErr = new ByteArrayOutputStream()
+				def result = exec {
+					commandLine cmd
+					ignoreExitValue = true
+					standardOutput = installOut
+					errorOutput = installErr
+				}
+				
+				if (result.exitValue == 0) {
+					println "✅ yt-dlp 설치 성공: ${cmd[0]}"
+					installed = true
+					break
+				} else {
+					println "⚠️ ${cmd[0]} 실패 (exit code: ${result.exitValue})"
+				}
+			} catch (Exception e) {
+				println "⚠️ ${cmd[0]} 실패: ${e.message}"
+			}
+		}
+		
+		if (!installed) {
+			println "❌ yt-dlp 자동 설치 실패"
+			println "📝 수동 설치 방법:"
+			println "   1. pip3 install yt-dlp>=2025.11.12"
+			println "   2. pip install yt-dlp>=2025.11.12"
+			println "   3. https://github.com/yt-dlp/yt-dlp/releases 에서 다운로드"
+			// 실패해도 빌드 계속 진행 (경고만)
 		}
 	}
 }
 
 compileJava.dependsOn ensureYtDlp
+bootRun.dependsOn ensureYtDlp
