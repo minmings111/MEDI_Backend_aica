@@ -20,7 +20,7 @@ public interface UserDashboardService {
 
     // UDB-03: 기간별 필터링 추이
     List<com.medi.backend.userdashboard.dto.FilteringTrendPointDto> getFilteringTrend(
-        Integer userId, LocalDate from, LocalDate to
+        Integer userId, LocalDate from, LocalDate to, Integer channelId, Integer videoId
     );
 
     // UDB-04: 채널별 필터링 통계

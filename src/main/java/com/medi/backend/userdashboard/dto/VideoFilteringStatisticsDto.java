@@ -15,6 +15,15 @@ public class VideoFilteringStatisticsDto {
     // 총 필터링된 댓글 수
     private Integer totalFilteredCount;
     
+    // 이번 달 필터링된 댓글 수
+    private Integer thisMonthFilteredCount;
+    
+    // 오늘 필터링된 댓글 수
+    private Integer todayFilteredCount;
+    
+    // 이번 연도 필터링된 댓글 수
+    private Integer thisYearFilteredCount;
+    
     // 해로움 수준별 분포
     private List<UserHarmfulnessLevelDistributionDto> harmfulnessLevelDistribution;
     
