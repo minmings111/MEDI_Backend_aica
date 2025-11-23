@@ -8,6 +8,8 @@ import com.medi.backend.agent.dto.AgentFilteredCommentsRequest;
 import com.medi.backend.agent.dto.AgentProfilingRequest;
 import com.medi.backend.agent.dto.FilteredCommentResponse;
 import com.medi.backend.agent.dto.AnalysisSummaryResponse;
+import com.medi.backend.agent.dto.FilteredCommentStatsResponse;
+import com.medi.backend.agent.dto.DateStat;
 import com.medi.backend.agent.mapper.AgentMapper;
 
 import lombok.extern.slf4j.Slf4j;
@@ -227,6 +229,49 @@ public class AgentServiceImpl implements AgentService {
     public List<FilteredCommentResponse> getFilteredCommentsByUserId(Integer userId, String status) {
         log.debug("사용자별 필터링된 댓글 조회: userId={}, status={}", userId, status);
         return agentMapper.findFilteredCommentsByUserId(userId, status);
+    }
+    
+    @Override
+    @Transactional(readOnly = true)
+    public FilteredCommentStatsResponse getFilteredCommentStatsByDate(
+        Integer userId,
+        Integer videoId,
+        Integer channelId,
+        String periodType,
+        String startDate,
+        String endDate
+    ) {
+        log.debug("날짜별 필터링된 댓글 통계 조회: userId={}, videoId={}, channelId={}, periodType={}, startDate={}, endDate={}", 
+            userId, videoId, channelId, periodType, startDate, endDate);
+        
+        // periodType 기본값 설정
+        if (periodType == null || periodType.isBlank()) {
+            periodType = "daily";
+        }
+        
+        // 날짜별 통계 조회
+        List<DateStat> stats = agentMapper.findFilteredCommentStatsByDate(
+            userId, videoId, channelId, periodType, startDate, endDate
+        );
+        
+        // 전체 합계 계산
+        int totalFiltered = 0;
+        int totalSuggestions = 0;
+        int totalNormal = 0;
+        
+        for (DateStat stat : stats) {
+            totalFiltered += stat.getFilteredCount() != null ? stat.getFilteredCount() : 0;
+            totalSuggestions += stat.getSuggestionCount() != null ? stat.getSuggestionCount() : 0;
+            totalNormal += stat.getNormalCount() != null ? stat.getNormalCount() : 0;
+        }
+        
+        return FilteredCommentStatsResponse.builder()
+            .periodType(periodType)
+            .stats(stats)
+            .totalFiltered(totalFiltered)
+            .totalSuggestions(totalSuggestions)
+            .totalNormal(totalNormal)
+            .build();
     }
 }
 

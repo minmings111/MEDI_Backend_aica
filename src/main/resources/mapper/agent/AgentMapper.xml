@@ -287,5 +287,63 @@
         LIMIT 1000
     </select>
 
+    <!-- 날짜별 필터링된 댓글 통계 조회 -->
+    <select id="findFilteredCommentStatsByDate" resultType="com.medi.backend.agent.dto.DateStat">
+        SELECT 
+            <choose>
+                <when test="periodType == 'daily'">
+                    DATE(acar.analyzed_at) AS date
+                </when>
+                <when test="periodType == 'monthly'">
+                    DATE_FORMAT(acar.analyzed_at, '%Y-%m') AS date
+                </when>
+                <when test="periodType == 'yearly'">
+                    YEAR(acar.analyzed_at) AS date
+                </when>
+                <otherwise>
+                    DATE(acar.analyzed_at) AS date
+                </otherwise>
+            </choose>,
+            COUNT(*) AS totalCount,
+            SUM(CASE WHEN acar.status = 'filtered' THEN 1 ELSE 0 END) AS filteredCount,
+            SUM(CASE WHEN acar.status = 'content_suggestion' THEN 1 ELSE 0 END) AS suggestionCount,
+            SUM(CASE WHEN acar.status = 'normal' THEN 1 ELSE 0 END) AS normalCount
+        FROM ai_comment_analysis_result acar
+        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+        INNER JOIN youtube_videos yv ON yc.video_id = yv.id
+        INNER JOIN youtube_channels ych ON yv.channel_id = ych.id
+        WHERE ych.user_id = #{userId}
+            AND ych.deleted_at IS NULL
+            AND acar.analyzed_at IS NOT NULL
+            <if test="videoId != null">
+                AND yv.id = #{videoId}
+            </if>
+            <if test="channelId != null">
+                AND ych.id = #{channelId}
+            </if>
+            <if test="startDate != null and startDate != ''">
+                AND DATE(acar.analyzed_at) &gt;= #{startDate}
+            </if>
+            <if test="endDate != null and endDate != ''">
+                AND DATE(acar.analyzed_at) &lt;= #{endDate}
+            </if>
+        GROUP BY 
+            <choose>
+                <when test="periodType == 'daily'">
+                    DATE(acar.analyzed_at)
+                </when>
+                <when test="periodType == 'monthly'">
+                    DATE_FORMAT(acar.analyzed_at, '%Y-%m')
+                </when>
+                <when test="periodType == 'yearly'">
+                    YEAR(acar.analyzed_at)
+                </when>
+                <otherwise>
+                    DATE(acar.analyzed_at)
+                </otherwise>
+            </choose>
+        ORDER BY date DESC
+    </select>
+
 </mapper>
 
