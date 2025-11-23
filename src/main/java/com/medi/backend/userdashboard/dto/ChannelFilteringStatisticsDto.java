@@ -24,6 +24,12 @@ public class ChannelFilteringStatisticsDto {
     // 이번 연도 필터링된 댓글 수
     private Integer thisYearFilteredCount;
     
+    // 총 댓글 수
+    private Integer totalCommentCount;
+    
+    // 필터링 비율 (%)
+    private Double filteringPercentage;
+    
     // 해로움 수준별 분포
     private List<UserHarmfulnessLevelDistributionDto> harmfulnessLevelDistribution;
     
