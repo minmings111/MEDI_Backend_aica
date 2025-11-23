@@ -70,14 +70,16 @@ public class UserDashboardController {
         @RequestParam(name = "from", required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
         @RequestParam(name = "to", required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+        @RequestParam(name = "channelId", required = false) Integer channelId,
+        @RequestParam(name = "videoId", required = false) Integer videoId) {
         Integer userId = authUtil.getCurrentUserId();
         if (userId == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
         List<com.medi.backend.userdashboard.dto.FilteringTrendPointDto> trend =
-            dashboardService.getFilteringTrend(userId, from, to);
+            dashboardService.getFilteringTrend(userId, from, to, channelId, videoId);
         return ResponseEntity.ok(trend);
     }
 

@@ -47,7 +47,9 @@ public interface UserDashboardMapper {
     List<FilteringTrendPointDto> getFilteringTrendByDateRange(
         @Param("userId") Integer userId,
         @Param("from") LocalDate from,
-        @Param("to") LocalDate to
+        @Param("to") LocalDate to,
+        @Param("channelId") Integer channelId,
+        @Param("videoId") Integer videoId
     );
 
     // UDB-10: 채널별 필터링 통계

@@ -71,7 +71,7 @@ public class UserDashboardServiceImpl implements UserDashboardService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<FilteringTrendPointDto> getFilteringTrend(Integer userId, LocalDate from, LocalDate to) {
+    public List<FilteringTrendPointDto> getFilteringTrend(Integer userId, LocalDate from, LocalDate to, Integer channelId, Integer videoId) {
         // 기본값 설정: from이 null이면 30일 전, to가 null이면 오늘
         if (from == null) {
             from = LocalDate.now().minusDays(30);
@@ -90,7 +90,7 @@ public class UserDashboardServiceImpl implements UserDashboardService {
             throw new IllegalArgumentException("조회 기간은 최대 1년까지 가능합니다.");
         }
 
-        return dashboardMapper.getFilteringTrendByDateRange(userId, from, to);
+        return dashboardMapper.getFilteringTrendByDateRange(userId, from, to, channelId, videoId);
     }
 
     @Override

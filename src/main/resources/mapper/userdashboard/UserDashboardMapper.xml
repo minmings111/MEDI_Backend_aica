@@ -170,6 +170,12 @@
         INNER JOIN youtube_channels c ON v.channel_id = c.id
         WHERE c.user_id = #{userId} AND acar.status = 'filtered'
         AND DATE(acar.created_at) BETWEEN #{from} AND #{to}
+        <if test="channelId != null">
+            AND c.id = #{channelId}
+        </if>
+        <if test="videoId != null">
+            AND v.id = #{videoId}
+        </if>
         GROUP BY DATE(acar.created_at)
         ORDER BY date ASC
     </select>
@@ -185,7 +191,17 @@
                 WHEN DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') 
                 THEN 1 
                 ELSE 0 
-            END) AS thisMonthFilteredCount
+            END) AS thisMonthFilteredCount,
+            SUM(CASE 
+                WHEN DATE(acar.created_at) = CURDATE() 
+                THEN 1 
+                ELSE 0 
+            END) AS todayFilteredCount,
+            SUM(CASE 
+                WHEN YEAR(acar.created_at) = YEAR(CURDATE()) 
+                THEN 1 
+                ELSE 0 
+            END) AS thisYearFilteredCount
         FROM ai_comment_analysis_result acar
         INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id
@@ -236,7 +252,22 @@
         SELECT
             v.id AS videoId,
             v.title AS videoTitle,
-            COUNT(*) AS totalFilteredCount
+            COUNT(*) AS totalFilteredCount,
+            SUM(CASE 
+                WHEN DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') 
+                THEN 1 
+                ELSE 0 
+            END) AS thisMonthFilteredCount,
+            SUM(CASE 
+                WHEN DATE(acar.created_at) = CURDATE() 
+                THEN 1 
+                ELSE 0 
+            END) AS todayFilteredCount,
+            SUM(CASE 
+                WHEN YEAR(acar.created_at) = YEAR(CURDATE()) 
+                THEN 1 
+                ELSE 0 
+            END) AS thisYearFilteredCount
         FROM ai_comment_analysis_result acar
         INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
         INNER JOIN youtube_videos v ON yc.video_id = v.id
