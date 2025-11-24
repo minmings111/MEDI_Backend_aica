@@ -673,7 +673,13 @@ public class YoutubeTranscriptServiceImpl implements YoutubeTranscriptService {
             // 1. yt-dlp로 VTT 파일 다운로드
             tempFile = fetchTranscriptWithYtDlp(videoId, Arrays.asList("ko", "en"));
             
-            if (tempFile == null || !new File(tempFile).exists()) {
+            // 자막이 없는 경우는 정상적인 케이스로 처리
+            if (tempFile == null) {
+                log.info("영상 {}에 자막이 없어서 저장하지 않습니다: videoId={}", videoId, videoId);
+                return false;
+            }
+            
+            if (!new File(tempFile).exists()) {
                 log.warn("영상 {}의 자막 파일을 찾을 수 없습니다: videoId={}", videoId, videoId);
                 return false;
             }
@@ -804,9 +810,15 @@ public class YoutubeTranscriptServiceImpl implements YoutubeTranscriptService {
             log.debug("yt-dlp 실행 성공: videoId={}, file={}", videoId, tempFile);
             return tempFile;
         } else {
-            if (stderr.toLowerCase().contains("subtitles")) {
-                throw new Exception("자막이 없습니다 (No subtitles): videoId=" + videoId);
+            // 자막이 없는 경우는 정상적인 케이스로 처리 (예외 던지지 않음)
+            String stderrLower = stderr.toLowerCase();
+            if (stderrLower.contains("subtitles") || 
+                stderrLower.contains("no subtitles") ||
+                (stderrLower.contains("subtitle") && (stderrLower.contains("not available") || stderrLower.contains("unavailable")))) {
+                log.info("영상 {}에 자막이 없습니다 (yt-dlp): videoId={}", videoId, videoId);
+                return null;  // 예외 대신 null 반환
             }
+            // 그 외의 경우는 실제 에러로 처리
             throw new Exception("yt-dlp 실행 실패: videoId=" + videoId + ", exitCode=" + exitCode + ", stderr=" + stderr.substring(0, Math.min(200, stderr.length())));
         }
     }
