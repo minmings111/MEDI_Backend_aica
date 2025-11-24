@@ -1,5 +1,6 @@
 package com.medi.backend.chatbot.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.medi.backend.chatbot.dto.ChatbotRequest;
 import com.medi.backend.chatbot.dto.ChatbotResponse;
 import lombok.RequiredArgsConstructor;
@@ -8,8 +9,17 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * 챗봇 서비스 구현체
@@ -21,6 +31,8 @@ import java.util.List;
 public class ChatbotServiceImpl implements ChatbotService {
     
     private final RestClient restClient;
+    private final ObjectMapper objectMapper;
+    private final ExecutorService executorService = Executors.newCachedThreadPool();
     
     @Value("${chatbot.api-url:http://localhost:8000}")
     private String fastApiBaseUrl;
@@ -66,6 +78,105 @@ public class ChatbotServiceImpl implements ChatbotService {
                 request.getChannelId(), e.getMessage(), e);
             return createErrorResponse(request.getChannelId(), "서버 내부 오류가 발생했습니다.");
         }
+    }
+    
+    @Override
+    public SseEmitter streamChat(ChatbotRequest request) {
+        SseEmitter emitter = new SseEmitter(300000L); // 5분 타임아웃
+        
+        log.info("📡 [챗봇 스트리밍] FastAPI 호출 시작: channelId={}, messageLength={}", 
+            request.getChannelId(), 
+            request.getMessage() != null ? request.getMessage().length() : 0);
+        
+        CompletableFuture.runAsync(() -> {
+            try {
+                // FastAPI 스트리밍 엔드포인트 호출
+                URL url = new URL(fastApiBaseUrl + "/api/chat/stream");
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("POST");
+                connection.setRequestProperty("Content-Type", "application/json");
+                connection.setRequestProperty("Accept", "text/event-stream");
+                connection.setDoOutput(true);
+                connection.setConnectTimeout(5000);
+                connection.setReadTimeout(300000); // 5분
+                
+                // 요청 본문 전송
+                String requestBody = objectMapper.writeValueAsString(request);
+                connection.getOutputStream().write(requestBody.getBytes(StandardCharsets.UTF_8));
+                
+                // 응답 코드 확인
+                int responseCode = connection.getResponseCode();
+                if (responseCode != 200) {
+                    log.error("❌ [챗봇 스트리밍] FastAPI 에러: status={}, channelId={}", 
+                        responseCode, request.getChannelId());
+                    emitter.send(SseEmitter.event()
+                        .name("error")
+                        .data("{\"type\":\"error\",\"content\":\"챗봇 서버 오류가 발생했습니다.\"}"));
+                    emitter.completeWithError(new RuntimeException("FastAPI 응답 오류: " + responseCode));
+                    return;
+                }
+                
+                // 스트리밍 응답 읽기
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+                    
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        // 빈 줄 건너뛰기
+                        if (line.trim().isEmpty()) {
+                            continue;
+                        }
+                        
+                        // SSE 형식: "data: {json}"
+                        if (line.startsWith("data: ")) {
+                            String data = line.substring(6); // "data: " 제거
+                            
+                            // [DONE] 신호 처리
+                            if ("[DONE]".equals(data.trim())) {
+                                emitter.send(SseEmitter.event()
+                                    .name("done")
+                                    .data("{\"type\":\"done\"}"));
+                                break;
+                            }
+                            
+                            // JSON 데이터를 그대로 전달
+                            emitter.send(SseEmitter.event()
+                                .name("message")
+                                .data(data));
+                        }
+                    }
+                }
+                
+                emitter.complete();
+                log.info("✅ [챗봇 스트리밍] 완료: channelId={}", request.getChannelId());
+                
+            } catch (Exception e) {
+                log.error("❌ [챗봇 스트리밍] 오류: channelId={}, error={}", 
+                    request.getChannelId(), e.getMessage(), e);
+                try {
+                    emitter.send(SseEmitter.event()
+                        .name("error")
+                        .data("{\"type\":\"error\",\"content\":\"서버 내부 오류가 발생했습니다.\"}"));
+                } catch (Exception sendError) {
+                    log.error("❌ [챗봇 스트리밍] 에러 전송 실패", sendError);
+                }
+                emitter.completeWithError(e);
+            }
+        }, executorService);
+        
+        // 타임아웃 및 에러 처리
+        emitter.onTimeout(() -> {
+            log.warn("⏱️ [챗봇 스트리밍] 타임아웃: channelId={}", request.getChannelId());
+            emitter.complete();
+        });
+        
+        emitter.onError((ex) -> {
+            log.error("❌ [챗봇 스트리밍] 에러: channelId={}, error={}", 
+                request.getChannelId(), ex.getMessage(), ex);
+            emitter.completeWithError(ex);
+        });
+        
+        return emitter;
     }
     
     /**
