@@ -5,6 +5,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -433,10 +434,10 @@ public class YoutubeTranscriptServiceImpl implements YoutubeTranscriptService {
         );
         
         try {
-            // 전체 타임아웃: 90초
-            allOf.get(90, TimeUnit.SECONDS);
+            // ✅ 전체 타임아웃: 900초(15분) - 긴 영상 일괄 처리 대응
+            allOf.get(900, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
-            log.warn("⚠️ 자막 추출 타임아웃 (90초 초과), 완료된 작업만 처리");
+            log.warn("⚠️ 자막 추출 타임아웃 (15분 초과), 완료된 작업만 처리");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("자막 추출 중단됨");
@@ -501,7 +502,7 @@ public class YoutubeTranscriptServiceImpl implements YoutubeTranscriptService {
     /**
      * 비동기 자막 추출 (@Async 사용)
      * 
-     * 별도 스레드에서 실행되며, 개별 작업 타임아웃 35초 설정
+     * 별도 스레드에서 실행되며, 개별 작업 타임아웃 10분으로 설정
      * 
      * @param videoId YouTube 비디오 ID
      * @return CompletableFuture<Boolean> 저장 성공 여부
@@ -516,14 +517,21 @@ public class YoutubeTranscriptServiceImpl implements YoutubeTranscriptService {
                 return false;
             }
         }, transcriptExecutor)
-        .orTimeout(35, TimeUnit.SECONDS)
+        .orTimeout(600, TimeUnit.SECONDS)
         .exceptionally(ex -> {
             if (ex instanceof TimeoutException) {
-                log.warn("비디오 {}의 자막 추출 타임아웃 (35초 초과)", videoId);
+                log.warn("비디오 {}의 자막 추출 타임아웃 (10분 초과)", videoId);
             } else {
                 log.error("비디오 {}의 자막 추출 오류: {}", videoId, ex.getMessage());
             }
             return false;
+        })
+        .whenComplete((result, ex) -> {
+            if (ex != null) {
+                log.debug("비디오 {} 자막 추출 완료 (예외 발생): {}", videoId, ex.getMessage());
+            } else {
+                log.debug("비디오 {} 자막 추출 완료: success={}", videoId, result);
+            }
         });
     }
 
@@ -773,13 +781,44 @@ public class YoutubeTranscriptServiceImpl implements YoutubeTranscriptService {
         
         ProcessBuilder processBuilder = new ProcessBuilder(command);
         processBuilder.directory(new File(tempDir));
-        Process process = processBuilder.start();
+        Process process = null;
+        String stdout = "";
+        String stderr = "";
+        int exitCode = -1;
         
-        // stdout/stderr 읽기
-        String stdout = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-        String stderr = new String(process.getErrorStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-        
-        int exitCode = process.waitFor();
+        try {
+            process = processBuilder.start();
+            
+            // stdout/stderr 읽기 (리소스 자동 해제)
+            try (InputStream stdoutStream = process.getInputStream();
+                 InputStream stderrStream = process.getErrorStream()) {
+                
+                stdout = new String(stdoutStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                stderr = new String(stderrStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            }
+            
+            // 프로세스 완료 대기 (최대 10분)
+            boolean finished = process.waitFor(600, TimeUnit.SECONDS);
+            if (!finished) {
+                log.warn("⚠️ yt-dlp 프로세스 타임아웃 (10분 초과): videoId={}", videoId);
+                process.destroyForcibly();
+                throw new Exception("yt-dlp 실행 타임아웃: videoId=" + videoId);
+            }
+            
+            exitCode = process.exitValue();
+            
+        } finally {
+            // 프로세스가 아직 살아있으면 강제 종료
+            if (process != null && process.isAlive()) {
+                log.warn("⚠️ yt-dlp 프로세스가 아직 실행 중입니다. 강제 종료: videoId={}", videoId);
+                process.destroyForcibly();
+                try {
+                    process.waitFor(5, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
         
         // stdout에서 저장된 파일 경로 파싱
         String tempFile = null;

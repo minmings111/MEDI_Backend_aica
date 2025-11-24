@@ -9,6 +9,7 @@ import com.medi.backend.youtube.mapper.YoutubeVideoMapper;
 import com.medi.backend.youtube.model.VideoSyncMode;
 import com.medi.backend.youtube.redis.service.YoutubeRedisSyncService;
 import com.medi.backend.youtube.service.YoutubeService;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.concurrent.TimeUnit;
@@ -37,6 +38,21 @@ public class YoutubeSyncScheduler {
 
     @Scheduled(cron = "0 0 * * * *", zone = "Asia/Seoul")
     public void syncAllChannelsDaily() {
+        Runtime runtime = Runtime.getRuntime();
+        long freeMemory = runtime.freeMemory();
+        long totalMemory = runtime.totalMemory();
+        long maxMemory = runtime.maxMemory();
+        long usedMemory = totalMemory - freeMemory;
+        double usagePercent = (double) usedMemory / maxMemory * 100;
+        
+        log.info("📊 [스케줄러] 시작 전 메모리 상태: 사용률={}%, 사용={}MB, 최대={}MB", 
+            String.format("%.2f", usagePercent), usedMemory / (1024 * 1024), maxMemory / (1024 * 1024));
+        
+        if (usagePercent > 80) {
+            log.error("🚨 [스케줄러] 메모리 부족 ({}%) - 동기화 건너뜀", String.format("%.2f", usagePercent));
+            return;
+        }
+        
         List<YoutubeChannelDto> channels = youtubeChannelMapper.findAllForSync();
         if (channels == null || channels.isEmpty()) {
             log.debug("[YouTube] 스케줄링 동기화 - 동기화할 채널이 없음");
@@ -100,7 +116,7 @@ public class YoutubeSyncScheduler {
                     List<String> allVideoIds = allVideos.stream()
                         .map(YoutubeVideoDto::getYoutubeVideoId)
                         .filter(id -> id != null && !id.isBlank())
-                        .collect(Collectors.toList());
+                        .collect(Collectors.toCollection(() -> new ArrayList<>(allVideos.size())));
                     
                     if (!allVideoIds.isEmpty()) {
                         try {
@@ -160,6 +176,11 @@ public class YoutubeSyncScheduler {
         }
 
         log.info("[YouTube] 스케줄링 동기화 종료 - 성공: {}, 스킵: {}, 실패: {}", successCount, skipCount, failCount);
+        
+        long finalUsedMemory = runtime.totalMemory() - runtime.freeMemory();
+        double finalUsagePercent = (double) finalUsedMemory / maxMemory * 100;
+        log.info("📊 [스케줄러] 완료 후 메모리 상태: 사용률={}%, 사용={}MB, 최대={}MB", 
+            String.format("%.2f", finalUsagePercent), finalUsedMemory / (1024 * 1024), maxMemory / (1024 * 1024));
     }
 }
 
