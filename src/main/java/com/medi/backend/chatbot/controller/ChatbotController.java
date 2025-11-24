@@ -7,12 +7,14 @@ import com.medi.backend.global.util.AuthUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * 챗봇 컨트롤러
@@ -53,6 +55,33 @@ public class ChatbotController {
         
         // 응답 그대로 반환
         return ResponseEntity.ok(response);
+    }
+    
+    /**
+     * 챗봇 메시지 전송 및 스트리밍 응답 받기 (SSE)
+     * 
+     * @param request 챗봇 요청 (channelId, message, conversationHistory)
+     * @return SSE Emitter
+     */
+    @PreAuthorize("isAuthenticated()")
+    @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamChat(@RequestBody ChatbotRequest request) {
+        // 인증 확인
+        Integer userId = authUtil.getCurrentUserId();
+        if (userId == null) {
+            log.warn("⚠️ [챗봇 스트리밍] 인증되지 않은 사용자 요청");
+            SseEmitter emitter = new SseEmitter(1000L);
+            emitter.completeWithError(new RuntimeException("인증되지 않은 사용자입니다."));
+            return emitter;
+        }
+        
+        log.info("📡 [챗봇 스트리밍] 요청 수신: userId={}, channelId={}, messageLength={}", 
+            userId, 
+            request.getChannelId(),
+            request.getMessage() != null ? request.getMessage().length() : 0);
+        
+        // Service 호출 (FastAPI 스트리밍으로 전달)
+        return chatbotService.streamChat(request);
     }
 }
 
