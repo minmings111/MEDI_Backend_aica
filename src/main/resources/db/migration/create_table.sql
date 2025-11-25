@@ -414,10 +414,6 @@ CREATE TABLE ai_channel_profiling (
     channel_communication JSON NOT NULL COMMENT 'channelCommunication 데이터',
     metadata JSON NOT NULL COMMENT 'metadata 데이터',
     
-    -- 메타데이터 (metadata JSON에서 추출한 주요 필드)
-    profiling_completed_at DATETIME COMMENT '프로파일링 완료 시각 (metadata.profilingCompletedAt)',
-    version VARCHAR(20) COMMENT '버전 (metadata.version)',
-    
     -- 타임스탬프
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -430,7 +426,6 @@ CREATE TABLE ai_channel_profiling (
     -- 인덱스
     INDEX idx_channel_id (channel_id),
     INDEX idx_youtube_channel_id (youtube_channel_id),
-    INDEX idx_profiling_completed_at (profiling_completed_at),
     
     -- 유니크 제약 (채널당 하나의 프로파일링 결과)
     UNIQUE KEY uk_channel_profiling (channel_id)
@@ -490,4 +485,13 @@ SHOW INDEXES FROM youtube_oauth_tokens;
 SHOW INDEXES FROM ai_comment_analysis_result;
 SHOW INDEXES FROM ai_analysis_summary;
 SHOW INDEXES FROM ai_channel_profiling;
+
+-- ==================================================
+-- 마이그레이션: ai_channel_profiling 테이블 컬럼 제거
+-- ==================================================
+-- profiling_completed_at과 version 컬럼 제거 (metadata JSON에 이미 포함되어 있음)
+ALTER TABLE ai_channel_profiling 
+    DROP INDEX IF EXISTS idx_profiling_completed_at,
+    DROP COLUMN IF EXISTS profiling_completed_at,
+    DROP COLUMN IF EXISTS version;
 
