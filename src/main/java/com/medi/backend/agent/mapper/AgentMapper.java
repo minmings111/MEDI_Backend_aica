@@ -79,9 +79,7 @@ public interface AgentMapper {
         @Param("profileData") String profileDataJson,  // profileData 전체 JSON
         @Param("commentEcosystem") String commentEcosystemJson,  // commentEcosystem JSON
         @Param("channelCommunication") String channelCommunicationJson,  // channelCommunication JSON
-        @Param("metadata") String metadataJson,  // metadata 전체 JSON
-        @Param("profilingCompletedAt") String profilingCompletedAt,
-        @Param("version") String version
+        @Param("metadata") String metadataJson  // metadata 전체 JSON
     );
     
     /**

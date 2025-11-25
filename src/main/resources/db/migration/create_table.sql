@@ -596,6 +596,7 @@ SHOW INDEXES FROM ai_analysis_summary;
 SHOW INDEXES FROM ai_channel_profiling;
 
 -- ==================================================
+<<<<<<< HEAD
 -- filter_example_comments 초기 데이터 (Seed Data)
 -- ==================================================
 
@@ -687,3 +688,4 @@ INSERT INTO filter_example_comments
 ('spam', 'ㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠ', 'allow', 'MEDIUM', TRUE),
 ('spam', '와 진짜 미쳤다 ㄷㄷㄷㄷㄷㄷㄷㄷ', 'allow', 'HARD', TRUE),
 ('spam', 'ㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋ', 'allow', 'MEDIUM', TRUE);
+
