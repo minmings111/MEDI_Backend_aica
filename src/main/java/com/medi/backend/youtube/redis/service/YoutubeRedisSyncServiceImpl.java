@@ -446,7 +446,8 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
      * @return channelId를 키로 하는 비디오 ID 리스트 맵
      */
     private Map<String, List<String>> groupVideoIdsByChannel(List<String> videoIds) {
-        Map<String, List<String>> result = new HashMap<>();
+        int estimatedChannels = Math.max(1, videoIds.size() / 10);
+        Map<String, List<String>> result = new HashMap<>(estimatedChannels, 0.75f);
         
         log.info("🔍 channelId별 그룹화 시작: videoIds={}개", videoIds.size());
         

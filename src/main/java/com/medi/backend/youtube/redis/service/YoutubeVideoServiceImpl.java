@@ -63,7 +63,8 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
             }
 
             // 2. each channel, get the top 20 videos by view count
-            Map<String, List<RedisYoutubeVideo>> videosByChannel = new HashMap<>();
+            Map<String, List<RedisYoutubeVideo>> videosByChannel = new HashMap<>(
+                Math.max(16, channelIds.size()), 0.75f);
             
             // 2-0. process each channel
             for (String channelId : channelIds) {

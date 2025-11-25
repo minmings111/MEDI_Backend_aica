@@ -107,7 +107,8 @@ public class YoutubeService {
             List<YoutubeChannelDto> existingChannels = channelMapper.findByUserIdIncludingDeleted(userId);
             log.info("📋 기존 채널 조회 (삭제된 것 포함): userId={}, 기존채널수={}개", userId, existingChannels.size());
             
-            Map<String, YoutubeChannelDto> existingChannelMap = new HashMap<>();
+            Map<String, YoutubeChannelDto> existingChannelMap = new HashMap<>(
+                Math.max(16, existingChannels.size()), 0.75f);
             for (YoutubeChannelDto channel : existingChannels) {
                 existingChannelMap.put(channel.getYoutubeChannelId(), channel);
                 log.debug("📋 기존 채널 매핑: channelId={}, name={}, deletedAt={}", 
