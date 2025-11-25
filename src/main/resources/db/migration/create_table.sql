@@ -153,6 +153,90 @@ CREATE TABLE user_global_rules (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT '사용자 전역 필터링 규칙';
 
+-- 2-5. user_filter_preferences 테이블 (댓글 필터링 3단계 폼 설정)
+CREATE TABLE user_filter_preferences (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL COMMENT 'users 테이블 FK',
+    channel_id INT NULL COMMENT 'youtube_channels FK (채널별 설정 시 사용, NULL이면 전역 설정)',
+    
+    -- Step 1: 카테고리 선택
+    selected_categories JSON NULL COMMENT '선택한 카테고리 배열 ["profanity", "appearance", ...]',
+    
+    -- Step 2: 카테고리별 텍스트 입력 (키워드 배열)
+    custom_rule_keywords JSON NULL COMMENT '카테고리별 키워드 {"profanity": ["ㅅㅂ", "병X"], "appearance": ["못생겼다"]}',
+    
+    -- Step 3: 예시 라벨링 결과
+    dislike_examples JSON NULL COMMENT '숨기고 싶다고 표시한 댓글 예시 배열',
+    allow_examples JSON NULL COMMENT '괜찮다고 표시한 댓글 예시 배열',
+    
+    -- 메타 정보
+    is_active BOOLEAN NOT NULL DEFAULT TRUE COMMENT '활성화 여부',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    CONSTRAINT fk_user_filter_pref 
+        FOREIGN KEY (user_id) REFERENCES users(id) 
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_channel_filter_pref 
+        FOREIGN KEY (channel_id) REFERENCES youtube_channels(id) 
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    
+    INDEX idx_user_id (user_id),
+    INDEX idx_channel_id (channel_id),
+    INDEX idx_user_active (user_id, is_active),
+    
+    UNIQUE KEY uk_user_channel_pref (user_id, channel_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT '사용자 필터링 설정 (3단계 폼 데이터 저장)';
+
+-- 2-6. filter_example_comments 테이블 (예시 댓글 마스터)
+CREATE TABLE filter_example_comments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    category_id VARCHAR(50) NOT NULL COMMENT '카테고리 ID (profanity, appearance, common 등)',
+    comment_text TEXT NOT NULL COMMENT '예시 댓글 내용',
+    suggested_label VARCHAR(20) NOT NULL 
+        CHECK (suggested_label IN ('allow', 'block'))
+        COMMENT '추천 라벨 (사용자에게 힌트)',
+    difficulty_level VARCHAR(20) NOT NULL DEFAULT 'MEDIUM'
+        CHECK (difficulty_level IN ('EASY', 'MEDIUM', 'HARD'))
+        COMMENT '판단 난이도 (EASY: 명확, HARD: 애매한 케이스)',
+    usage_count INT DEFAULT 0 COMMENT '사용 횟수 (통계용)',
+    is_active BOOLEAN DEFAULT TRUE COMMENT '활성화 여부',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    INDEX idx_category (category_id),
+    INDEX idx_active (is_active),
+    INDEX idx_difficulty (difficulty_level)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT '필터링 예시 댓글 마스터 (카테고리별)';
+
+-- 2-7. user_example_responses 테이블 (사용자 예시 응답 기록, 선택)
+CREATE TABLE user_example_responses (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    preference_id INT NOT NULL COMMENT 'user_filter_preferences FK',
+    example_comment_id INT NOT NULL COMMENT 'filter_example_comments FK',
+    user_label VARCHAR(20) NOT NULL 
+        CHECK (user_label IN ('allow', 'block'))
+        COMMENT '사용자가 선택한 라벨',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT fk_user_response_user 
+        FOREIGN KEY (user_id) REFERENCES users(id) 
+        ON DELETE CASCADE,
+    CONSTRAINT fk_user_response_pref 
+        FOREIGN KEY (preference_id) REFERENCES user_filter_preferences(id) 
+        ON DELETE CASCADE,
+    CONSTRAINT fk_user_response_example 
+        FOREIGN KEY (example_comment_id) REFERENCES filter_example_comments(id) 
+        ON DELETE CASCADE,
+    
+    INDEX idx_user_pref (user_id, preference_id),
+    UNIQUE KEY uk_user_example (user_id, preference_id, example_comment_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT '사용자별 예시 라벨링 응답 기록 (학습 데이터)';
+
 -- ==================================================
 -- 3단계: 2단계 테이블을 참조하는 테이블들
 -- ==================================================
@@ -490,4 +574,90 @@ SHOW INDEXES FROM youtube_oauth_tokens;
 SHOW INDEXES FROM ai_comment_analysis_result;
 SHOW INDEXES FROM ai_analysis_summary;
 SHOW INDEXES FROM ai_channel_profiling;
+
+-- ==================================================
+-- filter_example_comments 초기 데이터 (Seed Data)
+-- ==================================================
+
+INSERT INTO filter_example_comments 
+(category_id, comment_text, suggested_label, difficulty_level, is_active) VALUES
+
+-- 욕설·비속어 카테고리 (Few-shot 예시 10개)
+('profanity', '야 이 미친 새끼가 ㅅㅂ', 'block', 'EASY', TRUE),
+('profanity', '개같은 놈이 왜 또 깝치노', 'block', 'EASY', TRUE),
+('profanity', '지랄하고 자빠졌네 진짜', 'block', 'EASY', TRUE),
+('profanity', '병신같이 왜 이렇게 느려?', 'block', 'EASY', TRUE),
+('profanity', 'ㅋㅋㅋㅋ 개노잼 ㅅㄱ', 'block', 'EASY', TRUE),
+('profanity', '엿같네 씨발 진짜', 'block', 'EASY', TRUE),
+('profanity', '좆같이 만들었네 누가', 'block', 'EASY', TRUE),
+('profanity', '아오 짜증나 씨부랄', 'block', 'EASY', TRUE),
+('profanity', '개새끼가 어따 대고', 'block', 'EASY', TRUE),
+('profanity', '닥치고 꺼져 이 병신아', 'block', 'EASY', TRUE),
+
+-- 외모·신체 비하 카테고리 (Few-shot 예시 10개)
+('appearance', '와 돼지새끼가 사람 코스프레하네', 'block', 'EASY', TRUE),
+('appearance', '키 작아서 열등감 있나 봄 ㅋㅋ', 'block', 'EASY', TRUE),
+('appearance', '얼굴 망했네 성형이라도 해라', 'block', 'EASY', TRUE),
+('appearance', '다리 왜 그렇게 짧아 난쟁이냐?', 'block', 'EASY', TRUE),
+('appearance', '대머리 새끼 또 깝치네', 'block', 'EASY', TRUE),
+('appearance', '코 왜 그렇게 크냐 코끼리냐', 'block', 'EASY', TRUE),
+('appearance', '뚱뚱해서 화면 다 가림', 'block', 'EASY', TRUE),
+('appearance', '눈이 찢어져서 중국인 같네', 'block', 'EASY', TRUE),
+('appearance', '이빨 왜 그렇게 삐뚤어?', 'block', 'EASY', TRUE),
+('appearance', '피부 왜 그렇게 더러워?', 'block', 'EASY', TRUE),
+
+-- 인신공격·모욕 카테고리 (Few-shot 예시 10개)
+('personal_attack', '너 같은 쓰레기가 어따 대고', 'block', 'EASY', TRUE),
+('personal_attack', '인생 존망이라 그러는 거지?', 'block', 'EASY', TRUE),
+('personal_attack', '니가 뭔데 지껄이노 꼴값떨지마', 'block', 'EASY', TRUE),
+('personal_attack', '얼굴이 증거다 ㅋㅋ 인생 다 보이네', 'block', 'EASY', TRUE),
+('personal_attack', '존재 자체가 민폐야 꺼져', 'block', 'EASY', TRUE),
+('personal_attack', '부모님이 불쌍하겠다 너 낳아서', 'block', 'EASY', TRUE),
+('personal_attack', '머리속에 똥만 차있나 보네', 'block', 'EASY', TRUE),
+('personal_attack', '너는 평생 찐따로 살듯', 'block', 'EASY', TRUE),
+('personal_attack', '사회생활 못 할 새끼', 'block', 'EASY', TRUE),
+('personal_attack', '입만 벌리면 역겨워 진짜', 'block', 'EASY', TRUE),
+
+-- 혐오·차별 발언 카테고리 (Few-shot 예시 10개)
+('hate_speech', '여자가 게임하면 다 저모양이지', 'block', 'EASY', TRUE),
+('hate_speech', '전라도 새끼들은 믿으면 안 됨', 'block', 'EASY', TRUE),
+('hate_speech', '장애인이 왜 여기 와서 방해하냐', 'block', 'EASY', TRUE),
+('hate_speech', '흑인들은 원래 범죄자 많아', 'block', 'EASY', TRUE),
+('hate_speech', '김치녀들 또 돈 타령 ㅉㅉ', 'block', 'EASY', TRUE),
+('hate_speech', '홍어새끼들 냄새나서 못 살겠네', 'block', 'EASY', TRUE),
+('hate_speech', '동성애자는 그냥 병이다', 'block', 'EASY', TRUE),
+('hate_speech', '지방대 나온 주제에 잘난 척', 'block', 'EASY', TRUE),
+('hate_speech', '이슬람 놈들 다 테러리스트야', 'block', 'EASY', TRUE),
+('hate_speech', '노인네들은 그냥 집에나 있어', 'block', 'EASY', TRUE),
+
+-- 성적 발언·희롱 카테고리 ⭐ NEW (Few-shot 예시 10개)
+('sexual', '가슴 진짜 크다 한 번 빨고 싶네', 'block', 'EASY', TRUE),
+('sexual', '치마 짧아서 팬티 보이던데 일부러지?', 'block', 'EASY', TRUE),
+('sexual', '뒤태 미쳤어 뒤치기하고 싶다', 'block', 'EASY', TRUE),
+('sexual', '오늘 좀 꼴림 ㅎㅎ 침대에서 보자', 'block', 'EASY', TRUE),
+('sexual', '다리 벌리고 있는 거 봐 섹시하네', 'block', 'EASY', TRUE),
+('sexual', '야한 속옷 입었나 보네 색기 장난 아님', 'block', 'EASY', TRUE),
+('sexual', '엉덩이 진짜 탱탱하다 만져보고 싶어', 'block', 'EASY', TRUE),
+('sexual', '입으로 해줄 줄 알겠네', 'block', 'EASY', TRUE),
+('sexual', '몸매가 남자들 다 꼴리게 생겼네', 'block', 'EASY', TRUE),
+('sexual', '야 너 가슴으로 뭐 하냐 ㅋㅋ', 'block', 'EASY', TRUE),
+
+-- 스팸·광고·도배 카테고리 (Few-shot 예시 10개)
+('spam', '로또 1등 당첨번호 알려드림 ↓↓↓↓', 'block', 'EASY', TRUE),
+('spam', '제휴 문의 카톡 ID: money1234', 'block', 'EASY', TRUE),
+('spam', 'ㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇ', 'block', 'EASY', TRUE),
+('spam', '저희 쇼핑몰 오시면 90% 할인!!', 'block', 'EASY', TRUE),
+('spam', '대출 필요하신 분들만 010-XXXX-XXXX', 'block', 'EASY', TRUE),
+('spam', 'ㄹㅇㄹㅇㄹㅇㄹㅇㄹㅇㄹㅇㄹㅇㄹㅇㄹㅇ', 'block', 'EASY', TRUE),
+('spam', '구독 이벤트 진행중이에요~!!!', 'block', 'EASY', TRUE),
+('spam', '비트코인 100배 간다 지금 사세요', 'block', 'EASY', TRUE),
+('spam', 'ㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋ', 'block', 'EASY', TRUE),
+('spam', '파워볼 자동프로그램 팝니다 100% 당첨', 'block', 'EASY', TRUE),
+
+-- 공통 예시 (모든 카테고리에서 사용)
+('common', '오늘 영상 좋네요', 'allow', 'EASY', TRUE),
+('common', '게임 못해도 말은 재밌음 ㅋㅋ', 'allow', 'MEDIUM', TRUE),
+('common', '오늘은 텐션이 좀 다운된 느낌', 'allow', 'HARD', TRUE),
+('common', '다음 영상도 기대됩니다', 'allow', 'EASY', TRUE),
+('common', '이 부분이 좀 아쉬웠어요', 'allow', 'HARD', TRUE);
 

@@ -1,0 +1,46 @@
+package com.medi.backend.filter.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 사용자 필터링 설정 DTO (DB 매핑용)
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class UserFilterPreferenceDto {
+    
+    private Integer id;
+    private Integer userId;
+    private Integer channelId;
+    
+    /**
+     * JSON 컬럼 → List<String> 변환
+     */
+    private List<String> selectedCategories;
+    
+    /**
+     * JSON 컬럼 → Map<String, List<String>> 변환
+     */
+    private Map<String, List<String>> customRuleKeywords;
+    
+    /**
+     * JSON 컬럼 → List<String> 변환
+     */
+    private List<String> dislikeExamples;
+    
+    /**
+     * JSON 컬럼 → List<String> 변환
+     */
+    private List<String> allowExamples;
+    
+    private Boolean isActive;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+}
+

@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" 
+    "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.medi.backend.filter.mapper.FilterMapper">
+    
+    <!-- ========== UserFilterPreference ResultMap ========== -->
+    <resultMap id="PreferenceResultMap" type="com.medi.backend.filter.dto.UserFilterPreferenceDto">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="channelId" column="channel_id"/>
+        <result property="selectedCategories" column="selected_categories" 
+                typeHandler="com.medi.backend.filter.typehandler.JsonListTypeHandler"/>
+        <result property="customRuleKeywords" column="custom_rule_keywords"
+                typeHandler="com.medi.backend.filter.typehandler.JsonMapTypeHandler"/>
+        <result property="dislikeExamples" column="dislike_examples"
+                typeHandler="com.medi.backend.filter.typehandler.JsonListTypeHandler"/>
+        <result property="allowExamples" column="allow_examples"
+                typeHandler="com.medi.backend.filter.typehandler.JsonListTypeHandler"/>
+        <result property="isActive" column="is_active"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+    
+    <!-- ========== FilterExampleComment ResultMap ========== -->
+    <resultMap id="ExampleResultMap" type="com.medi.backend.filter.dto.FilterExampleCommentDto">
+        <id property="id" column="id"/>
+        <result property="categoryId" column="category_id"/>
+        <result property="commentText" column="comment_text"/>
+        <result property="suggestedLabel" column="suggested_label"/>
+        <result property="difficultyLevel" column="difficulty_level"/>
+        <result property="usageCount" column="usage_count"/>
+        <result property="isActive" column="is_active"/>
+    </resultMap>
+    
+    <!-- ========== UserFilterPreference 쿼리 ========== -->
+    
+    <select id="findPreferenceByUserIdAndChannelId" resultMap="PreferenceResultMap">
+        SELECT 
+            id, user_id, channel_id,
+            selected_categories, custom_rule_keywords,
+            dislike_examples, allow_examples,
+            is_active, created_at, updated_at
+        FROM user_filter_preferences
+        WHERE user_id = #{userId}
+        <if test="channelId == null">
+            AND channel_id IS NULL
+        </if>
+        <if test="channelId != null">
+            AND channel_id = #{channelId}
+        </if>
+        AND is_active = TRUE
+        LIMIT 1
+    </select>
+    
+    <insert id="upsertPreference" parameterType="com.medi.backend.filter.dto.UserFilterPreferenceDto"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO user_filter_preferences 
+            (user_id, channel_id, selected_categories, custom_rule_keywords,
+             dislike_examples, allow_examples, is_active, created_at, updated_at)
+        VALUES 
+            (#{userId}, #{channelId},
+             #{selectedCategories, typeHandler=com.medi.backend.filter.typehandler.JsonListTypeHandler},
+             #{customRuleKeywords, typeHandler=com.medi.backend.filter.typehandler.JsonMapTypeHandler},
+             #{dislikeExamples, typeHandler=com.medi.backend.filter.typehandler.JsonListTypeHandler},
+             #{allowExamples, typeHandler=com.medi.backend.filter.typehandler.JsonListTypeHandler},
+             COALESCE(#{isActive}, TRUE), NOW(), NOW())
+        ON DUPLICATE KEY UPDATE
+            selected_categories = VALUES(selected_categories),
+            custom_rule_keywords = VALUES(custom_rule_keywords),
+            dislike_examples = VALUES(dislike_examples),
+            allow_examples = VALUES(allow_examples),
+            is_active = VALUES(is_active),
+            updated_at = NOW()
+    </insert>
+    
+    <update id="deactivatePreference">
+        UPDATE user_filter_preferences
+        SET is_active = FALSE, updated_at = NOW()
+        WHERE user_id = #{userId}
+        <if test="channelId == null">
+            AND channel_id IS NULL
+        </if>
+        <if test="channelId != null">
+            AND channel_id = #{channelId}
+        </if>
+    </update>
+    
+    <!-- ========== FilterExampleComment 쿼리 ========== -->
+    
+    <select id="findExamplesByCategories" resultMap="ExampleResultMap">
+        SELECT 
+            id, category_id, comment_text, suggested_label,
+            difficulty_level, usage_count, is_active
+        FROM filter_example_comments
+        WHERE is_active = TRUE
+        <if test="categories != null and categories.size() > 0">
+            AND (
+                category_id IN
+                <foreach collection="categories" item="cat" open="(" separator="," close=")">
+                    #{cat}
+                </foreach>
+                OR category_id = 'common'
+            )
+        </if>
+        <if test="categories == null or categories.size() == 0">
+            AND category_id = 'common'
+        </if>
+        ORDER BY 
+            <if test="mixDifficulty == true">
+                FIELD(difficulty_level, 'EASY', 'MEDIUM', 'HARD'),
+            </if>
+            RAND()
+        LIMIT #{limit}
+    </select>
+    
+    <select id="findCommonExamples" resultMap="ExampleResultMap">
+        SELECT 
+            id, category_id, comment_text, suggested_label,
+            difficulty_level, usage_count, is_active
+        FROM filter_example_comments
+        WHERE is_active = TRUE
+        AND category_id = 'common'
+        ORDER BY RAND()
+        LIMIT #{limit}
+    </select>
+    
+    <!-- 카테고리별 Few-shot 예시 조회 (block/allow 균형) -->
+    <select id="findFewShotExamplesByCategory" resultMap="ExampleResultMap">
+        SELECT 
+            id, category_id, comment_text, suggested_label,
+            difficulty_level, usage_count, is_active
+        FROM filter_example_comments
+        WHERE is_active = TRUE
+        AND category_id = #{categoryId}
+        ORDER BY 
+            FIELD(suggested_label, 'block', 'allow'),  -- block 먼저, allow 나중
+            FIELD(difficulty_level, 'EASY', 'MEDIUM', 'HARD'),  -- 난이도 순
+            RAND()  -- 랜덤
+        LIMIT #{limit}
+    </select>
+    
+    <update id="incrementUsageCount">
+        UPDATE filter_example_comments
+        SET usage_count = usage_count + 1,
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+    
+</mapper>
+
