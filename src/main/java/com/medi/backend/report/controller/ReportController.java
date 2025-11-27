@@ -23,6 +23,70 @@ import java.util.Map;
 /**
  * 보고서 생성 컨트롤러
  * 프론트에서 보고서 생성 요청 시 Redis 큐에 작업을 추가
+ * 
+ * ============================================
+ * 보고서 API 엔드포인트 정리
+ * ============================================
+ * 
+ * 1. 합법 보고서 생성 요청
+ *    POST /api/reports/legal
+ *    인증: 필요 (로그인)
+ *    Request Body:
+ *      {
+ *        "channelId": "UCxxxxx",  // YouTube 채널 ID (필수)
+ *        "data": {}               // 추가 데이터 (선택사항)
+ *      }
+ *    Response:
+ *      {
+ *        "message": "Legal report task added to queue successfully",
+ *        "channelId": "UCxxxxx",
+ *        "userId": 123
+ *      }
+ *    동작: Redis DB 1의 legal_report_agent:tasks:queue에 작업 추가
+ * 
+ * 2. 콘텐츠 보고서 생성 요청
+ *    POST /api/reports/content
+ *    인증: 필요 (로그인)
+ *    Request Body:
+ *      {
+ *        "channelId": "UCxxxxx",  // YouTube 채널 ID (필수)
+ *        "data": {}               // 추가 데이터 (선택사항)
+ *      }
+ *    Response:
+ *      {
+ *        "message": "Content report task added to queue successfully",
+ *        "channelId": "UCxxxxx",
+ *        "userId": 123
+ *      }
+ *    동작: Redis DB 1의 content_report_agent:tasks:queue에 작업 추가
+ * 
+ * 3. 입력폼 양식 생성 요청
+ *    POST /api/reports/form
+ *    인증: 필요 (로그인)
+ *    Request Body:
+ *      {
+ *        "channelId": "UCxxxxx",  // YouTube 채널 ID (필수)
+ *        "data": {
+ *          "selectedCategories": ["profanity", "appearance"],
+ *          "customRuleKeywords": {
+ *            "profanity": ["ㅅㅂ", "병X"]
+ *          },
+ *          "dislikeExamples": ["야 이 미친 새끼가"],
+ *          "allowExamples": ["컨디션 안 좋아보이네"]
+ *        }
+ *      }
+ *    Response:
+ *      {
+ *        "message": "Form data saved to DB and Redis successfully",
+ *        "channelId": "UCxxxxx",
+ *        "channelDbId": 456,
+ *        "userId": 123,
+ *        "preference": { ... }
+ *      }
+ *    동작: 
+ *      - DB 저장: user_filter_preferences 테이블 (MySQL)
+ *      - Redis 저장: channel:{channelId}:form (Redis DB 0, TTL 없음 - 영구 저장)
+ *      - 큐 작업: form_agent:tasks:queue (Redis DB 1)
  */
 @Slf4j
 @RestController
@@ -188,11 +252,8 @@ public class ReportController {
             FilterPreferenceRequest filterRequest = convertToFilterPreferenceRequest(requestData, channelDbId);
             
             // ✅ 1. user_filter_preferences 테이블에 저장 (DB)
+            //    savePreference 내부에서 Redis(DB 0)에 channel:{channelId}:form 도 함께 저장됨
             FilterPreferenceResponse savedPreference = filterPreferenceService.savePreference(userId, filterRequest);
-            
-            // ✅ 2. Redis에도 저장 (Agent에서 사용할 수 있도록)
-            //    입력 폼 저장 시 즉시 Redis에 저장하여 필터링 작업 시 사용 가능하도록 함
-            redisQueueService.enqueueAndSaveForm(request.getChannelId(), userId, channelDbId);
             
             Map<String, Object> response = new HashMap<>();
             response.put("message", "Form data saved to DB and Redis successfully");

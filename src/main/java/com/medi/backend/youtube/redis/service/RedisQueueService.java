@@ -19,7 +19,6 @@ import java.util.Map;
  * - filtering_agent:tasks:queue (Filtering 작업)
  * - legal_report_agent:tasks:queue (합법 보고서 작업)
  * - content_report_agent:tasks:queue (콘텐츠 보고서 작업)
- * - form_agent:tasks:queue (입력폼 양식 작업)
  * 
  * DB 0: Form 데이터 저장
  * - channel:{channelId}:form (채널별 Form 데이터, agent에서 프롬프트로 사용)
@@ -35,7 +34,6 @@ public class RedisQueueService {
     private static final String FILTERING_QUEUE_KEY = "filtering_agent:tasks:queue";
     private static final String LEGAL_REPORT_QUEUE_KEY = "legal_report_agent:tasks:queue";
     private static final String CONTENT_REPORT_QUEUE_KEY = "content_report_agent:tasks:queue";
-    private static final String FORM_QUEUE_KEY = "form_agent:tasks:queue";
     
     // Redis 저장용 템플릿 (DB 0, 기본 Redis)
     private final StringRedisTemplate stringRedisTemplate;
@@ -93,7 +91,7 @@ public class RedisQueueService {
             // ✅ 프롬프트는 큐에 포함하지 않음
             //    에이전트가 작업 처리 시 Redis(DB 0)에서 직접 읽음
             //    Redis 키: channel:{channelId}:form
-            //    - 입력 폼 저장 시 Redis에 저장됨 (TTL 30일)
+            //    - 입력 폼 저장 시 Redis에 저장됨 (TTL 없음 - 영구 저장)
             //    - 에이전트가 없으면 기본 프롬프트 사용
             
             String taskJson = objectMapper.writeValueAsString(task);
@@ -165,53 +163,6 @@ public class RedisQueueService {
     }
 
     /**
-     * 입력폼 양식 (Form) 작업 추가 및 Redis 저장
-     * - 작업 큐(DB 1)에 추가
-     * - Redis(DB 0)에 채널별로 저장 (agent에서 프롬프트로 사용)
-     * - 저장 형식: {Question: Answer, Question: NULL, ...} (Answer도 JSON 중첩 가능)
-     */
-    public void enqueueAndSaveForm(String channelId, Integer userId, Integer channelDbId) {
-        try {
-            // 1. 작업 큐에 추가 (DB 1)
-            Map<String, Object> task = new HashMap<>();
-            task.put("channelId", channelId);
-            task.put("userId", userId);
-            task.put("type", "form");
-            
-            String taskJson = objectMapper.writeValueAsString(task);
-            redisQueueTemplate.opsForList().leftPush(FORM_QUEUE_KEY, taskJson);
-            
-            log.info("✅ Form task 추가 (DB 1): channelId={}, userId={}, queue={}, type=form", 
-                channelId, userId, FORM_QUEUE_KEY);
-            
-            // 2. 구조화된 프롬프트 정책 블록 생성 (Question-Answer 형식)
-            String policyBlockJson = filterPreferenceService.buildPromptPolicyBlock(userId, channelDbId);
-            
-            if (policyBlockJson == null || policyBlockJson.isEmpty()) {
-                log.warn("⚠️ 프롬프트 정책 블록이 없습니다. Redis 저장 건너뜀: channelId={}, userId={}", 
-                    channelId, userId);
-                return;
-            }
-            
-            // 3. Redis에 구조화된 Form 데이터 저장 (DB 0) - 채널별로 저장
-            // 키 패턴: channel:{channelId}:form
-            // 저장 형식: {Question: Answer, Question: NULL, ...} (JSON 중첩 가능)
-            // ⭐ TTL: 30일 (1달, 입력 폼은 자주 변경되지 않으므로 긴 TTL 설정)
-            //    테스트 환경(5명 이하)에서는 용량 부담이 거의 없음 (예상: ~100KB)
-            String formRedisKey = "channel:" + channelId + ":form";
-            stringRedisTemplate.opsForValue().set(formRedisKey, policyBlockJson, 
-                java.time.Duration.ofDays(30));
-            
-            log.info("✅ Form 데이터 Redis 저장 (DB 0, TTL=30일): channelId={}, key={}, dataSize={}자", 
-                channelId, formRedisKey, policyBlockJson.length());
-            
-        } catch (Exception e) {
-            log.error("❌ Form task 추가 및 저장 실패: channelId={}, userId={}", channelId, userId, e);
-            throw new RuntimeException("Failed to enqueue and save form task", e);
-        }
-    }
-
-    /**
      * Queue 길이 확인 (모니터링용)
      */
     public Map<String, Long> getQueueStats() {
@@ -221,20 +172,18 @@ public class RedisQueueService {
         Long filteringLength = redisQueueTemplate.opsForList().size(FILTERING_QUEUE_KEY);
         Long legalReportLength = redisQueueTemplate.opsForList().size(LEGAL_REPORT_QUEUE_KEY);
         Long contentReportLength = redisQueueTemplate.opsForList().size(CONTENT_REPORT_QUEUE_KEY);
-        Long formLength = redisQueueTemplate.opsForList().size(FORM_QUEUE_KEY);
         
         stats.put("profiling_queue_length", profilingLength != null ? profilingLength : 0L);
         stats.put("filtering_queue_length", filteringLength != null ? filteringLength : 0L);
         stats.put("legal_report_queue_length", legalReportLength != null ? legalReportLength : 0L);
         stats.put("content_report_queue_length", contentReportLength != null ? contentReportLength : 0L);
-        stats.put("form_queue_length", formLength != null ? formLength : 0L);
         
         log.debug("Queue 통계: Profiling={}, Filtering={}, LegalReport={}, ContentReport={}, Form={}", 
             stats.get("profiling_queue_length"), 
             stats.get("filtering_queue_length"),
             stats.get("legal_report_queue_length"),
             stats.get("content_report_queue_length"),
-            stats.get("form_queue_length"));
+            0L);
         
         return stats;
     }
@@ -256,15 +205,11 @@ public class RedisQueueService {
             } else if ("content_report".equalsIgnoreCase(queueType)) {
                 redisQueueTemplate.delete(CONTENT_REPORT_QUEUE_KEY);
                 log.info("🗑️ Content Report Queue 비움");
-            } else if ("form".equalsIgnoreCase(queueType)) {
-                redisQueueTemplate.delete(FORM_QUEUE_KEY);
-                log.info("🗑️ Form Queue 비움");
             } else if ("all".equalsIgnoreCase(queueType)) {
                 redisQueueTemplate.delete(PROFILING_QUEUE_KEY);
                 redisQueueTemplate.delete(FILTERING_QUEUE_KEY);
                 redisQueueTemplate.delete(LEGAL_REPORT_QUEUE_KEY);
                 redisQueueTemplate.delete(CONTENT_REPORT_QUEUE_KEY);
-                redisQueueTemplate.delete(FORM_QUEUE_KEY);
                 log.info("🗑️ 모든 Queue 비움");
             }
         } catch (Exception e) {

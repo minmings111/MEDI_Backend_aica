@@ -103,7 +103,7 @@ public class FilterController {
      * 에이전트용 프롬프트 조회 API
      * GET /api/filter/prompt/{channelId}
      * - 에이전트가 Redis에서 프롬프트를 못 찾았을 때 호출
-     * - DB에서 조회하여 Redis에 재저장 (TTL 30일) 후 반환
+     * - DB에서 조회하여 Redis에 재저장 (TTL 없음 - 영구 저장) 후 반환
      * - 인증 없이 사용 가능 (에이전트는 내부 서비스)
      * 
      * @param channelId YouTube channel ID
@@ -143,10 +143,9 @@ public class FilterController {
                 log.warn("⚠️ [에이전트 API] 사용자 설정 프롬프트 없음. 기본 프롬프트 사용: channelId={}", channelId);
             }
             
-            // 5. Redis에 저장 (TTL 30일) - 다음번에는 Redis에서 바로 읽을 수 있도록
+            // 5. Redis에 저장 (TTL 없음 - 영구 저장) - 다음번에는 Redis에서 바로 읽을 수 있도록
             String formRedisKey = "channel:" + channelId + ":form";
-            stringRedisTemplate.opsForValue().set(formRedisKey, policyBlock, 
-                java.time.Duration.ofDays(30));
+            stringRedisTemplate.opsForValue().set(formRedisKey, policyBlock);
             
             log.info("✅ [에이전트 API] 프롬프트 조회 및 Redis 저장 완료: channelId={}, length={}자", 
                 channelId, policyBlock.length());
@@ -174,25 +173,25 @@ public class FilterController {
     private String getDefaultPolicyBlock() {
         try {
             Map<String, Object> defaultPolicy = new HashMap<>();
-            defaultPolicy.put("Step1_카테고리선택", List.of(
+            defaultPolicy.put("Question1", List.of(
                 "profanity", "hate_speech", "personal_attack", 
                 "appearance", "sexual", "spam"
             ));
-            defaultPolicy.put("Step2_키워드입력", null);
+            defaultPolicy.put("Question2", null);
             Map<String, Object> step3Map = new HashMap<>();
             step3Map.put("few_shot_examples", new HashMap<>());
             step3Map.put("user_selected_examples", Map.of(
                 "dislike", List.of(),
                 "allow", List.of()
             ));
-            defaultPolicy.put("Step3_예시라벨링", step3Map);
+            defaultPolicy.put("Question3", step3Map);
             
             com.fasterxml.jackson.databind.ObjectMapper objectMapper = 
                 new com.fasterxml.jackson.databind.ObjectMapper();
             return objectMapper.writeValueAsString(defaultPolicy);
         } catch (Exception e) {
             log.error("❌ 기본 프롬프트 생성 실패", e);
-            return "{\"Step1_카테고리선택\":[],\"Step2_키워드입력\":null,\"Step3_예시라벨링\":{\"few_shot_examples\":{},\"user_selected_examples\":{\"dislike\":[],\"allow\":[]}}}";
+            return "{\"Question1\":[],\"Question2\":null,\"Question3\":{\"few_shot_examples\":{},\"user_selected_examples\":{\"dislike\":[],\"allow\":[]}}}";
         }
     }
 }

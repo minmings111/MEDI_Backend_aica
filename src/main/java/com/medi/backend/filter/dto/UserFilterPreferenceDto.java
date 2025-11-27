@@ -39,6 +39,12 @@ public class UserFilterPreferenceDto {
      */
     private List<String> allowExamples;
     
+    /**
+     * JSON 컬럼 → EmailNotificationSettings 변환
+     * 예: {"enabled": true, "threshold": 10, "email": "user@example.com"}
+     */
+    private EmailNotificationSettings emailNotificationSettings;
+    
     private Boolean isActive;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

@@ -17,6 +17,8 @@
                 typeHandler="com.medi.backend.filter.typehandler.JsonListTypeHandler"/>
         <result property="allowExamples" column="allow_examples"
                 typeHandler="com.medi.backend.filter.typehandler.JsonListTypeHandler"/>
+        <result property="emailNotificationSettings" column="email_notification_settings"
+                typeHandler="com.medi.backend.filter.typehandler.EmailNotificationSettingsTypeHandler"/>
         <result property="isActive" column="is_active"/>
         <result property="createdAt" column="created_at"/>
         <result property="updatedAt" column="updated_at"/>
@@ -40,6 +42,7 @@
             id, user_id, channel_id,
             selected_categories, custom_rule_keywords,
             dislike_examples, allow_examples,
+            email_notification_settings,
             is_active, created_at, updated_at
         FROM user_filter_preferences
         WHERE user_id = #{userId}
@@ -57,19 +60,22 @@
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO user_filter_preferences 
             (user_id, channel_id, selected_categories, custom_rule_keywords,
-             dislike_examples, allow_examples, is_active, created_at, updated_at)
+             dislike_examples, allow_examples, email_notification_settings,
+             is_active, created_at, updated_at)
         VALUES 
             (#{userId}, #{channelId},
              #{selectedCategories, typeHandler=com.medi.backend.filter.typehandler.JsonListTypeHandler},
              #{customRuleKeywords, typeHandler=com.medi.backend.filter.typehandler.JsonMapTypeHandler},
              #{dislikeExamples, typeHandler=com.medi.backend.filter.typehandler.JsonListTypeHandler},
              #{allowExamples, typeHandler=com.medi.backend.filter.typehandler.JsonListTypeHandler},
+             #{emailNotificationSettings, typeHandler=com.medi.backend.filter.typehandler.EmailNotificationSettingsTypeHandler},
              COALESCE(#{isActive}, TRUE), NOW(), NOW())
         ON DUPLICATE KEY UPDATE
             selected_categories = VALUES(selected_categories),
             custom_rule_keywords = VALUES(custom_rule_keywords),
             dislike_examples = VALUES(dislike_examples),
             allow_examples = VALUES(allow_examples),
+            email_notification_settings = VALUES(email_notification_settings),
             is_active = VALUES(is_active),
             updated_at = NOW()
     </insert>

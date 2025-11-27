@@ -229,6 +229,33 @@ public class AgentController {
      * - 전체 댓글 수 (total_count)와 필터링된 댓글 수 (filtered_count) 포함
      * - 그래프용: "전체 댓글 수 vs 필터링된 댓글 수" 비교 가능
      * 
+     * API 사용법:
+     * GET /api/v1/analysis/comments/daily-stats
+     * 인증: 필요 (로그인)
+     * 
+     * Query Parameters (모두 선택사항):
+     *   - videoId: 비디오 ID (Integer)
+     *   - channelId: 채널 ID (Integer)
+     *   - period: 날짜 단위 ("daily", "monthly", "yearly") - 기본값: "daily"
+     *   - startDate: 시작 날짜 (형식: "YYYY-MM-DD", 예: "2024-01-01")
+     *   - endDate: 종료 날짜 (형식: "YYYY-MM-DD", 예: "2024-01-31")
+     * 
+     * 예시 요청:
+     *   GET /api/v1/analysis/comments/daily-stats?channelId=1&startDate=2024-01-01&endDate=2024-01-31
+     *   GET /api/v1/analysis/comments/daily-stats?videoId=5&period=daily
+     *   GET /api/v1/analysis/comments/daily-stats?period=monthly
+     * 
+     * Response:
+     *   [
+     *     {
+     *       "statDate": "2024-01-01",
+     *       "totalCount": 100,        // AI가 분석한 전체 댓글 수
+     *       "filteredCount": 20,      // 필터링된 댓글 수
+     *       "youtubeTotalCount": 150  // YouTube Data API에서 가져온 실제 전체 댓글 수 (null 가능)
+     *     },
+     *     ...
+     *   ]
+     * 
      * @param videoId 비디오 ID (선택사항)
      * @param channelId 채널 ID (선택사항)
      * @param periodType 날짜 단위 ("daily", "monthly", "yearly") - 기본값: "daily"

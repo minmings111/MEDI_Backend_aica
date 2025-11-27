@@ -45,5 +45,13 @@ public class FilterPreferenceRequest {
      * 예: ["컨디션 안 좋아보이네"]
      */
     private List<String> allowExamples;
+    
+    /**
+     * 이메일 알림 설정
+     * - enabled: 이메일 알림 활성화 여부
+     * - threshold: 필터링된 댓글 개수 기준 (이 개수 이상이면 이메일 발송)
+     * - email: 알림을 받을 이메일 주소 (선택적, null이면 users 테이블의 email 사용)
+     */
+    private EmailNotificationSettings emailNotificationSettings;
 }
 

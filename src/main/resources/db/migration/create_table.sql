@@ -169,6 +169,14 @@ CREATE TABLE user_filter_preferences (
     dislike_examples JSON NULL COMMENT '숨기고 싶다고 표시한 댓글 예시 배열',
     allow_examples JSON NULL COMMENT '괜찮다고 표시한 댓글 예시 배열',
     
+    -- Step 4: 이메일 알림 설정
+    email_notification_settings JSON NULL COMMENT '이메일 알림 설정 {
+  "enabled": true/false,
+  "timeUnit": "HOURLY"/"DAILY",
+  "threshold": 10,
+  "email": "user@example.com" (선택적, 없으면 users 테이블의 email 사용)
+}',
+    
     -- 메타 정보
     is_active BOOLEAN NOT NULL DEFAULT TRUE COMMENT '활성화 여부',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -187,7 +195,7 @@ CREATE TABLE user_filter_preferences (
     
     UNIQUE KEY uk_user_channel_pref (user_id, channel_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT '사용자 필터링 설정 (3단계 폼 데이터 저장)';
+COMMENT '사용자 필터링 설정 (3단계 폼 데이터 + 이메일 알림 설정 저장)';
 
 -- 2-6. filter_example_comments 테이블 (예시 댓글 마스터)
 CREATE TABLE filter_example_comments (

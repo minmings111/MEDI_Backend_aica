@@ -86,5 +86,13 @@
             #{provider}, #{providerId}, #{profileImage}
         )
     </insert>
+    
+    <!-- 사용자 ID로 사용자 조회 -->
+    <select id="findById" resultMap="UserResultMap">
+        SELECT id, email, password, name, phone, is_terms_agreed, 
+               role, created_at, updated_at, provider, provider_id, profile_image
+        FROM users
+        WHERE id = #{id}
+    </select>
 
 </mapper>
