@@ -596,7 +596,6 @@ SHOW INDEXES FROM ai_analysis_summary;
 SHOW INDEXES FROM ai_channel_profiling;
 
 -- ==================================================
-<<<<<<< HEAD
 -- filter_example_comments 초기 데이터 (Seed Data)
 -- ==================================================
 
