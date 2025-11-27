@@ -122,6 +122,13 @@
         LIMIT 1
     </select>
 
+    <select id="findChannelIdByVideoId" resultType="java.lang.Integer">
+        SELECT channel_id
+        FROM youtube_videos
+        WHERE id = #{videoId}
+        LIMIT 1
+    </select>
+
     <insert id="insertChannelProfiling">
         INSERT INTO ai_channel_profiling (
             channel_id,
@@ -340,6 +347,105 @@
                 </when>
                 <otherwise>
                     DATE(acar.analyzed_at)
+                </otherwise>
+            </choose>
+        ORDER BY date DESC
+    </select>
+    
+    <insert id="upsertDailyCommentStats">
+        INSERT INTO daily_comment_stats (
+            channel_id,
+            video_id,
+            stat_date,
+            total_count,
+            filtered_count
+        ) VALUES (
+            #{channelId},
+            #{videoId},
+            #{statDate},
+            #{totalCount},
+            #{filteredCount}
+        )
+        ON DUPLICATE KEY UPDATE
+            total_count = total_count + VALUES(total_count),
+            filtered_count = filtered_count + VALUES(filtered_count),
+            updated_at = NOW()
+    </insert>
+    
+    <!-- YouTube 실제 댓글 수 업데이트 (스케줄러에서 사용) -->
+    <update id="updateYoutubeTotalCount">
+        INSERT INTO daily_comment_stats (
+            channel_id,
+            video_id,
+            stat_date,
+            youtube_total_count
+        ) VALUES (
+            #{channelId},
+            #{videoId},
+            #{statDate},
+            #{youtubeTotalCount}
+        )
+        ON DUPLICATE KEY UPDATE
+            youtube_total_count = VALUES(youtube_total_count),
+            updated_at = NOW()
+    </update>
+    
+    <!-- 일별 댓글 통계 조회 (daily_comment_stats 테이블) -->
+    <resultMap id="DailyCommentStatResultMap" type="com.medi.backend.agent.dto.DailyCommentStatDto">
+        <result property="date" column="date"/>
+        <result property="totalCount" column="total_count"/>
+        <result property="filteredCount" column="filtered_count"/>
+        <result property="normalCount" column="normal_count"/>
+    </resultMap>
+    
+    <select id="findDailyCommentStats" resultMap="DailyCommentStatResultMap">
+        SELECT 
+            <choose>
+                <when test="periodType == 'daily'">
+                    DATE_FORMAT(dcs.stat_date, '%Y-%m-%d') AS date
+                </when>
+                <when test="periodType == 'monthly'">
+                    DATE_FORMAT(dcs.stat_date, '%Y-%m') AS date
+                </when>
+                <when test="periodType == 'yearly'">
+                    YEAR(dcs.stat_date) AS date
+                </when>
+                <otherwise>
+                    DATE_FORMAT(dcs.stat_date, '%Y-%m-%d') AS date
+                </otherwise>
+            </choose>,
+            SUM(dcs.total_count) AS total_count,
+            SUM(dcs.filtered_count) AS filtered_count,
+            SUM(dcs.total_count - dcs.filtered_count) AS normal_count
+        FROM daily_comment_stats dcs
+        INNER JOIN youtube_channels ych ON dcs.channel_id = ych.id
+        WHERE ych.user_id = #{userId}
+            AND ych.deleted_at IS NULL
+            <if test="videoId != null">
+                AND dcs.video_id = #{videoId}
+            </if>
+            <if test="channelId != null">
+                AND dcs.channel_id = #{channelId}
+            </if>
+            <if test="startDate != null and startDate != ''">
+                AND dcs.stat_date &gt;= #{startDate}
+            </if>
+            <if test="endDate != null and endDate != ''">
+                AND dcs.stat_date &lt;= #{endDate}
+            </if>
+        GROUP BY 
+            <choose>
+                <when test="periodType == 'daily'">
+                    DATE_FORMAT(dcs.stat_date, '%Y-%m-%d')
+                </when>
+                <when test="periodType == 'monthly'">
+                    DATE_FORMAT(dcs.stat_date, '%Y-%m')
+                </when>
+                <when test="periodType == 'yearly'">
+                    YEAR(dcs.stat_date)
+                </when>
+                <otherwise>
+                    DATE_FORMAT(dcs.stat_date, '%Y-%m-%d')
                 </otherwise>
             </choose>
         ORDER BY date DESC

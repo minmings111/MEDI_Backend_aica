@@ -162,22 +162,21 @@
     <select id="getFilteringTrendByDateRange" 
             resultType="com.medi.backend.userdashboard.dto.FilteringTrendPointDto">
         SELECT 
-            DATE(acar.created_at) AS date,
-            COUNT(*) AS filteredCount
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
-        INNER JOIN youtube_videos v ON yc.video_id = v.id
-        INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
-        AND DATE(acar.created_at) BETWEEN #{from} AND #{to}
+            dcs.stat_date AS date,
+            COALESCE(SUM(dcs.filtered_count), 0) AS filteredCount,
+            COALESCE(SUM(dcs.youtube_total_count), 0) AS totalCount
+        FROM daily_comment_stats dcs
+        INNER JOIN youtube_channels c ON dcs.channel_id = c.id
+        WHERE c.user_id = #{userId}
+        AND dcs.stat_date BETWEEN #{from} AND #{to}
         <if test="channelId != null">
-            AND c.id = #{channelId}
+            AND dcs.channel_id = #{channelId}
         </if>
         <if test="videoId != null">
-            AND v.id = #{videoId}
+            AND dcs.video_id = #{videoId}
         </if>
-        GROUP BY DATE(acar.created_at)
-        ORDER BY date ASC
+        GROUP BY dcs.stat_date
+        ORDER BY dcs.stat_date ASC
     </select>
 
     <!-- UDB-10: 채널별 필터링 통계 -->

@@ -22,13 +22,13 @@ WORKDIR /app
 
 # Python과 pip 설치 (yt-dlp 자동 설치용)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        python3 \
-        python3-pip \
-        curl \
-        && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+  apt-get install -y --no-install-recommends \
+  python3 \
+  python3-pip \
+  curl \
+  && \
+  apt-get clean && \
+  rm -rf /var/lib/apt/lists/*
 
 # JAR 복사
 COPY --from=builder /app/build/libs/*.jar app.jar
@@ -41,5 +41,10 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
   CMD curl -f http://localhost:8080/actuator/health || exit 1
 
 # 실행
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# JVM 메모리 설정 (기본값) - 컨테이너 실행 시 오버라이드 가능
+# Python(yt-dlp) 실행을 위해 Heap 크기를 줄이고 Native 메모리 여유 확보
+ENV JAVA_OPTS="-Xms256m -Xmx512m"
+
+# 실행
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
 

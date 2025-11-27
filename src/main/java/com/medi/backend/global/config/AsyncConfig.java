@@ -35,8 +35,11 @@ public class AsyncConfig implements AsyncConfigurer {
     @Bean(name = "transcriptExecutor")
     public Executor transcriptExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(8);
-        executor.setMaxPoolSize(15);
+        // 메모리 안전을 위해 동시 실행 수 제한 (yt-dlp 프로세스당 약 100MB 소모)
+        // 1GB 컨테이너 기준: Heap 512MB + Native 500MB
+        // Native 500MB 내에서 안전하게 실행되도록 최대 3개로 제한 (3 * 100MB = 300MB)
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(3);
         executor.setQueueCapacity(100);
         executor.setKeepAliveSeconds(60);
         executor.setThreadNamePrefix("Transcript-");
@@ -44,9 +47,9 @@ public class AsyncConfig implements AsyncConfigurer {
         executor.setAwaitTerminationSeconds(60);
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();
-        
-        log.info("✅ Transcript Executor 빈 생성 완료: corePoolSize=8, maxPoolSize=15, queueCapacity=100");
-        
+
+        log.info("✅ Transcript Executor 빈 생성 완료: corePoolSize=2, maxPoolSize=3, queueCapacity=100");
+
         return executor;
     }
 
@@ -74,9 +77,9 @@ public class AsyncConfig implements AsyncConfigurer {
         executor.setAwaitTerminationSeconds(60);
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();
-        
+
         log.info("✅ Redis Sync Executor 빈 생성 완료: corePoolSize=4, maxPoolSize=8, queueCapacity=50");
-        
+
         return executor;
     }
 
@@ -88,9 +91,8 @@ public class AsyncConfig implements AsyncConfigurer {
     @Override
     public AsyncUncaughtExceptionHandler getAsyncUncaughtExceptionHandler() {
         return (ex, method, params) -> {
-            log.error("비동기 작업 예외 발생: method={}, params={}, error={}", 
-                     method.getName(), Arrays.toString(params), ex.getMessage(), ex);
+            log.error("비동기 작업 예외 발생: method={}, params={}, error={}",
+                    method.getName(), Arrays.toString(params), ex.getMessage(), ex);
         };
     }
 }
-

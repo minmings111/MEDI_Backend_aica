@@ -5,6 +5,7 @@ import com.medi.backend.agent.dto.AgentProfilingRequest;
 import com.medi.backend.agent.dto.FilteredCommentResponse;
 import com.medi.backend.agent.dto.AnalysisSummaryResponse;
 import com.medi.backend.agent.dto.FilteredCommentStatsResponse;
+import com.medi.backend.agent.dto.DailyCommentStatDto;
 
 import java.util.List;
 
@@ -81,6 +82,27 @@ public interface AgentService {
      * @return 날짜별 통계 응답
      */
     FilteredCommentStatsResponse getFilteredCommentStatsByDate(
+        Integer userId,
+        Integer videoId,
+        Integer channelId,
+        String periodType,
+        String startDate,
+        String endDate
+    );
+    
+    /**
+     * 일별 전체 댓글 통계 조회 (daily_comment_stats 테이블)
+     * - 전체 댓글 수 (total_count)와 필터링된 댓글 수 (filtered_count) 포함
+     * 
+     * @param userId 사용자 ID
+     * @param videoId 비디오 ID (선택사항, null이면 전체)
+     * @param channelId 채널 ID (선택사항, null이면 전체)
+     * @param periodType 날짜 단위 ("daily", "monthly", "yearly")
+     * @param startDate 시작 날짜 (선택사항, 형식: "YYYY-MM-DD")
+     * @param endDate 종료 날짜 (선택사항, 형식: "YYYY-MM-DD")
+     * @return 날짜별 통계 목록 (전체 댓글 수 포함)
+     */
+    List<DailyCommentStatDto> getDailyCommentStats(
         Integer userId,
         Integer videoId,
         Integer channelId,
