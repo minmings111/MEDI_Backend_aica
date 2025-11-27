@@ -36,11 +36,11 @@ public class AsyncConfig implements AsyncConfigurer {
     public Executor transcriptExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         // 메모리 안전을 위해 동시 실행 수 제한 (yt-dlp 프로세스당 약 100MB 소모)
-        // 1GB 컨테이너 기준: Heap 512MB + Native 500MB
-        // Native 500MB 내에서 안전하게 실행되도록 최대 3개로 제한 (3 * 100MB = 300MB)
+        // 2.5GB 컨테이너 기준: Heap 1.5GB + Native 1GB
+        // Native 1GB 내에서 안전하게 실행되도록 최대 3개로 제한 (3 * 100MB = 300MB)
         executor.setCorePoolSize(2);
         executor.setMaxPoolSize(3);
-        executor.setQueueCapacity(100);
+        executor.setQueueCapacity(50); // 100 → 50 축소 (메모리 압박 감소)
         executor.setKeepAliveSeconds(60);
         executor.setThreadNamePrefix("Transcript-");
         executor.setWaitForTasksToCompleteOnShutdown(true);
@@ -48,7 +48,7 @@ public class AsyncConfig implements AsyncConfigurer {
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();
 
-        log.info("✅ Transcript Executor 빈 생성 완료: corePoolSize=2, maxPoolSize=3, queueCapacity=100");
+        log.info("✅ Transcript Executor 빈 생성 완료: corePoolSize=2, maxPoolSize=3, queueCapacity=50");
 
         return executor;
     }

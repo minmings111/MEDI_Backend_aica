@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Semaphore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -37,6 +38,10 @@ public class YoutubeSyncScheduler {
     private final YoutubeOAuthTokenMapper tokenMapper;
     private final YoutubeRedisSyncService youtubeRedisSyncService;
     private final YoutubeCommentCountSyncService youtubeCommentCountSyncService;
+
+    // 동시 실행 채널 수 제한 (메모리 및 CPU 부하 방지)
+    private static final int MAX_CONCURRENT_CHANNELS = 3;
+    private final Semaphore channelSemaphore = new Semaphore(MAX_CONCURRENT_CHANNELS);
 
     @Scheduled(cron = "0 0 * * * *", zone = "Asia/Seoul")
     public void syncAllChannelsDaily() {
@@ -76,22 +81,29 @@ public class YoutubeSyncScheduler {
                 continue;
             }
 
-            // 토큰 상태 확인 - 만료된 토큰의 채널은 스킵
-            YoutubeOAuthTokenDto token = tokenMapper.findByUserId(userId);
-            if (token == null) {
-                log.warn("[YouTube] 스케줄링 동기화 스킵 - 토큰 없음: userId={}, channelId={}", userId, youtubeChannelId);
-                skipCount++;
-                continue;
-            }
-
-            if ("EXPIRED".equals(token.getTokenStatus())) {
-                log.debug("[YouTube] 스케줄링 동기화 스킵 - 토큰 만료: userId={}, channelId={} (사용자가 재연결 필요)",
-                        userId, youtubeChannelId);
+            // Semaphore로 동시 실행 제한 (최대 3개 채널)
+            if (!channelSemaphore.tryAcquire()) {
+                log.warn("⚠️ [스케줄러] 동시 실행 채널 제한 도달 (최대 {}개) - userId={}, channelId={} 건너뜀 (다음 스케줄에서 재시도)",
+                        MAX_CONCURRENT_CHANNELS, userId, youtubeChannelId);
                 skipCount++;
                 continue;
             }
 
             try {
+                // 토큰 상태 확인 - 만료된 토큰의 채널은 스킵
+                YoutubeOAuthTokenDto token = tokenMapper.findByUserId(userId);
+                if (token == null) {
+                    log.warn("[YouTube] 스케줄링 동기화 스킵 - 토큰 없음: userId={}, channelId={}", userId, youtubeChannelId);
+                    skipCount++;
+                    continue;
+                }
+
+                if ("EXPIRED".equals(token.getTokenStatus())) {
+                    log.debug("[YouTube] 스케줄링 동기화 스킵 - 토큰 만료: userId={}, channelId={} (사용자가 재연결 필요)",
+                            userId, youtubeChannelId);
+                    skipCount++;
+                    continue;
+                }
                 // 0. 채널 정보 동기화 (구독자 수 등 채널 정보 최신화)
                 try {
                     youtubeService.syncChannels(userId, false);
@@ -189,6 +201,9 @@ public class YoutubeSyncScheduler {
                             userId, youtubeChannelId, ex.getMessage(), ex);
                     failCount++;
                 }
+            } finally {
+                // Semaphore 반드시 release (예외 발생해도 실행)
+                channelSemaphore.release();
             }
 
             try {

@@ -12,6 +12,12 @@ public interface ChannelMapper {
     
     public List<YoutubeChannelDto> getChannelsByUserId(Integer userId);
     public YoutubeChannelDto getOneChannelByIdAndUserId(@Param("id") Integer id, @Param("userId") Integer userId);
+    
+    /**
+     * 채널 ID로 채널 정보 조회 (관리자용, userId 체크 없음)
+     */
+    public YoutubeChannelDto getOneChannelById(@Param("id") Integer id);
+    
     public List<YoutubeChannelDto> getAllChannelsForAdmin();
 
     public Integer deleteChannelById(@Param("id") Integer id, @Param("userId") Integer userId);

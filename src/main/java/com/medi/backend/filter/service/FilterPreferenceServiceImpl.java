@@ -14,7 +14,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
 import java.util.*;
 
 /**
@@ -62,6 +61,7 @@ public class FilterPreferenceServiceImpl implements FilterPreferenceService {
         dto.setCustomRuleKeywords(request.getCustomRuleKeywords());
         dto.setDislikeExamples(request.getDislikeExamples());
         dto.setAllowExamples(request.getAllowExamples());
+        dto.setEmailNotificationSettings(request.getEmailNotificationSettings());
         dto.setIsActive(true);
         
         // DB 저장 (UPSERT)
@@ -107,19 +107,19 @@ public class FilterPreferenceServiceImpl implements FilterPreferenceService {
         // ✅ Redis에 저장할 Question-Answer 쌍 구조 생성
         Map<String, Object> policyMap = new HashMap<>();
         
-        // Step 1: 카테고리 선택 (항상 값이 있음)
+        // Question1: 카테고리 선택 (항상 값이 있음)
         List<String> categories = preference.getSelectedCategories();
-        policyMap.put("Step1_카테고리선택", categories != null ? categories : new ArrayList<>());
+        policyMap.put("Question1", categories != null ? categories : new ArrayList<>());
         
-        // Step 2: 카테고리별 키워드 입력 (null 가능)
+        // Question2: 카테고리별 키워드 입력 (null 가능)
         Map<String, List<String>> keywords = preference.getCustomRuleKeywords();
         if (keywords != null && !keywords.isEmpty()) {
-            policyMap.put("Step2_키워드입력", keywords);
+            policyMap.put("Question2", keywords);
         } else {
-            policyMap.put("Step2_키워드입력", null);
+            policyMap.put("Question2", null);
         }
         
-        // Step 3: Few-shot 예시 + 사용자 선택 예시
+        // Question3: Few-shot 예시 + 사용자 선택 예시
         Map<String, Object> step3Map = new HashMap<>();
         
         // ✅ 3-1. 카테고리별 Few-shot 예시 (DB에서 조회)
@@ -155,7 +155,20 @@ public class FilterPreferenceServiceImpl implements FilterPreferenceService {
         userSelectedExamples.put("allow", allowExamples != null ? allowExamples : new ArrayList<>());
         step3Map.put("user_selected_examples", userSelectedExamples);
         
-        policyMap.put("Step3_예시라벨링", step3Map);
+        policyMap.put("Question3", step3Map);
+        
+        // Question4: 이메일 알림 설정
+        com.medi.backend.filter.dto.EmailNotificationSettings emailSettings = preference.getEmailNotificationSettings();
+        if (emailSettings != null) {
+            Map<String, Object> emailNotificationMap = new HashMap<>();
+            emailNotificationMap.put("enabled", emailSettings.getEnabled() != null ? emailSettings.getEnabled() : false);
+            emailNotificationMap.put("timeUnit", emailSettings.getTimeUnit());
+            emailNotificationMap.put("threshold", emailSettings.getThreshold());
+            emailNotificationMap.put("email", emailSettings.getEmail());
+            policyMap.put("Question4", emailNotificationMap);
+        } else {
+            policyMap.put("Question4", null);
+        }
         
         // JSON 문자열로 변환하여 반환 (Redis에 저장될 형태)
         try {
@@ -202,8 +215,8 @@ public class FilterPreferenceServiceImpl implements FilterPreferenceService {
                 redisKey = "user:" + userId + ":form:global";
             }
             
-            // Redis에 저장 (TTL 30일)
-            stringRedisTemplate.opsForValue().set(redisKey, policyBlock, Duration.ofDays(30));
+            // Redis에 저장 (TTL 없음 - 영구 저장)
+            stringRedisTemplate.opsForValue().set(redisKey, policyBlock);
             
             log.info("✅ [Redis 저장] 완료: key={}, length={}자", redisKey, policyBlock.length());
             
@@ -222,6 +235,7 @@ public class FilterPreferenceServiceImpl implements FilterPreferenceService {
         response.setCustomRuleKeywords(dto.getCustomRuleKeywords());
         response.setDislikeExamples(dto.getDislikeExamples());
         response.setAllowExamples(dto.getAllowExamples());
+        response.setEmailNotificationSettings(dto.getEmailNotificationSettings());
         response.setIsActive(dto.getIsActive());
         response.setCreatedAt(dto.getCreatedAt());
         response.setUpdatedAt(dto.getUpdatedAt());

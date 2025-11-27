@@ -31,6 +31,20 @@
             user_id = #{userId}
             AND (deleted_at IS NULL)
     </select>
+    
+    <!-- 채널 ID로 채널 정보 조회 (관리자용, userId 체크 없음) -->
+    <select id="getOneChannelById" 
+            resultType="com.medi.backend.youtube.dto.YoutubeChannelDto">
+        SELECT
+            id, user_id, oauth_token_id, 
+            youtube_channel_id, channel_name, channel_handle, thumbnail_url, 
+            subscriber_count, last_synced_at, last_video_published_at, uploads_playlist_id,
+            created_at, updated_at, deleted_at
+        FROM youtube_channels
+        WHERE 
+            id = #{id}
+            AND (deleted_at IS NULL)
+    </select>
 
 
     <select id="getAllChannelsForAdmin" 

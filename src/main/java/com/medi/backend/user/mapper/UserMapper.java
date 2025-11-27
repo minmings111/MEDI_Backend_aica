@@ -53,4 +53,11 @@ public interface UserMapper {
      * @return 저장된 행 수
      */
     int insertOAuth2User(UserDTO user);
+    
+    /**
+     * 사용자 ID로 사용자 조회
+     * @param id 사용자 ID
+     * @return 사용자 정보 (없으면 null)
+     */
+    UserDTO findById(@Param("id") Integer id);
 }

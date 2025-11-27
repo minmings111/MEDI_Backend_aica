@@ -166,6 +166,16 @@ public interface AgentMapper {
     );
     
     /**
+     * 시간별 필터링된 댓글 개수 조회 (이메일 알림 체크용)
+     * - 기존 테이블에서 직접 COUNT (테이블 추가 불필요)
+     * - 특정 시간대(시 단위)에 필터링된 댓글 개수를 반환
+     */
+    Integer getHourlyFilteredCount(
+        @Param("channelId") Integer channelId,
+        @Param("statDatetime") java.time.LocalDateTime statDatetime
+    );
+    
+    /**
      * YouTube 실제 댓글 수 업데이트 (스케줄러에서 사용)
      */
     int updateYoutubeTotalCount(

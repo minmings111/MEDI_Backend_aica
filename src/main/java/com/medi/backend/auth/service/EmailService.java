@@ -79,4 +79,39 @@ public class EmailService {
         // 전송
         mailSender.send(message);
     }
+    
+    /**
+     * 필터링된 댓글 알림 이메일 전송
+     * @param toEmail 수신자 이메일
+     * @param channelName 채널 이름
+     * @param filteredCount 필터링된 댓글 개수
+     * @param threshold 설정한 기준 개수
+     * @param timeUnitDisplay 시간 단위 표시 (예: "시간당", "일별")
+     */
+    public void sendFilteredCommentNotificationEmail(String toEmail, String channelName, int filteredCount, int threshold, String timeUnitDisplay) {
+        SimpleMailMessage message = new SimpleMailMessage();
+        
+        // 발신자
+        message.setFrom(fromEmail);
+        
+        // 수신자
+        message.setTo(toEmail);
+        
+        // 제목
+        message.setSubject("[MEDI] 필터링된 댓글 알림 - " + channelName);
+        
+        // 본문
+        message.setText(
+            "안녕하세요.\n\n" +
+            "설정하신 채널 '" + channelName + "'에서 필터링된 댓글이 기준 개수를 초과했습니다.\n\n" +
+            "📊 필터링 현황:\n" +
+            "  - " + timeUnitDisplay + " 필터링된 댓글 개수: " + filteredCount + "개\n" +
+            "  - 설정한 기준: " + threshold + "개 이상\n\n" +
+            "필터링된 댓글을 확인하고 관리해주세요.\n\n" +
+            "감사합니다."
+        );
+        
+        // 전송
+        mailSender.send(message);
+    }
 }

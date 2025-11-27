@@ -24,6 +24,8 @@ public class FilterPreferenceResponse {
     private List<String> dislikeExamples;
     private List<String> allowExamples;
     
+    private EmailNotificationSettings emailNotificationSettings;
+    
     private Boolean isActive;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
