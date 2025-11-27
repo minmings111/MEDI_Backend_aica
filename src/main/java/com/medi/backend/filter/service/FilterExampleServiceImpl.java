@@ -34,21 +34,62 @@ public class FilterExampleServiceImpl implements FilterExampleService {
             return filterMapper.findCommonExamples(limit);
         }
         
-        // 카테고리별 예시 조회
+        // 카테고리별 예시 조회 (균등 분배)
         log.debug("📝 [예시 댓글] 카테고리별 조회: categories={}, limit={}, mixDifficulty={}", 
             categories, limit, mixDifficulty);
         
-        List<FilterExampleCommentDto> examples = filterMapper.findExamplesByCategories(
-            categories, limit, mixDifficulty
-        );
+        List<FilterExampleCommentDto> examples;
+        
+        // ✅ 카테고리별 균등 분배 로직
+        if (categories.size() == 1) {
+            // 1개 카테고리: 해당 카테고리에서 limit개 조회
+            examples = filterMapper.findExamplesByCategory(categories.get(0), limit, mixDifficulty);
+        } else {
+            // 여러 카테고리: 총 limit개를 카테고리별로 균등 분배
+            examples = getExamplesByCategoriesDistributed(categories, limit, mixDifficulty);
+        }
         
         // 난이도 믹스가 활성화된 경우, EASY/MEDIUM/HARD 균등 분배
         if (mixDifficulty && examples.size() >= 3) {
             examples = mixByDifficulty(examples);
         }
         
-        log.info("✅ [예시 댓글] 조회 완료: {}개", examples.size());
+        log.info("✅ [예시 댓글] 조회 완료: {}개 (카테고리: {}개)", examples.size(), categories.size());
         return examples;
+    }
+    
+    /**
+     * 여러 카테고리에서 균등 분배하여 예시 댓글 조회
+     * 예: 2개 카테고리, limit=10 → 각 5개씩
+     * 예: 3개 카테고리, limit=10 → 4개, 3개, 3개
+     */
+    private List<FilterExampleCommentDto> getExamplesByCategoriesDistributed(
+            List<String> categories, Integer totalLimit, Boolean mixDifficulty) {
+        List<FilterExampleCommentDto> allExamples = new ArrayList<>();
+        int categoryCount = categories.size();
+        
+        // 카테고리별 개수 계산 (균등 분배)
+        int baseCount = totalLimit / categoryCount;  // 기본 개수
+        int remainder = totalLimit % categoryCount;   // 나머지
+        
+        log.debug("📊 [예시 댓글] 카테고리별 분배: 총 {}개, 카테고리 {}개 → 기본 {}개, 나머지 {}개", 
+            totalLimit, categoryCount, baseCount, remainder);
+        
+        // 각 카테고리별로 조회
+        for (int i = 0; i < categoryCount; i++) {
+            String category = categories.get(i);
+            // 나머지가 있으면 앞쪽 카테고리부터 1개씩 추가
+            int categoryLimit = baseCount + (i < remainder ? 1 : 0);
+            
+            log.debug("📝 [예시 댓글] 카테고리 '{}'에서 {}개 조회", category, categoryLimit);
+            
+            List<FilterExampleCommentDto> categoryExamples = 
+                filterMapper.findExamplesByCategory(category, categoryLimit, mixDifficulty);
+            
+            allExamples.addAll(categoryExamples);
+        }
+        
+        return allExamples;
     }
     
     /**

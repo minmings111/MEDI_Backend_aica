@@ -52,6 +52,18 @@ public interface FilterMapper {
     );
     
     /**
+     * 단일 카테고리 예시 댓글 조회
+     * - categoryId: 조회할 카테고리 ID
+     * - limit: 최대 개수
+     * - mixDifficulty: 난이도 믹스 여부
+     */
+    List<FilterExampleCommentDto> findExamplesByCategory(
+        @Param("categoryId") String categoryId,
+        @Param("limit") Integer limit,
+        @Param("mixDifficulty") Boolean mixDifficulty
+    );
+    
+    /**
      * 공통 예시 댓글 조회 (category_id = 'common')
      */
     List<FilterExampleCommentDto> findCommonExamples(

@@ -192,6 +192,7 @@ public class SecurityConfig {
                 .requestMatchers("/login/oauth2/**").permitAll()            // OAuth2 로그인 콜백
                 .requestMatchers("/api/test/**").permitAll()
                 .requestMatchers("/api/v1/analysis/**").permitAll()  // AI 서버에서 POST로 결과 전송
+                .requestMatchers("/api/filter/prompt/**").permitAll()  // 에이전트용 프롬프트 조회 API
                 .requestMatchers("/api/youtube/connect").authenticated()
                 .requestMatchers("/api/youtube/oauth/callback").permitAll()
                 .requestMatchers("/api/youtube/token/status").authenticated()

@@ -14,6 +14,9 @@ import com.medi.backend.agent.mapper.AgentMapper;
 
 import lombok.extern.slf4j.Slf4j;
 
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 
 @Slf4j
@@ -83,6 +86,44 @@ public class AgentServiceImpl implements AgentService {
                 log.debug("Analysis summary saved for video: {}", request.getVideoId());
             } catch (Exception e) {
                 log.error("Failed to save analysis summary: videoId={}", request.getVideoId(), e);
+            }
+            
+            try {
+                int neutralCount = safeInt(request.getSentimentStats().getNeutral());
+                int filteredCount = safeInt(request.getSentimentStats().getFiltered());
+                int suggestionCount = safeInt(request.getSentimentStats().getSuggestion());
+                int totalProcessed = neutralCount + filteredCount + suggestionCount;
+                
+                if (totalProcessed > 0) {
+                    Integer internalChannelId = null;
+                    if (request.getChannelId() != null && !request.getChannelId().isBlank()) {
+                        internalChannelId = agentMapper.findChannelIdByYoutubeChannelId(request.getChannelId());
+                    }
+                    if (internalChannelId == null) {
+                        internalChannelId = agentMapper.findChannelIdByVideoId(internalVideoId);
+                    }
+                    
+                    if (internalChannelId != null) {
+                        LocalDate statDate = resolveStatDate(request.getAnalysisTimestamp());
+                        agentMapper.upsertDailyCommentStats(
+                            internalChannelId,
+                            internalVideoId,
+                            statDate,
+                            totalProcessed,
+                            filteredCount
+                        );
+                        log.debug("Daily stats upserted: channelId={}, videoId={}, date={}, total={}, filtered={}",
+                            internalChannelId, internalVideoId, statDate, totalProcessed, filteredCount);
+                    } else {
+                        log.warn("Unable to resolve channelId for daily stats: videoId={}, youtubeChannelId={}",
+                            internalVideoId, request.getChannelId());
+                    }
+                } else {
+                    log.debug("Skip daily stats upsert due to zero total count: videoId={}", internalVideoId);
+                }
+            } catch (Exception e) {
+                log.error("Failed to upsert daily stats: videoId={}, youtubeChannelId={}",
+                    internalVideoId, request.getChannelId(), e);
             }
         }
         
@@ -272,6 +313,52 @@ public class AgentServiceImpl implements AgentService {
             .totalSuggestions(totalSuggestions)
             .totalNormal(totalNormal)
             .build();
+    }
+    
+    @Override
+    @Transactional(readOnly = true)
+    public List<com.medi.backend.agent.dto.DailyCommentStatDto> getDailyCommentStats(
+        Integer userId,
+        Integer videoId,
+        Integer channelId,
+        String periodType,
+        String startDate,
+        String endDate
+    ) {
+        log.debug("일별 전체 댓글 통계 조회: userId={}, videoId={}, channelId={}, periodType={}, startDate={}, endDate={}", 
+            userId, videoId, channelId, periodType, startDate, endDate);
+        
+        // periodType 기본값 설정
+        if (periodType == null || periodType.isBlank()) {
+            periodType = "daily";
+        }
+        
+        // daily_comment_stats 테이블에서 조회
+        List<com.medi.backend.agent.dto.DailyCommentStatDto> stats = agentMapper.findDailyCommentStats(
+            userId, videoId, channelId, periodType, startDate, endDate
+        );
+        
+        log.info("✅ 일별 전체 댓글 통계 조회 완료: userId={}, 통계 항목수={}개", 
+            userId, stats != null ? stats.size() : 0);
+        
+        return stats;
+    }
+    
+    private LocalDate resolveStatDate(String analysisTimestamp) {
+        if (analysisTimestamp == null || analysisTimestamp.isBlank()) {
+            return LocalDate.now();
+        }
+        try {
+            return OffsetDateTime.parse(analysisTimestamp).toLocalDate();
+        } catch (DateTimeParseException e) {
+            log.warn("Failed to parse analysisTimestamp for daily stats, fallback to today. timestamp={}, error={}",
+                analysisTimestamp, e.getMessage());
+            return LocalDate.now();
+        }
+    }
+    
+    private int safeInt(Integer value) {
+        return value != null ? value : 0;
     }
 }
 

@@ -237,6 +237,31 @@ CREATE TABLE user_example_responses (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT '사용자별 예시 라벨링 응답 기록 (학습 데이터)';
 
+-- 2-8. daily_comment_stats 테이블 (일별 댓글 통계)
+CREATE TABLE daily_comment_stats (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    channel_id INT NOT NULL COMMENT 'youtube_channels FK',
+    video_id INT NOT NULL COMMENT 'youtube_videos FK',
+    stat_date DATE NOT NULL COMMENT '집계 날짜',
+    total_count INT NOT NULL DEFAULT 0 COMMENT 'AI가 분석한 전체 댓글 수 (neutral + filtered + suggestion)',
+    filtered_count INT NOT NULL DEFAULT 0 COMMENT '필터링된 댓글 수',
+    youtube_total_count BIGINT UNSIGNED NULL DEFAULT NULL COMMENT 'YouTube Data API에서 가져온 실제 전체 댓글 수',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    CONSTRAINT fk_dcs_channel
+        FOREIGN KEY (channel_id) REFERENCES youtube_channels(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_dcs_video
+        FOREIGN KEY (video_id) REFERENCES youtube_videos(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    
+    UNIQUE KEY uk_video_date (video_id, stat_date),
+    INDEX idx_channel_date (channel_id, stat_date),
+    INDEX idx_stat_date (stat_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT '날짜별 전체/필터링 댓글 통계 (YouTube 실제 댓글 수 포함)';
+
 -- ==================================================
 -- 3단계: 2단계 테이블을 참조하는 테이블들
 -- ==================================================
@@ -498,10 +523,6 @@ CREATE TABLE ai_channel_profiling (
     channel_communication JSON NOT NULL COMMENT 'channelCommunication 데이터',
     metadata JSON NOT NULL COMMENT 'metadata 데이터',
     
-    -- 메타데이터 (metadata JSON에서 추출한 주요 필드)
-    profiling_completed_at DATETIME COMMENT '프로파일링 완료 시각 (metadata.profilingCompletedAt)',
-    version VARCHAR(20) COMMENT '버전 (metadata.version)',
-    
     -- 타임스탬프
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -514,7 +535,6 @@ CREATE TABLE ai_channel_profiling (
     -- 인덱스
     INDEX idx_channel_id (channel_id),
     INDEX idx_youtube_channel_id (youtube_channel_id),
-    INDEX idx_profiling_completed_at (profiling_completed_at),
     
     -- 유니크 제약 (채널당 하나의 프로파일링 결과)
     UNIQUE KEY uk_channel_profiling (channel_id)
@@ -582,7 +602,7 @@ SHOW INDEXES FROM ai_channel_profiling;
 INSERT INTO filter_example_comments 
 (category_id, comment_text, suggested_label, difficulty_level, is_active) VALUES
 
--- 욕설·비속어 카테고리 (Few-shot 예시 10개)
+-- 1. 욕설·비속어 (profanity) 총 12개
 ('profanity', '야 이 미친 새끼가 ㅅㅂ', 'block', 'EASY', TRUE),
 ('profanity', '개같은 놈이 왜 또 깝치노', 'block', 'EASY', TRUE),
 ('profanity', '지랄하고 자빠졌네 진짜', 'block', 'EASY', TRUE),
@@ -593,8 +613,10 @@ INSERT INTO filter_example_comments
 ('profanity', '아오 짜증나 씨부랄', 'block', 'EASY', TRUE),
 ('profanity', '개새끼가 어따 대고', 'block', 'EASY', TRUE),
 ('profanity', '닥치고 꺼져 이 병신아', 'block', 'EASY', TRUE),
+('profanity', '와 진짜 재앙이네 ㅋㅋㅋ', 'allow', 'HARD', TRUE),      -- 은유적
+('profanity', '미쳤나봐 완전 미친놈이네', 'block', 'MEDIUM', TRUE),
 
--- 외모·신체 비하 카테고리 (Few-shot 예시 10개)
+-- 2. 외모·신체 비하 (appearance) 총 12개
 ('appearance', '와 돼지새끼가 사람 코스프레하네', 'block', 'EASY', TRUE),
 ('appearance', '키 작아서 열등감 있나 봄 ㅋㅋ', 'block', 'EASY', TRUE),
 ('appearance', '얼굴 망했네 성형이라도 해라', 'block', 'EASY', TRUE),
@@ -605,8 +627,10 @@ INSERT INTO filter_example_comments
 ('appearance', '눈이 찢어져서 중국인 같네', 'block', 'EASY', TRUE),
 ('appearance', '이빨 왜 그렇게 삐뚤어?', 'block', 'EASY', TRUE),
 ('appearance', '피부 왜 그렇게 더러워?', 'block', 'EASY', TRUE),
+('appearance', '얼굴은 좀 아쉽지만 스타일은 괜찮네', 'block', 'HARD', TRUE),
+('appearance', '얼굴은 평타인데 몸매가 아쉽네', 'block', 'MEDIUM', TRUE),
 
--- 인신공격·모욕 카테고리 (Few-shot 예시 10개)
+-- 3. 인신공격·모욕 (personal_attack) 총 12개
 ('personal_attack', '너 같은 쓰레기가 어따 대고', 'block', 'EASY', TRUE),
 ('personal_attack', '인생 존망이라 그러는 거지?', 'block', 'EASY', TRUE),
 ('personal_attack', '니가 뭔데 지껄이노 꼴값떨지마', 'block', 'EASY', TRUE),
@@ -617,8 +641,10 @@ INSERT INTO filter_example_comments
 ('personal_attack', '너는 평생 찐따로 살듯', 'block', 'EASY', TRUE),
 ('personal_attack', '사회생활 못 할 새끼', 'block', 'EASY', TRUE),
 ('personal_attack', '입만 벌리면 역겨워 진짜', 'block', 'EASY', TRUE),
+('personal_attack', '너는 왜 맨날 그렇게 생각하냐?', 'allow', 'HARD', TRUE),
+('personal_attack', '솔직히 말해서 좀 실망했음', 'allow', 'MEDIUM', TRUE),
 
--- 혐오·차별 발언 카테고리 (Few-shot 예시 10개)
+-- 4. 혐오·차별 발언 (hate_speech) 총 12개
 ('hate_speech', '여자가 게임하면 다 저모양이지', 'block', 'EASY', TRUE),
 ('hate_speech', '전라도 새끼들은 믿으면 안 됨', 'block', 'EASY', TRUE),
 ('hate_speech', '장애인이 왜 여기 와서 방해하냐', 'block', 'EASY', TRUE),
@@ -629,8 +655,10 @@ INSERT INTO filter_example_comments
 ('hate_speech', '지방대 나온 주제에 잘난 척', 'block', 'EASY', TRUE),
 ('hate_speech', '이슬람 놈들 다 테러리스트야', 'block', 'EASY', TRUE),
 ('hate_speech', '노인네들은 그냥 집에나 있어', 'block', 'EASY', TRUE),
+('hate_speech', '요즘 애들은 버릇이 없어', 'allow', 'HARD', TRUE),
+('hate_speech', '남자들 대부분 다 똑같더라', 'block', 'MEDIUM', TRUE),
 
--- 성적 발언·희롱 카테고리 ⭐ NEW (Few-shot 예시 10개)
+-- 5. 성적 발언·희롱 (sexual) 총 13개 (가장 오탐 많아서 하나 더 넣음)
 ('sexual', '가슴 진짜 크다 한 번 빨고 싶네', 'block', 'EASY', TRUE),
 ('sexual', '치마 짧아서 팬티 보이던데 일부러지?', 'block', 'EASY', TRUE),
 ('sexual', '뒤태 미쳤어 뒤치기하고 싶다', 'block', 'EASY', TRUE),
@@ -641,8 +669,11 @@ INSERT INTO filter_example_comments
 ('sexual', '입으로 해줄 줄 알겠네', 'block', 'EASY', TRUE),
 ('sexual', '몸매가 남자들 다 꼴리게 생겼네', 'block', 'EASY', TRUE),
 ('sexual', '야 너 가슴으로 뭐 하냐 ㅋㅋ', 'block', 'EASY', TRUE),
+('sexual', '와 몸매 관리 진짜 잘했네 부럽다', 'allow', 'HARD', TRUE),
+('sexual', '섹시한 게 죄냐 ㅋㅋ', 'block', 'MEDIUM', TRUE),
+('sexual', '와 진짜 예쁘게 생겼네', 'allow', 'HARD', TRUE),
 
--- 스팸·광고·도배 카테고리 (Few-shot 예시 10개)
+-- 6. 스팸·광고·도배 (spam) 총 13개
 ('spam', '로또 1등 당첨번호 알려드림 ↓↓↓↓', 'block', 'EASY', TRUE),
 ('spam', '제휴 문의 카톡 ID: money1234', 'block', 'EASY', TRUE),
 ('spam', 'ㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇㅇ', 'block', 'EASY', TRUE),
@@ -653,11 +684,6 @@ INSERT INTO filter_example_comments
 ('spam', '비트코인 100배 간다 지금 사세요', 'block', 'EASY', TRUE),
 ('spam', 'ㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋ', 'block', 'EASY', TRUE),
 ('spam', '파워볼 자동프로그램 팝니다 100% 당첨', 'block', 'EASY', TRUE),
-
--- 공통 예시 (모든 카테고리에서 사용)
-('common', '오늘 영상 좋네요', 'allow', 'EASY', TRUE),
-('common', '게임 못해도 말은 재밌음 ㅋㅋ', 'allow', 'MEDIUM', TRUE),
-('common', '오늘은 텐션이 좀 다운된 느낌', 'allow', 'HARD', TRUE),
-('common', '다음 영상도 기대됩니다', 'allow', 'EASY', TRUE),
-('common', '이 부분이 좀 아쉬웠어요', 'allow', 'HARD', TRUE);
-
+('spam', 'ㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠ', 'allow', 'MEDIUM', TRUE),
+('spam', '와 진짜 미쳤다 ㄷㄷㄷㄷㄷㄷㄷㄷ', 'allow', 'HARD', TRUE),
+('spam', 'ㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋ', 'allow', 'MEDIUM', TRUE);

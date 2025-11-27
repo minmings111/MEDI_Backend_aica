@@ -2,8 +2,6 @@ package com.medi.backend.youtube.redis.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.medi.backend.filter.service.FilterPreferenceService;
-import com.medi.backend.youtube.dto.YoutubeChannelDto;
-import com.medi.backend.youtube.mapper.YoutubeChannelMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -33,7 +31,6 @@ public class RedisQueueService {
     private final StringRedisTemplate redisQueueTemplate;
     private final ObjectMapper objectMapper;
     private final FilterPreferenceService filterPreferenceService;
-    private final YoutubeChannelMapper youtubeChannelMapper;
     private static final String PROFILING_QUEUE_KEY = "profiling_agent:tasks:queue";
     private static final String FILTERING_QUEUE_KEY = "filtering_agent:tasks:queue";
     private static final String LEGAL_REPORT_QUEUE_KEY = "legal_report_agent:tasks:queue";
@@ -47,14 +44,12 @@ public class RedisQueueService {
         @Qualifier("redisQueueTemplate") StringRedisTemplate redisQueueTemplate,
         StringRedisTemplate stringRedisTemplate,
         ObjectMapper objectMapper,
-        FilterPreferenceService filterPreferenceService,
-        YoutubeChannelMapper youtubeChannelMapper
+        FilterPreferenceService filterPreferenceService
     ) {
         this.redisQueueTemplate = redisQueueTemplate;
         this.stringRedisTemplate = stringRedisTemplate;
         this.objectMapper = objectMapper;
         this.filterPreferenceService = filterPreferenceService;
-        this.youtubeChannelMapper = youtubeChannelMapper;
     }
 
     /**
@@ -84,7 +79,9 @@ public class RedisQueueService {
 
     /**
      * Filtering Agent 작업 추가
-     * - 프롬프트 정책 블록 포함 (user_policy_block)
+     * - DB 1의 filtering_agent:tasks:queue에 작업 추가
+     * - 프롬프트는 큐에 포함하지 않음 (에이전트가 작업 처리 시 Redis에서 직접 읽음)
+     * - Redis 키: channel:{channelId}:form (DB 0)
      */
     public void enqueueFiltering(String channelId, List<String> videoIds) {
         try {
@@ -93,48 +90,20 @@ public class RedisQueueService {
             task.put("type", "filtering");  // ⭐ 명시적으로 "filtering"
             task.put("videoIds", videoIds);
             
-            // ✅ 프롬프트 정책 블록 추가
-            try {
-                // channelId로 채널 정보 조회 (userId 추출)
-                YoutubeChannelDto channel = youtubeChannelMapper.findByYoutubeChannelId(channelId);
-                if (channel != null && channel.getUserId() != null) {
-                    // 채널별 설정 우선, 없으면 전역 설정
-                    Integer channelDbId = channel.getId();
-                    String policyBlock = filterPreferenceService.buildPromptPolicyBlock(
-                        channel.getUserId(), channelDbId
-                    );
-                    
-                    // 전역 설정 조회 (채널별 설정이 없을 경우)
-                    if (policyBlock == null || policyBlock.isEmpty()) {
-                        policyBlock = filterPreferenceService.buildPromptPolicyBlock(
-                            channel.getUserId(), null
-                        );
-                    }
-                    
-                    if (policyBlock != null && !policyBlock.isEmpty()) {
-                        task.put("user_policy_block", policyBlock);
-                        log.debug("✅ 프롬프트 정책 블록 포함: channelId={}, userId={}, length={}자", 
-                            channelId, channel.getUserId(), policyBlock.length());
-                    } else {
-                        log.debug("⚠️ 프롬프트 정책 블록 없음: channelId={}, userId={}", 
-                            channelId, channel.getUserId());
-                    }
-                } else {
-                    log.warn("⚠️ 채널 정보 조회 실패: channelId={}", channelId);
-                }
-            } catch (Exception e) {
-                log.warn("⚠️ 프롬프트 정책 블록 생성 실패 (작업 큐 추가는 계속 진행): channelId={}, error={}", 
-                    channelId, e.getMessage());
-                // 프롬프트 생성 실패해도 작업 큐 추가는 계속 진행
-            }
+            // ✅ 프롬프트는 큐에 포함하지 않음
+            //    에이전트가 작업 처리 시 Redis(DB 0)에서 직접 읽음
+            //    Redis 키: channel:{channelId}:form
+            //    - 입력 폼 저장 시 Redis에 저장됨 (TTL 30일)
+            //    - 에이전트가 없으면 기본 프롬프트 사용
             
             String taskJson = objectMapper.writeValueAsString(task);
             
             // ⭐ DB 1의 FILTERING Queue에 추가
             redisQueueTemplate.opsForList().leftPush(FILTERING_QUEUE_KEY, taskJson);
             
-            log.info("✅ Filtering task 추가 (DB 1): channelId={}, queue={}, type=filtering, videoCount={}, hasPolicy={}", 
-                channelId, FILTERING_QUEUE_KEY, videoIds.size(), task.containsKey("user_policy_block"));
+            log.info("✅ Filtering task 추가 (DB 1): channelId={}, queue={}, type=filtering, videoCount={}", 
+                channelId, FILTERING_QUEUE_KEY, videoIds.size());
+            log.debug("💡 에이전트는 Redis(DB 0)에서 channel:{}:form 키로 프롬프트를 읽어야 합니다.", channelId);
         } catch (Exception e) {
             log.error("❌ Filtering task 추가 실패: channelId={}", channelId, e);
             throw new RuntimeException("Failed to enqueue filtering task", e);
@@ -199,8 +168,9 @@ public class RedisQueueService {
      * 입력폼 양식 (Form) 작업 추가 및 Redis 저장
      * - 작업 큐(DB 1)에 추가
      * - Redis(DB 0)에 채널별로 저장 (agent에서 프롬프트로 사용)
+     * - 저장 형식: {Question: Answer, Question: NULL, ...} (Answer도 JSON 중첩 가능)
      */
-    public void enqueueAndSaveForm(String channelId, Integer userId, Map<String, Object> formData) {
+    public void enqueueAndSaveForm(String channelId, Integer userId, Integer channelDbId) {
         try {
             // 1. 작업 큐에 추가 (DB 1)
             Map<String, Object> task = new HashMap<>();
@@ -214,14 +184,26 @@ public class RedisQueueService {
             log.info("✅ Form task 추가 (DB 1): channelId={}, userId={}, queue={}, type=form", 
                 channelId, userId, FORM_QUEUE_KEY);
             
-            // 2. Redis에 Form 데이터 저장 (DB 0) - 채널별로 저장
-            // 키 패턴: channel:{channelId}:form
-            String formRedisKey = "channel:" + channelId + ":form";
-            String formDataJson = objectMapper.writeValueAsString(formData);
-            stringRedisTemplate.opsForValue().set(formRedisKey, formDataJson);
+            // 2. 구조화된 프롬프트 정책 블록 생성 (Question-Answer 형식)
+            String policyBlockJson = filterPreferenceService.buildPromptPolicyBlock(userId, channelDbId);
             
-            log.info("✅ Form 데이터 Redis 저장 (DB 0): channelId={}, key={}, dataSize={}자", 
-                channelId, formRedisKey, formDataJson.length());
+            if (policyBlockJson == null || policyBlockJson.isEmpty()) {
+                log.warn("⚠️ 프롬프트 정책 블록이 없습니다. Redis 저장 건너뜀: channelId={}, userId={}", 
+                    channelId, userId);
+                return;
+            }
+            
+            // 3. Redis에 구조화된 Form 데이터 저장 (DB 0) - 채널별로 저장
+            // 키 패턴: channel:{channelId}:form
+            // 저장 형식: {Question: Answer, Question: NULL, ...} (JSON 중첩 가능)
+            // ⭐ TTL: 30일 (1달, 입력 폼은 자주 변경되지 않으므로 긴 TTL 설정)
+            //    테스트 환경(5명 이하)에서는 용량 부담이 거의 없음 (예상: ~100KB)
+            String formRedisKey = "channel:" + channelId + ":form";
+            stringRedisTemplate.opsForValue().set(formRedisKey, policyBlockJson, 
+                java.time.Duration.ofDays(30));
+            
+            log.info("✅ Form 데이터 Redis 저장 (DB 0, TTL=30일): channelId={}, key={}, dataSize={}자", 
+                channelId, formRedisKey, policyBlockJson.length());
             
         } catch (Exception e) {
             log.error("❌ Form task 추가 및 저장 실패: channelId={}, userId={}", channelId, userId, e);

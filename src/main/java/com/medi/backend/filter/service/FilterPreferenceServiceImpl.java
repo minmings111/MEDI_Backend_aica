@@ -4,13 +4,17 @@ import com.medi.backend.filter.dto.FilterPreferenceRequest;
 import com.medi.backend.filter.dto.FilterPreferenceResponse;
 import com.medi.backend.filter.dto.UserFilterPreferenceDto;
 import com.medi.backend.filter.mapper.FilterMapper;
+import com.medi.backend.youtube.dto.YoutubeChannelDto;
+import com.medi.backend.youtube.mapper.ChannelMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.util.*;
 
 /**
@@ -22,6 +26,8 @@ import java.util.*;
 public class FilterPreferenceServiceImpl implements FilterPreferenceService {
     
     private final FilterMapper filterMapper;
+    private final ChannelMapper channelMapper;
+    private final StringRedisTemplate stringRedisTemplate;
     
     // 카테고리 ID → 한글명 매핑
     private static final Map<String, String> CATEGORY_LABELS = Map.of(
@@ -40,6 +46,14 @@ public class FilterPreferenceServiceImpl implements FilterPreferenceService {
     public FilterPreferenceResponse savePreference(Integer userId, FilterPreferenceRequest request) {
         log.info("💾 [필터 설정] 저장 시작: userId={}, channelId={}", userId, request.getChannelId());
         
+        // ✅ 최소 선택 개수 검증 (최소 3개 이상)
+        int totalExamples = (request.getDislikeExamples() != null ? request.getDislikeExamples().size() : 0) +
+                           (request.getAllowExamples() != null ? request.getAllowExamples().size() : 0);
+        if (totalExamples < 3) {
+            log.warn("⚠️ [필터 설정] 예시 댓글 라벨링이 부족함: {}개 (최소 3개 필요)", totalExamples);
+            throw new IllegalArgumentException("예시 댓글을 최소 3개 이상 선택해주세요. (현재: " + totalExamples + "개)");
+        }
+        
         // DTO 변환
         UserFilterPreferenceDto dto = new UserFilterPreferenceDto();
         dto.setUserId(userId);
@@ -53,8 +67,11 @@ public class FilterPreferenceServiceImpl implements FilterPreferenceService {
         // DB 저장 (UPSERT)
         filterMapper.upsertPreference(dto);
         
-        log.info("✅ [필터 설정] 저장 완료: id={}, userId={}, channelId={}", 
+        log.info("✅ [필터 설정] DB 저장 완료: id={}, userId={}, channelId={}", 
             dto.getId(), userId, request.getChannelId());
+        
+        // ✅ Redis 저장 (DB 저장 직후)
+        saveToRedis(userId, request.getChannelId());
         
         // 응답 생성
         return toResponse(dto);
@@ -152,6 +169,47 @@ public class FilterPreferenceServiceImpl implements FilterPreferenceService {
         } catch (Exception e) {
             log.error("❌ [프롬프트] JSON 변환 실패: userId={}, channelId={}", userId, channelId, e);
             return null;
+        }
+    }
+    
+    /**
+     * Redis에 프롬프트 정책 블록 저장
+     * - 채널별 설정: channel:{youtubeChannelId}:form
+     * - 전역 설정: user:{userId}:form:global
+     */
+    private void saveToRedis(Integer userId, Integer channelDbId) {
+        try {
+            // 프롬프트 정책 블록 생성
+            String policyBlock = buildPromptPolicyBlock(userId, channelDbId);
+            
+            if (policyBlock == null || policyBlock.isEmpty()) {
+                log.warn("⚠️ [Redis 저장] 프롬프트 정책 블록이 비어있음: userId={}, channelId={}", userId, channelDbId);
+                return;
+            }
+            
+            String redisKey;
+            
+            if (channelDbId != null) {
+                // 채널별 설정: YouTube channel ID 조회
+                YoutubeChannelDto channel = channelMapper.getOneChannelByIdAndUserId(channelDbId, userId);
+                if (channel == null) {
+                    log.warn("⚠️ [Redis 저장] 채널을 찾을 수 없음: channelDbId={}, userId={}", channelDbId, userId);
+                    return;
+                }
+                redisKey = "channel:" + channel.getYoutubeChannelId() + ":form";
+            } else {
+                // 전역 설정
+                redisKey = "user:" + userId + ":form:global";
+            }
+            
+            // Redis에 저장 (TTL 30일)
+            stringRedisTemplate.opsForValue().set(redisKey, policyBlock, Duration.ofDays(30));
+            
+            log.info("✅ [Redis 저장] 완료: key={}, length={}자", redisKey, policyBlock.length());
+            
+        } catch (Exception e) {
+            log.error("❌ [Redis 저장] 실패: userId={}, channelId={}", userId, channelDbId, e);
+            // Redis 저장 실패해도 DB 저장은 성공했으므로 예외를 던지지 않음
         }
     }
     

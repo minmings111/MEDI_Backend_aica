@@ -66,6 +66,11 @@ public interface AgentMapper {
     Integer findChannelIdByYoutubeChannelId(@Param("youtubeChannelId") String youtubeChannelId);
     
     /**
+     * 내부 video_id로 channel_id 조회
+     */
+    Integer findChannelIdByVideoId(@Param("videoId") Integer videoId);
+    
+    /**
      * ai_channel_profiling 테이블에 프로파일링 결과 저장
      */
     Integer insertChannelProfiling(
@@ -143,6 +148,48 @@ public interface AgentMapper {
      * @return 날짜별 통계 목록
      */
     List<DateStat> findFilteredCommentStatsByDate(
+        @Param("userId") Integer userId,
+        @Param("videoId") Integer videoId,
+        @Param("channelId") Integer channelId,
+        @Param("periodType") String periodType,
+        @Param("startDate") String startDate,
+        @Param("endDate") String endDate
+    );
+    
+    /**
+     * daily_comment_stats 테이블에 일별 통계 upsert
+     */
+    int upsertDailyCommentStats(
+        @Param("channelId") Integer channelId,
+        @Param("videoId") Integer videoId,
+        @Param("statDate") java.time.LocalDate statDate,
+        @Param("totalCount") Integer totalCount,
+        @Param("filteredCount") Integer filteredCount
+    );
+    
+    /**
+     * YouTube 실제 댓글 수 업데이트 (스케줄러에서 사용)
+     */
+    int updateYoutubeTotalCount(
+        @Param("channelId") Integer channelId,
+        @Param("videoId") Integer videoId,
+        @Param("statDate") java.time.LocalDate statDate,
+        @Param("youtubeTotalCount") Long youtubeTotalCount
+    );
+    
+    /**
+     * daily_comment_stats 테이블에서 일별 통계 조회
+     * - 전체 댓글 수 (total_count)와 필터링된 댓글 수 (filtered_count) 포함
+     * 
+     * @param userId 사용자 ID
+     * @param videoId 비디오 ID (선택사항, null이면 전체)
+     * @param channelId 채널 ID (선택사항, null이면 전체)
+     * @param periodType 날짜 단위 ("daily", "monthly", "yearly")
+     * @param startDate 시작 날짜 (선택사항, 형식: "YYYY-MM-DD")
+     * @param endDate 종료 날짜 (선택사항, 형식: "YYYY-MM-DD")
+     * @return 날짜별 통계 목록
+     */
+    List<com.medi.backend.agent.dto.DailyCommentStatDto> findDailyCommentStats(
         @Param("userId") Integer userId,
         @Param("videoId") Integer videoId,
         @Param("channelId") Integer channelId,

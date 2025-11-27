@@ -187,11 +187,12 @@ public class ReportController {
             // ✅ ReportRequest.data를 FilterPreferenceRequest로 변환
             FilterPreferenceRequest filterRequest = convertToFilterPreferenceRequest(requestData, channelDbId);
             
-            // ✅ 1. user_filter_preferences 테이블에 저장
+            // ✅ 1. user_filter_preferences 테이블에 저장 (DB)
             FilterPreferenceResponse savedPreference = filterPreferenceService.savePreference(userId, filterRequest);
             
-            // ✅ 2. Redis에도 저장 (작업 큐 + Redis DB 0)
-            redisQueueService.enqueueAndSaveForm(request.getChannelId(), userId, requestData);
+            // ✅ 2. Redis에도 저장 (Agent에서 사용할 수 있도록)
+            //    입력 폼 저장 시 즉시 Redis에 저장하여 필터링 작업 시 사용 가능하도록 함
+            redisQueueService.enqueueAndSaveForm(request.getChannelId(), userId, channelDbId);
             
             Map<String, Object> response = new HashMap<>();
             response.put("message", "Form data saved to DB and Redis successfully");
@@ -200,7 +201,7 @@ public class ReportController {
             response.put("userId", userId);
             response.put("preference", savedPreference);
             
-            log.info("✅ 입력폼 양식 데이터 저장 완료 (DB + Redis): userId={}, channelId={}, channelDbId={}", 
+            log.info("✅ 입력폼 양식 데이터 저장 완료 (DB): userId={}, channelId={}, channelDbId={}", 
                 userId, request.getChannelId(), channelDbId);
             
             return ResponseEntity.ok(response);

@@ -8,6 +8,7 @@ import com.medi.backend.youtube.mapper.YoutubeOAuthTokenMapper;
 import com.medi.backend.youtube.mapper.YoutubeVideoMapper;
 import com.medi.backend.youtube.model.VideoSyncMode;
 import com.medi.backend.youtube.redis.service.YoutubeRedisSyncService;
+import com.medi.backend.youtube.service.YoutubeCommentCountSyncService;
 import com.medi.backend.youtube.service.YoutubeService;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,6 +36,7 @@ public class YoutubeSyncScheduler {
     private final YoutubeService youtubeService;
     private final YoutubeOAuthTokenMapper tokenMapper;
     private final YoutubeRedisSyncService youtubeRedisSyncService;
+    private final YoutubeCommentCountSyncService youtubeCommentCountSyncService;
 
     @Scheduled(cron = "0 0 * * * *", zone = "Asia/Seoul")
     public void syncAllChannelsDaily() {
@@ -44,15 +46,15 @@ public class YoutubeSyncScheduler {
         long maxMemory = runtime.maxMemory();
         long usedMemory = totalMemory - freeMemory;
         double usagePercent = (double) usedMemory / maxMemory * 100;
-        
-        log.info("📊 [스케줄러] 시작 전 메모리 상태: 사용률={}%, 사용={}MB, 최대={}MB", 
-            String.format("%.2f", usagePercent), usedMemory / (1024 * 1024), maxMemory / (1024 * 1024));
-        
+
+        log.info("📊 [스케줄러] 시작 전 메모리 상태: 사용률={}%, 사용={}MB, 최대={}MB",
+                String.format("%.2f", usagePercent), usedMemory / (1024 * 1024), maxMemory / (1024 * 1024));
+
         if (usagePercent > 80) {
             log.error("🚨 [스케줄러] 메모리 부족 ({}%) - 동기화 건너뜀", String.format("%.2f", usagePercent));
             return;
         }
-        
+
         List<YoutubeChannelDto> channels = youtubeChannelMapper.findAllForSync();
         if (channels == null || channels.isEmpty()) {
             log.debug("[YouTube] 스케줄링 동기화 - 동기화할 채널이 없음");
@@ -83,7 +85,7 @@ public class YoutubeSyncScheduler {
             }
 
             if ("EXPIRED".equals(token.getTokenStatus())) {
-                log.debug("[YouTube] 스케줄링 동기화 스킵 - 토큰 만료: userId={}, channelId={} (사용자가 재연결 필요)", 
+                log.debug("[YouTube] 스케줄링 동기화 스킵 - 토큰 만료: userId={}, channelId={} (사용자가 재연결 필요)",
                         userId, youtubeChannelId);
                 skipCount++;
                 continue;
@@ -94,69 +96,92 @@ public class YoutubeSyncScheduler {
                 try {
                     youtubeService.syncChannels(userId, false);
                     log.debug("[YouTube] 스케줄링 채널 정보 동기화 완료 - userId={}, channelId={} (구독자 수 등 업데이트됨)",
-                        userId, youtubeChannelId);
+                            userId, youtubeChannelId);
                 } catch (Exception channelSyncEx) {
                     log.warn("[YouTube] 스케줄링 채널 정보 동기화 실패 (영상 동기화는 계속 진행) - userId={}, channelId={}, error={}",
-                        userId, youtubeChannelId, channelSyncEx.getMessage());
+                            userId, youtubeChannelId, channelSyncEx.getMessage());
                     // 채널 정보 동기화 실패해도 영상 동기화는 계속 진행
                 }
 
                 // 1. 새 영상 동기화 (MySQL 저장만, 댓글 동기화 건너뜀)
                 // skipCommentSync=true로 설정하여 중복 API 호출 방지
                 List<YoutubeVideoDto> newVideos = youtubeService.syncVideos(
-                    userId, youtubeChannelId, null, VideoSyncMode.FOLLOW_UP, true);
-                
+                        userId, youtubeChannelId, null, VideoSyncMode.FOLLOW_UP, true);
+
                 log.debug("[YouTube] 스케줄링 동기화 성공 - userId={}, channelId={}, 새 영상={}개",
-                    userId, youtubeChannelId, newVideos != null ? newVideos.size() : 0);
-                
-                // 2. MySQL에 저장된 모든 영상의 새 댓글 동기화 (초기 5개 + 새 영상 모두 포함)
-                // 이렇게 하면 초기 5개 영상의 새 댓글도 계속 필터링 대상이 됩니다
+                        userId, youtubeChannelId, newVideos != null ? newVideos.size() : 0);
+
+                // 2. MySQL에 저장된 영상 중 "최신 5개" + "최근 24시간 내 생성된 영상"만 댓글 동기화
+                // (메모리/API 최적화 + 신규 영상 누락 방지)
                 List<YoutubeVideoDto> allVideos = youtubeVideoMapper.findByChannelId(channel.getId());
                 if (!allVideos.isEmpty()) {
-                    List<String> allVideoIds = allVideos.stream()
-                        .map(YoutubeVideoDto::getYoutubeVideoId)
-                        .filter(id -> id != null && !id.isBlank())
-                        .collect(Collectors.toCollection(() -> new ArrayList<>(allVideos.size())));
-                    
-                    if (!allVideoIds.isEmpty()) {
+                    // A. 최근 24시간 내에 DB에 생성된 영상 (신규 수집된 영상)
+                    java.time.LocalDateTime oneDayAgo = java.time.LocalDateTime.now().minusHours(24);
+                    List<YoutubeVideoDto> newVideosInDb = allVideos.stream()
+                            .filter(v -> v.getCreatedAt() != null && v.getCreatedAt().isAfter(oneDayAgo))
+                            .collect(Collectors.toList());
+
+                    // B. 게시일 기준 최신 5개 영상 (기존 영상 중 최신 유지)
+                    // allVideos는 이미 published_at DESC로 정렬되어 있음 (Mapper XML)
+                    List<YoutubeVideoDto> top5Videos = allVideos.stream()
+                            .limit(5)
+                            .collect(Collectors.toList());
+
+                    // C. 합집합 (중복 제거)
+                    java.util.Set<String> targetVideoIds = new java.util.HashSet<>();
+
+                    for (YoutubeVideoDto v : newVideosInDb) {
+                        if (v.getYoutubeVideoId() != null)
+                            targetVideoIds.add(v.getYoutubeVideoId());
+                    }
+                    for (YoutubeVideoDto v : top5Videos) {
+                        if (v.getYoutubeVideoId() != null)
+                            targetVideoIds.add(v.getYoutubeVideoId());
+                    }
+
+                    List<String> finalVideoIds = new ArrayList<>(targetVideoIds);
+
+                    if (!finalVideoIds.isEmpty()) {
                         try {
-                            log.info("[YouTube] 기존 영상들의 새 댓글 동기화 시작: userId={}, channelId={}, 영상={}개",
-                                userId, youtubeChannelId, allVideoIds.size());
-                            var syncResult = youtubeRedisSyncService.syncIncrementalToRedis(userId, allVideoIds);
-                            
+                            log.info("[YouTube] 댓글 동기화 대상 선정: userId={}, channelId={}, 대상={}개 (신규={} + Top5={}, 중복제거됨)",
+                                    userId, youtubeChannelId, finalVideoIds.size(), newVideosInDb.size(),
+                                    top5Videos.size());
+
+                            var syncResult = youtubeRedisSyncService.syncIncrementalToRedis(userId, finalVideoIds);
+
                             if (syncResult.isSuccess()) {
-                                log.info("[YouTube] 기존 영상들의 새 댓글 동기화 완료: userId={}, 비디오={}개, 댓글={}개, 채널={}개, 큐추가됨={}",
-                                    userId, syncResult.getVideoCount(), syncResult.getCommentCount(), 
-                                    syncResult.getChannelCount(), syncResult.getChannelCount() > 0);
+                                log.info("[YouTube] 댓글 동기화 완료: userId={}, 비디오={}개, 댓글={}개, 채널={}개, 큐추가됨={}",
+                                        userId, syncResult.getVideoCount(), syncResult.getCommentCount(),
+                                        syncResult.getChannelCount(), syncResult.getChannelCount() > 0);
                             } else {
-                                log.warn("[YouTube] 기존 영상들의 새 댓글 동기화 부분 실패: userId={}, 비디오={}개, 댓글={}개, 채널={}개, error={}",
-                                    userId, syncResult.getVideoCount(), syncResult.getCommentCount(), 
-                                    syncResult.getChannelCount(), syncResult.getErrorMessage());
+                                log.warn("[YouTube] 댓글 동기화 부분 실패: userId={}, 비디오={}개, 댓글={}개, 채널={}개, error={}",
+                                        userId, syncResult.getVideoCount(), syncResult.getCommentCount(),
+                                        syncResult.getChannelCount(), syncResult.getErrorMessage());
                             }
-                            
+
                             // ⚠️ 큐 추가 여부 확인 (큐 추가는 댓글 실패해도 실행됨)
                             if (syncResult.getChannelCount() == 0) {
                                 log.error("❌ [YouTube] 작업 큐에 추가되지 않았습니다! userId={}, channelId={}, videoIds={}개",
-                                    userId, youtubeChannelId, allVideoIds.size());
+                                        userId, youtubeChannelId, finalVideoIds.size());
                             }
                         } catch (Exception e) {
-                            log.error("❌ [YouTube] 기존 영상들의 새 댓글 동기화 실패: userId={}, channelId={}, error={}",
-                                userId, youtubeChannelId, e.getMessage(), e);
+                            log.error("❌ [YouTube] 댓글 동기화 실패: userId={}, channelId={}, error={}",
+                                    userId, youtubeChannelId, e.getMessage(), e);
                             // 댓글 동기화 실패해도 영상 동기화는 성공한 것으로 간주
                         }
                     }
                 }
-                
+
                 successCount++;
             } catch (Exception ex) {
                 // 토큰 만료 관련 예외인지 확인
                 String errorMessage = ex.getMessage();
                 Throwable cause = ex.getCause();
-                if (errorMessage != null && (errorMessage.contains("Refresh token expired") 
+                if (errorMessage != null && (errorMessage.contains("Refresh token expired")
                         || errorMessage.contains("invalid_grant")
-                        || (cause != null && cause.getMessage() != null 
-                            && cause.getMessage().contains("invalid_grant")))) {
-                    log.warn("[YouTube] 스케줄링 동기화 스킵 - 토큰 만료로 인한 실패: userId={}, channelId={} (다음 동기화부터 자동 스킵됨)", 
+                        || (cause != null && cause.getMessage() != null
+                                && cause.getMessage().contains("invalid_grant")))) {
+                    log.warn("[YouTube] 스케줄링 동기화 스킵 - 토큰 만료로 인한 실패: userId={}, channelId={} (다음 동기화부터 자동 스킵됨)",
                             userId, youtubeChannelId);
                     skipCount++;
                 } else {
@@ -176,11 +201,27 @@ public class YoutubeSyncScheduler {
         }
 
         log.info("[YouTube] 스케줄링 동기화 종료 - 성공: {}, 스킵: {}, 실패: {}", successCount, skipCount, failCount);
-        
+
         long finalUsedMemory = runtime.totalMemory() - runtime.freeMemory();
         double finalUsagePercent = (double) finalUsedMemory / maxMemory * 100;
-        log.info("📊 [스케줄러] 완료 후 메모리 상태: 사용률={}%, 사용={}MB, 최대={}MB", 
-            String.format("%.2f", finalUsagePercent), finalUsedMemory / (1024 * 1024), maxMemory / (1024 * 1024));
+        log.info("📊 [스케줄러] 완료 후 메모리 상태: 사용률={}%, 사용={}MB, 최대={}MB",
+                String.format("%.2f", finalUsagePercent), finalUsedMemory / (1024 * 1024), maxMemory / (1024 * 1024));
+    }
+
+    /**
+     * 하루에 한 번 YouTube 실제 댓글 수를 daily_comment_stats 테이블에 저장
+     * 매일 오전 1시에 실행 (Asia/Seoul 시간대)
+     * - 자정에는 다른 작업이 실행될 수 있어 충돌 방지를 위해 1시로 설정
+     * - 전날의 댓글 수를 저장하여 날짜별 추적 가능
+     */
+    @Scheduled(cron = "0 0 1 * * *", zone = "Asia/Seoul")
+    public void syncYoutubeCommentCountsDaily() {
+        log.info("📊 [스케줄러] YouTube 실제 댓글 수 동기화 시작");
+        try {
+            youtubeCommentCountSyncService.syncYoutubeCommentCounts();
+            log.info("✅ [스케줄러] YouTube 실제 댓글 수 동기화 완료");
+        } catch (Exception e) {
+            log.error("❌ [스케줄러] YouTube 실제 댓글 수 동기화 실패", e);
+        }
     }
 }
-

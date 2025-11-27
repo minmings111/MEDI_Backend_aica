@@ -16,6 +16,7 @@ import com.medi.backend.agent.dto.AgentProfilingRequest;
 import com.medi.backend.agent.dto.FilteredCommentResponse;
 import com.medi.backend.agent.dto.AnalysisSummaryResponse;
 import com.medi.backend.agent.dto.FilteredCommentStatsResponse;
+import com.medi.backend.agent.dto.DailyCommentStatDto;
 import com.medi.backend.agent.service.AgentService;
 import com.medi.backend.global.util.AuthUtil;
 
@@ -219,6 +220,45 @@ public class AgentController {
         
         log.info("📡 [API 응답] 날짜별 필터링된 댓글 통계 조회 완료: userId={}, 통계 항목수={}개", 
             userId, stats != null && stats.getStats() != null ? stats.getStats().size() : 0);
+        
+        return ResponseEntity.ok(stats);
+    }
+    
+    /**
+     * 일별 전체 댓글 통계 조회 (daily_comment_stats 테이블)
+     * - 전체 댓글 수 (total_count)와 필터링된 댓글 수 (filtered_count) 포함
+     * - 그래프용: "전체 댓글 수 vs 필터링된 댓글 수" 비교 가능
+     * 
+     * @param videoId 비디오 ID (선택사항)
+     * @param channelId 채널 ID (선택사항)
+     * @param periodType 날짜 단위 ("daily", "monthly", "yearly") - 기본값: "daily"
+     * @param startDate 시작 날짜 (선택사항, 형식: "YYYY-MM-DD")
+     * @param endDate 종료 날짜 (선택사항, 형식: "YYYY-MM-DD")
+     * @return 날짜별 통계 (전체 댓글 수 포함)
+     */
+    @PreAuthorize("isAuthenticated()")
+    @GetMapping("/comments/daily-stats")
+    public ResponseEntity<List<DailyCommentStatDto>> getDailyCommentStats(
+        @RequestParam(value = "videoId", required = false) Integer videoId,
+        @RequestParam(value = "channelId", required = false) Integer channelId,
+        @RequestParam(value = "period", defaultValue = "daily") String periodType,
+        @RequestParam(value = "startDate", required = false) String startDate,
+        @RequestParam(value = "endDate", required = false) String endDate
+    ) {
+        Integer userId = authUtil.getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        
+        log.info("📡 [API 요청] 일별 전체 댓글 통계 조회: userId={}, videoId={}, channelId={}, periodType={}, startDate={}, endDate={}", 
+            userId, videoId, channelId, periodType, startDate, endDate);
+        
+        List<DailyCommentStatDto> stats = agentService.getDailyCommentStats(
+            userId, videoId, channelId, periodType, startDate, endDate
+        );
+        
+        log.info("📡 [API 응답] 일별 전체 댓글 통계 조회 완료: userId={}, 통계 항목수={}개", 
+            userId, stats != null ? stats.size() : 0);
         
         return ResponseEntity.ok(stats);
     }

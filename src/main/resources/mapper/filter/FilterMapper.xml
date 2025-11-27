@@ -114,6 +114,22 @@
         LIMIT #{limit}
     </select>
     
+    <!-- 단일 카테고리 예시 댓글 조회 -->
+    <select id="findExamplesByCategory" resultMap="ExampleResultMap">
+        SELECT 
+            id, category_id, comment_text, suggested_label,
+            difficulty_level, usage_count, is_active
+        FROM filter_example_comments
+        WHERE is_active = TRUE
+        AND category_id = #{categoryId}
+        ORDER BY 
+            <if test="mixDifficulty == true">
+                FIELD(difficulty_level, 'EASY', 'MEDIUM', 'HARD'),
+            </if>
+            RAND()
+        LIMIT #{limit}
+    </select>
+    
     <select id="findCommonExamples" resultMap="ExampleResultMap">
         SELECT 
             id, category_id, comment_text, suggested_label,
