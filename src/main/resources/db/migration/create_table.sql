@@ -596,7 +596,6 @@ SHOW INDEXES FROM ai_analysis_summary;
 SHOW INDEXES FROM ai_channel_profiling;
 
 -- ==================================================
-<<<<<<< HEAD
 -- filter_example_comments 초기 데이터 (Seed Data)
 -- ==================================================
 
@@ -688,13 +687,4 @@ INSERT INTO filter_example_comments
 ('spam', 'ㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠ', 'allow', 'MEDIUM', TRUE),
 ('spam', '와 진짜 미쳤다 ㄷㄷㄷㄷㄷㄷㄷㄷ', 'allow', 'HARD', TRUE),
 ('spam', 'ㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋ', 'allow', 'MEDIUM', TRUE);
-=======
--- 마이그레이션: ai_channel_profiling 테이블 컬럼 제거
--- ==================================================
--- profiling_completed_at과 version 컬럼 제거 (metadata JSON에 이미 포함되어 있음)
-ALTER TABLE ai_channel_profiling 
-    DROP INDEX IF EXISTS idx_profiling_completed_at,
-    DROP COLUMN IF EXISTS profiling_completed_at,
-    DROP COLUMN IF EXISTS version;
->>>>>>> 508329a6b64a1cb080a11a877c2f67e2c7596136
 
