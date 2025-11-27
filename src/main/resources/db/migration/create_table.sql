@@ -687,3 +687,4 @@ INSERT INTO filter_example_comments
 ('spam', 'ㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠㅠ', 'allow', 'MEDIUM', TRUE),
 ('spam', '와 진짜 미쳤다 ㄷㄷㄷㄷㄷㄷㄷㄷ', 'allow', 'HARD', TRUE),
 ('spam', 'ㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋ', 'allow', 'MEDIUM', TRUE);
+

@@ -213,14 +213,6 @@ public class AgentServiceImpl implements AgentService {
             // metadata 전체를 JSON으로 변환
             String metadataJson = objectMapper.writeValueAsString(request.getMetadata());
             
-            // 4. metadata에서 주요 필드 추출
-            String profilingCompletedAt = null;
-            String version = null;
-            if (request.getMetadata() != null) {
-                profilingCompletedAt = request.getMetadata().getProfilingCompletedAt();
-                version = request.getMetadata().getVersion();
-            }
-            
             // 5. ai_channel_profiling 테이블에 저장
             Integer result = agentMapper.insertChannelProfiling(
                 internalChannelId,
@@ -228,9 +220,7 @@ public class AgentServiceImpl implements AgentService {
                 profileDataJson,
                 commentEcosystemJson,
                 channelCommunicationJson,
-                metadataJson,
-                profilingCompletedAt,
-                version
+                metadataJson
             );
             
             log.info("Channel profiling saved: channelId={}, youtubeChannelId={}, result={}", 
