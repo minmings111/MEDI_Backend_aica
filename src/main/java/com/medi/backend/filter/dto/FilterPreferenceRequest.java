@@ -4,7 +4,6 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 필터링 설정 저장 요청 DTO
@@ -29,10 +28,10 @@ public class FilterPreferenceRequest {
     private List<String> selectedCategories;
     
     /**
-     * Step 2: 카테고리별 키워드 맵
-     * 예: {"profanity": ["ㅅㅂ", "병X"], "appearance": ["못생겼다"]}
+     * Step 2: 사용자가 필터링하고 싶은 댓글에 대한 자유 텍스트 설명
+     * 예: "욕설이나 비속어가 포함된 댓글, 외모를 비하하는 댓글을 필터링하고 싶습니다."
      */
-    private Map<String, List<String>> customRuleKeywords;
+    private String userFilteringDescription;
     
     /**
      * Step 3: 숨기고 싶은 댓글 예시

@@ -11,8 +11,7 @@
         <result property="channelId" column="channel_id"/>
         <result property="selectedCategories" column="selected_categories" 
                 typeHandler="com.medi.backend.filter.typehandler.JsonListTypeHandler"/>
-        <result property="customRuleKeywords" column="custom_rule_keywords"
-                typeHandler="com.medi.backend.filter.typehandler.JsonMapTypeHandler"/>
+        <result property="userFilteringDescription" column="user_filtering_description"/>
         <result property="dislikeExamples" column="dislike_examples"
                 typeHandler="com.medi.backend.filter.typehandler.JsonListTypeHandler"/>
         <result property="allowExamples" column="allow_examples"
@@ -40,7 +39,7 @@
     <select id="findPreferenceByUserIdAndChannelId" resultMap="PreferenceResultMap">
         SELECT 
             id, user_id, channel_id,
-            selected_categories, custom_rule_keywords,
+            selected_categories, user_filtering_description,
             dislike_examples, allow_examples,
             email_notification_settings,
             is_active, created_at, updated_at
@@ -59,20 +58,20 @@
     <insert id="upsertPreference" parameterType="com.medi.backend.filter.dto.UserFilterPreferenceDto"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO user_filter_preferences 
-            (user_id, channel_id, selected_categories, custom_rule_keywords,
+            (user_id, channel_id, selected_categories, user_filtering_description,
              dislike_examples, allow_examples, email_notification_settings,
              is_active, created_at, updated_at)
         VALUES 
             (#{userId}, #{channelId},
              #{selectedCategories, typeHandler=com.medi.backend.filter.typehandler.JsonListTypeHandler},
-             #{customRuleKeywords, typeHandler=com.medi.backend.filter.typehandler.JsonMapTypeHandler},
+             #{userFilteringDescription},
              #{dislikeExamples, typeHandler=com.medi.backend.filter.typehandler.JsonListTypeHandler},
              #{allowExamples, typeHandler=com.medi.backend.filter.typehandler.JsonListTypeHandler},
              #{emailNotificationSettings, typeHandler=com.medi.backend.filter.typehandler.EmailNotificationSettingsTypeHandler},
              COALESCE(#{isActive}, TRUE), NOW(), NOW())
         ON DUPLICATE KEY UPDATE
             selected_categories = VALUES(selected_categories),
-            custom_rule_keywords = VALUES(custom_rule_keywords),
+            user_filtering_description = VALUES(user_filtering_description),
             dislike_examples = VALUES(dislike_examples),
             allow_examples = VALUES(allow_examples),
             email_notification_settings = VALUES(email_notification_settings),

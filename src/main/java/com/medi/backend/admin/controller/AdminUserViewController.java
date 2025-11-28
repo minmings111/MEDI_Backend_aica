@@ -49,6 +49,53 @@ public class AdminUserViewController {
     private final AuthUtil authUtil;
 
     /**
+     * 사용자 목록 조회 (관리자 전용)
+     * GET /api/admin/users/list
+     * 
+     * @return 사용자 목록 (비밀번호 제외, 이메일 마스킹)
+     */
+    @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/list")
+    public ResponseEntity<Map<String, Object>> getUserList() {
+        Integer adminId = authUtil.getCurrentUserId();
+        log.info("📋 [관리자 조회] 사용자 목록 조회: adminId={}", adminId);
+        
+        try {
+            List<UserDTO> users = userMapper.selectAllUsers();
+            
+            // 응답 데이터 구성 (비밀번호 제외, 이메일 마스킹)
+            List<Map<String, Object>> userList = new java.util.ArrayList<>();
+            for (UserDTO user : users) {
+                if ("ADMIN".equals(user.getRole())) {
+                    continue; // 관리자는 제외
+                }
+                Map<String, Object> userMap = new HashMap<>();
+                userMap.put("id", user.getId());
+                userMap.put("email", maskEmail(user.getEmail()));
+                userMap.put("name", user.getName());
+                userMap.put("role", user.getRole());
+                userMap.put("createdAt", user.getCreatedAt() != null ? user.getCreatedAt() : "");
+                userList.add(userMap);
+            }
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("users", userList);
+            response.put("totalCount", userList.size());
+            
+            log.info("✅ [관리자 조회] 사용자 목록 조회 완료: adminId={}, 사용자수={}명", adminId, userList.size());
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("❌ [관리자 조회] 사용자 목록 조회 실패: adminId={}", adminId, e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", "사용자 목록 조회 중 오류가 발생했습니다");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
+
+    /**
      * 사용자 기본 정보 조회
      * GET /api/admin/users/{userId}/info
      * 

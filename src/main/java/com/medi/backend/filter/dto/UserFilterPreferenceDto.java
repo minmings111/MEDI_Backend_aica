@@ -5,7 +5,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 사용자 필터링 설정 DTO (DB 매핑용)
@@ -25,9 +24,9 @@ public class UserFilterPreferenceDto {
     private List<String> selectedCategories;
     
     /**
-     * JSON 컬럼 → Map<String, List<String>> 변환
+     * TEXT 컬럼 → String 변환
      */
-    private Map<String, List<String>> customRuleKeywords;
+    private String userFilteringDescription;
     
     /**
      * JSON 컬럼 → List<String> 변환

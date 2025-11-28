@@ -58,7 +58,7 @@ public class FilterPreferenceServiceImpl implements FilterPreferenceService {
         dto.setUserId(userId);
         dto.setChannelId(request.getChannelId());
         dto.setSelectedCategories(request.getSelectedCategories());
-        dto.setCustomRuleKeywords(request.getCustomRuleKeywords());
+        dto.setUserFilteringDescription(request.getUserFilteringDescription());
         dto.setDislikeExamples(request.getDislikeExamples());
         dto.setAllowExamples(request.getAllowExamples());
         dto.setEmailNotificationSettings(request.getEmailNotificationSettings());
@@ -111,42 +111,18 @@ public class FilterPreferenceServiceImpl implements FilterPreferenceService {
         List<String> categories = preference.getSelectedCategories();
         policyMap.put("Question1", categories != null ? categories : new ArrayList<>());
         
-        // Question2: 카테고리별 키워드 입력 (null 가능)
-        Map<String, List<String>> keywords = preference.getCustomRuleKeywords();
-        if (keywords != null && !keywords.isEmpty()) {
-            policyMap.put("Question2", keywords);
+        // Question2: 사용자 필터링 설명 (null 가능)
+        String description = preference.getUserFilteringDescription();
+        if (description != null && !description.trim().isEmpty()) {
+            policyMap.put("Question2", description);
         } else {
             policyMap.put("Question2", null);
         }
         
-        // Question3: Few-shot 예시 + 사용자 선택 예시
+        // Question3: 사용자 선택 예시만 저장
         Map<String, Object> step3Map = new HashMap<>();
         
-        // ✅ 3-1. 카테고리별 Few-shot 예시 (DB에서 조회)
-        Map<String, List<Map<String, String>>> fewShotExamples = new HashMap<>();
-        if (categories != null && !categories.isEmpty()) {
-            for (String categoryId : categories) {
-                // 카테고리별로 10개씩 Few-shot 예시 조회
-                List<com.medi.backend.filter.dto.FilterExampleCommentDto> examples = 
-                    filterMapper.findFewShotExamplesByCategory(categoryId, 10);
-                
-                // JSON 형태로 변환
-                List<Map<String, String>> categoryExamples = new ArrayList<>();
-                for (com.medi.backend.filter.dto.FilterExampleCommentDto example : examples) {
-                    Map<String, String> exampleMap = new HashMap<>();
-                    exampleMap.put("comment", example.getCommentText());
-                    exampleMap.put("label", example.getSuggestedLabel()); // "block" or "allow"
-                    categoryExamples.add(exampleMap);
-                }
-                
-                if (!categoryExamples.isEmpty()) {
-                    fewShotExamples.put(categoryId, categoryExamples);
-                }
-            }
-        }
-        step3Map.put("few_shot_examples", fewShotExamples);
-        
-        // ✅ 3-2. 사용자가 직접 선택한 예시
+        // ✅ 사용자가 직접 선택한 예시
         List<String> dislikeExamples = preference.getDislikeExamples();
         List<String> allowExamples = preference.getAllowExamples();
         
@@ -157,27 +133,17 @@ public class FilterPreferenceServiceImpl implements FilterPreferenceService {
         
         policyMap.put("Question3", step3Map);
         
-        // Question4: 이메일 알림 설정
-        com.medi.backend.filter.dto.EmailNotificationSettings emailSettings = preference.getEmailNotificationSettings();
-        if (emailSettings != null) {
-            Map<String, Object> emailNotificationMap = new HashMap<>();
-            emailNotificationMap.put("enabled", emailSettings.getEnabled() != null ? emailSettings.getEnabled() : false);
-            emailNotificationMap.put("timeUnit", emailSettings.getTimeUnit());
-            emailNotificationMap.put("threshold", emailSettings.getThreshold());
-            emailNotificationMap.put("email", emailSettings.getEmail());
-            policyMap.put("Question4", emailNotificationMap);
-        } else {
-            policyMap.put("Question4", null);
-        }
+        // ✅ Question4 (이메일 알림 설정)는 Redis에 저장하지 않음
+        // - 이메일 알림은 백엔드(AgentServiceImpl)에서 DB를 직접 조회하여 사용
+        // - Redis는 에이전트(LLM) 프롬프트 용도이므로 이메일 설정 불필요
         
         // JSON 문자열로 변환하여 반환 (Redis에 저장될 형태)
         try {
             com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
             String result = objectMapper.writeValueAsString(policyMap);
-            log.debug("✅ [프롬프트] 정책 블록 생성 완료 (JSON): 길이={}자, 카테고리={}개, Few-shot={}개", 
+            log.debug("✅ [프롬프트] 정책 블록 생성 완료 (JSON): 길이={}자, 카테고리={}개", 
                 result.length(), 
-                categories != null ? categories.size() : 0,
-                fewShotExamples.size());
+                categories != null ? categories.size() : 0);
             return result;
         } catch (Exception e) {
             log.error("❌ [프롬프트] JSON 변환 실패: userId={}, channelId={}", userId, channelId, e);
@@ -232,7 +198,7 @@ public class FilterPreferenceServiceImpl implements FilterPreferenceService {
         response.setUserId(dto.getUserId());
         response.setChannelId(dto.getChannelId());
         response.setSelectedCategories(dto.getSelectedCategories());
-        response.setCustomRuleKeywords(dto.getCustomRuleKeywords());
+        response.setUserFilteringDescription(dto.getUserFilteringDescription());
         response.setDislikeExamples(dto.getDislikeExamples());
         response.setAllowExamples(dto.getAllowExamples());
         response.setEmailNotificationSettings(dto.getEmailNotificationSettings());

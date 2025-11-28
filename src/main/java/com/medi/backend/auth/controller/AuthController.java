@@ -120,7 +120,7 @@ public class AuthController {
             
             log.info("로그인 성공: {} (세션 ID: {})", loginRequest.getEmail(), session.getId());
             
-            // 6. 성공 응답 반환 (DTO 사용)
+            // 6. 성공 응답 반환 (로그인 시에는 항상 대시보드로 이동)
             LoginResponse response = LoginResponse.success(user, session.getId());
             return ResponseEntity.ok(response);
             
@@ -813,5 +813,5 @@ public class AuthController {
             // 세션 무효화 실패해도 비밀번호 변경은 성공으로 처리
         }
     }
-
+    
 }

@@ -100,6 +100,7 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
     
     /**
      * 리다이렉트 URL 결정
+     * - OAuth2 로그인 시 항상 대시보드로 이동
      * 
      * @param request HTTP 요청
      * @param response HTTP 응답
@@ -114,10 +115,23 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
         // CORS 설정에서 첫 번째 허용 도메인 가져오기 (프론트엔드 URL)
         String frontendUrl = allowedOrigins.split(",")[0];
         
-        // 프론트엔드 대시보드 또는 홈으로 리다이렉트
-        String redirectUrl = frontendUrl + "/oauth2/callback";
+        // 사용자 ID 추출 (로깅용)
+        Object principal = authentication.getPrincipal();
+        Integer userId = null;
         
-        log.info("OAuth2 로그인 성공 후 리다이렉트: {}", redirectUrl);
+        if (principal instanceof CustomUserDetails) {
+            userId = ((CustomUserDetails) principal).getId();
+        } else if (principal instanceof OAuth2User) {
+            Object userIdAttr = ((OAuth2User) principal).getAttribute("userId");
+            if (userIdAttr instanceof Integer) {
+                userId = (Integer) userIdAttr;
+            }
+        }
+        
+        // OAuth2 로그인 시 항상 대시보드로 이동
+        String redirectUrl = frontendUrl + "/dashboard";
+        
+        log.info("OAuth2 로그인 성공 후 리다이렉트: userId={}, fullUrl={}", userId, redirectUrl);
         
         return redirectUrl;
     }

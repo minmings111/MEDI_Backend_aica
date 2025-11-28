@@ -169,6 +169,7 @@ public class FilterController {
     
     /**
      * 기본 프롬프트 정책 블록 반환 (사용자 설정이 없을 때 사용)
+     * - Question2: 사용자 필터링 설명 (String 타입, 없으면 null)
      */
     private String getDefaultPolicyBlock() {
         try {
@@ -177,9 +178,8 @@ public class FilterController {
                 "profanity", "hate_speech", "personal_attack", 
                 "appearance", "sexual", "spam"
             ));
-            defaultPolicy.put("Question2", null);
+            defaultPolicy.put("Question2", null);  // 사용자 필터링 설명 (String)
             Map<String, Object> step3Map = new HashMap<>();
-            step3Map.put("few_shot_examples", new HashMap<>());
             step3Map.put("user_selected_examples", Map.of(
                 "dislike", List.of(),
                 "allow", List.of()
@@ -191,7 +191,7 @@ public class FilterController {
             return objectMapper.writeValueAsString(defaultPolicy);
         } catch (Exception e) {
             log.error("❌ 기본 프롬프트 생성 실패", e);
-            return "{\"Question1\":[],\"Question2\":null,\"Question3\":{\"few_shot_examples\":{},\"user_selected_examples\":{\"dislike\":[],\"allow\":[]}}}";
+            return "{\"Question1\":[],\"Question2\":null,\"Question3\":{\"user_selected_examples\":{\"dislike\":[],\"allow\":[]}}}";
         }
     }
 }
