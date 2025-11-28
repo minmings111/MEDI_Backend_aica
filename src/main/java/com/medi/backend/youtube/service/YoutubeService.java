@@ -470,12 +470,15 @@ public class YoutubeService {
             
             return persisted;
         } catch (Exception e) {
-            log.error("YouTube 영상 동기화 실패: channelId={}", youtubeChannelId, e);
+            // 예상 가능한 API 오류(예: playlistNotFound 등)는 채널 동기화를 망치지 않도록 soft-fail 처리한다.
+            // 어차피 상위 syncChannels()에서 한 번 더 try-catch 하고 있으므로,
+            // 여기서는 예외를 다시 던지지 않고 빈 리스트를 반환하여 "영상 0개" 상태로 취급한다.
+            log.error("YouTube 영상 동기화 실패(soft-fail): channelId={}", youtubeChannelId, e);
             YoutubeChannelDto existing = channelMapper.findByYoutubeChannelId(youtubeChannelId);
             LocalDateTime lastSynced = existing != null ? existing.getLastSyncedAt() : null;
             LocalDateTime lastPublished = existing != null ? existing.getLastVideoPublishedAt() : null;
             updateChannelSyncInfo(youtubeChannelId, lastSynced, lastPublished);
-            throw new RuntimeException("syncVideos failed", e);
+            return Collections.emptyList();
         }
     }
 
