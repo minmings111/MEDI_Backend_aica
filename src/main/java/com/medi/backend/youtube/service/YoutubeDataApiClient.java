@@ -54,17 +54,35 @@ public class YoutubeDataApiClient {
 
     public PlaylistItemListResponse fetchPlaylistItems(String playlistId, String pageToken)
             throws IOException {
-        return executeWithApiKey(apiKey -> {
-            YouTube.PlaylistItems.List request = youtube.playlistItems()
-                    .list(List.of("snippet", "contentDetails"));
-            request.setPlaylistId(playlistId);
-            request.setMaxResults(50L);
-            if (pageToken != null) {
-                request.setPageToken(pageToken);
+        try {
+            return executeWithApiKey(apiKey -> {
+                YouTube.PlaylistItems.List request = youtube.playlistItems()
+                        .list(List.of("snippet", "contentDetails"));
+                request.setPlaylistId(playlistId);
+                request.setMaxResults(50L);
+                if (pageToken != null) {
+                    request.setPageToken(pageToken);
+                }
+                request.setKey(apiKey);
+                return request.execute();
+            });
+        } catch (GoogleJsonResponseException e) {
+            // 업로드 플레이리스트가 존재하지 않거나 접근 불가한 경우(404 + playlistNotFound)는
+            // "영상이 0개인 채널"로 간주하고 빈 응답을 반환한다.
+            if (e.getStatusCode() == 404
+                    && e.getDetails() != null
+                    && e.getDetails().getErrors() != null
+                    && e.getDetails().getErrors().stream()
+                        .anyMatch(err -> "playlistNotFound".equals(err.getReason()))) {
+                log.warn("⚠️ 업로드 플레이리스트를 찾을 수 없습니다. 영상 0개인 채널로 간주합니다. playlistId={}", playlistId, e);
+
+                PlaylistItemListResponse empty = new PlaylistItemListResponse();
+                empty.setItems(new ArrayList<>());
+                return empty;
             }
-            request.setKey(apiKey);
-            return request.execute();
-        });
+            // 그 외 404 또는 다른 에러는 기존 동작 그대로 상위로 전파
+            throw e;
+        }
     }
 
     public VideoListResponse fetchVideoStatistics(List<String> videoIds) throws IOException {

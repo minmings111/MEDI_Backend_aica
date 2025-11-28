@@ -259,4 +259,3 @@ public class YoutubeOAuthController {
             .orElse("http://localhost:3000");
     }
 }
-
