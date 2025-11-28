@@ -39,3 +39,9 @@ out/
 #
 .env
 src/main/resources/application.yml
+
+# Logs
+logs/
+*.log
+*.log.*
+*.gz
