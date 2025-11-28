@@ -56,11 +56,13 @@ public interface FilterMapper {
      * - categoryId: 조회할 카테고리 ID
      * - limit: 최대 개수
      * - mixDifficulty: 난이도 믹스 여부
+     * - difficultyLevel: 특정 난이도만 조회 (선택적, null이면 모든 난이도)
      */
     List<FilterExampleCommentDto> findExamplesByCategory(
         @Param("categoryId") String categoryId,
         @Param("limit") Integer limit,
-        @Param("mixDifficulty") Boolean mixDifficulty
+        @Param("mixDifficulty") Boolean mixDifficulty,
+        @Param("difficultyLevel") String difficultyLevel
     );
     
     /**

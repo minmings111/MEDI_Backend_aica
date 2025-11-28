@@ -127,11 +127,10 @@
         FROM filter_example_comments
         WHERE is_active = TRUE
         AND category_id = #{categoryId}
-        ORDER BY 
-            <if test="mixDifficulty == true">
-                FIELD(difficulty_level, 'EASY', 'MEDIUM', 'HARD'),
-            </if>
-            RAND()
+        <if test="difficultyLevel != null">
+            AND difficulty_level = #{difficultyLevel}
+        </if>
+        ORDER BY RAND()
         LIMIT #{limit}
     </select>
     

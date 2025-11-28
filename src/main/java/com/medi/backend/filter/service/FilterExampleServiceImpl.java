@@ -43,15 +43,28 @@ public class FilterExampleServiceImpl implements FilterExampleService {
         // ✅ 카테고리별 균등 분배 로직
         if (categories.size() == 1) {
             // 1개 카테고리: 해당 카테고리에서 limit개 조회
-            examples = filterMapper.findExamplesByCategory(categories.get(0), limit, mixDifficulty);
+            if (mixDifficulty) {
+                // 난이도별로 균등 분배하여 조회 (이미 섞여서 반환됨)
+                examples = getExamplesByCategoryWithDifficultyMix(categories.get(0), limit);
+            } else {
+                // 기존 방식: 랜덤 조회
+                examples = filterMapper.findExamplesByCategory(categories.get(0), limit, false, null);
+            }
         } else {
             // 여러 카테고리: 총 limit개를 카테고리별로 균등 분배
             examples = getExamplesByCategoriesDistributed(categories, limit, mixDifficulty);
-        }
-        
-        // 난이도 믹스가 활성화된 경우, EASY/MEDIUM/HARD 균등 분배
-        if (mixDifficulty && examples.size() >= 3) {
-            examples = mixByDifficulty(examples);
+            
+            // 여러 카테고리일 때는 각 카테고리별로 이미 섞었지만, 전체적으로 다시 한 번 섞기
+            if (mixDifficulty && examples.size() >= 3) {
+                examples = mixByDifficulty(examples, limit);
+            }
+            
+            // limit 초과 방지 (혹시 모를 경우 대비)
+            if (examples.size() > limit) {
+                examples = examples.subList(0, limit);
+                log.debug("⚠️ [예시 댓글] limit 초과로 {}개로 제한: 요청={}개, 실제={}개", 
+                    limit, examples.size() + (examples.size() - limit), examples.size());
+            }
         }
         
         log.info("✅ [예시 댓글] 조회 완료: {}개 (카테고리: {}개)", examples.size(), categories.size());
@@ -83,8 +96,14 @@ public class FilterExampleServiceImpl implements FilterExampleService {
             
             log.debug("📝 [예시 댓글] 카테고리 '{}'에서 {}개 조회", category, categoryLimit);
             
-            List<FilterExampleCommentDto> categoryExamples = 
-                filterMapper.findExamplesByCategory(category, categoryLimit, mixDifficulty);
+            List<FilterExampleCommentDto> categoryExamples;
+            if (mixDifficulty) {
+                // 난이도별로 균등 분배하여 조회
+                categoryExamples = getExamplesByCategoryWithDifficultyMix(category, categoryLimit);
+            } else {
+                // 기존 방식: 랜덤 조회
+                categoryExamples = filterMapper.findExamplesByCategory(category, categoryLimit, false, null);
+            }
             
             allExamples.addAll(categoryExamples);
         }
@@ -94,8 +113,10 @@ public class FilterExampleServiceImpl implements FilterExampleService {
     
     /**
      * 난이도별로 균등 분배
+     * @param examples 섞을 예시 댓글 리스트
+     * @param limit 최대 반환 개수 (null이면 제한 없음)
      */
-    private List<FilterExampleCommentDto> mixByDifficulty(List<FilterExampleCommentDto> examples) {
+    private List<FilterExampleCommentDto> mixByDifficulty(List<FilterExampleCommentDto> examples, Integer limit) {
         // 난이도별로 그룹화
         List<FilterExampleCommentDto> easy = examples.stream()
             .filter(e -> "EASY".equals(e.getDifficultyLevel()))
@@ -107,16 +128,63 @@ public class FilterExampleServiceImpl implements FilterExampleService {
             .filter(e -> "HARD".equals(e.getDifficultyLevel()))
             .collect(Collectors.toList());
         
+        log.debug("📊 [예시 댓글] 난이도별 분포: EASY={}개, MEDIUM={}개, HARD={}개", 
+            easy.size(), medium.size(), hard.size());
+        
         // 균등 분배 (라운드 로빈)
         List<FilterExampleCommentDto> mixed = new ArrayList<>();
         int maxSize = Math.max(Math.max(easy.size(), medium.size()), hard.size());
         
         for (int i = 0; i < maxSize; i++) {
+            if (limit != null && mixed.size() >= limit) break;
             if (i < easy.size()) mixed.add(easy.get(i));
+            if (limit != null && mixed.size() >= limit) break;
             if (i < medium.size()) mixed.add(medium.get(i));
+            if (limit != null && mixed.size() >= limit) break;
             if (i < hard.size()) mixed.add(hard.get(i));
         }
         
+        log.debug("✅ [예시 댓글] 난이도 믹스 완료: 총 {}개 (limit: {})", 
+            mixed.size(), limit != null ? limit : "제한없음");
+        return mixed;
+    }
+    
+    /**
+     * 난이도별로 균등 분배하여 카테고리에서 예시 댓글 조회
+     * 각 난이도에서 균등하게 가져와서 Java에서 섞기
+     */
+    private List<FilterExampleCommentDto> getExamplesByCategoryWithDifficultyMix(
+            String categoryId, Integer totalLimit) {
+        // 난이도별로 균등 분배 (각 난이도에서 총 limit의 1/3 + 1개씩 가져와서 부족한 경우 대비)
+        int perDifficultyLimit = (int) Math.ceil(totalLimit / 3.0) + 1;
+        
+        log.debug("📝 [예시 댓글] 난이도별 균등 조회: category={}, totalLimit={}, perDifficulty={}", 
+            categoryId, totalLimit, perDifficultyLimit);
+        
+        // 각 난이도별로 직접 조회
+        List<FilterExampleCommentDto> easy = filterMapper.findExamplesByCategory(
+            categoryId, perDifficultyLimit, false, "EASY");
+            
+        List<FilterExampleCommentDto> medium = filterMapper.findExamplesByCategory(
+            categoryId, perDifficultyLimit, false, "MEDIUM");
+            
+        List<FilterExampleCommentDto> hard = filterMapper.findExamplesByCategory(
+            categoryId, perDifficultyLimit, false, "HARD");
+        
+        log.debug("📊 [예시 댓글] 난이도별 조회 결과: EASY={}개, MEDIUM={}개, HARD={}개", 
+            easy.size(), medium.size(), hard.size());
+        
+        // 라운드 로빈으로 섞기
+        List<FilterExampleCommentDto> mixed = new ArrayList<>();
+        int maxSize = Math.max(Math.max(easy.size(), medium.size()), hard.size());
+        
+        for (int i = 0; i < maxSize && mixed.size() < totalLimit; i++) {
+            if (i < easy.size() && mixed.size() < totalLimit) mixed.add(easy.get(i));
+            if (i < medium.size() && mixed.size() < totalLimit) mixed.add(medium.get(i));
+            if (i < hard.size() && mixed.size() < totalLimit) mixed.add(hard.get(i));
+        }
+        
+        log.debug("✅ [예시 댓글] 난이도 믹스 완료: 총 {}개 (요청: {}개)", mixed.size(), totalLimit);
         return mixed;
     }
 }
