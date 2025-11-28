@@ -3,10 +3,8 @@ package com.medi.backend.youtube.controller;
 import com.medi.backend.filter.dto.FilterPreferenceResponse;
 import com.medi.backend.filter.service.FilterPreferenceService;
 import com.medi.backend.global.util.AuthUtil;
-import com.medi.backend.youtube.dto.YoutubeChannelDto;
 import com.medi.backend.youtube.dto.YoutubeOAuthTokenDto;
 import com.medi.backend.youtube.mapper.YoutubeOAuthTokenMapper;
-import com.medi.backend.youtube.service.ChannelService;
 import com.medi.backend.youtube.service.YoutubeOAuthService;
 import com.medi.backend.youtube.service.YoutubeService;
 import lombok.RequiredArgsConstructor;
@@ -51,7 +49,6 @@ public class YoutubeOAuthController {
     private final YoutubeOAuthTokenMapper tokenMapper;
     private final AuthUtil authUtil;
     private final FilterPreferenceService filterPreferenceService;
-    private final ChannelService channelService;
 
     @Value("${cors.allowed-origins}")
     private String allowedOrigins;
@@ -122,6 +119,7 @@ public class YoutubeOAuthController {
             log.info("[YouTube] OAuth 콜백 처리 완료 - userId={}", userId);
 
             // Optional: 콜백 직후 채널을 즉시 동기화하여 UX 향상
+            Integer latestChannelId = null;
             if (userId != null) {
                 log.info("🔄 [OAuth 콜백] 채널 동기화 시작: userId={}", userId);
                 try {
@@ -129,7 +127,21 @@ public class YoutubeOAuthController {
                     log.info("✅ [OAuth 콜백] 채널 동기화 완료: userId={}, 동기화된채널수={}개", 
                         userId, syncedChannels != null ? syncedChannels.size() : 0);
                     
-                    if (syncedChannels == null || syncedChannels.isEmpty()) {
+                    if (syncedChannels != null && !syncedChannels.isEmpty()) {
+                        // 가장 최근에 생성된 채널의 ID를 찾기 (createdAt 기준)
+                        latestChannelId = syncedChannels.stream()
+                            .filter(ch -> ch.getId() != null)
+                            .max((ch1, ch2) -> {
+                                if (ch1.getCreatedAt() == null && ch2.getCreatedAt() == null) return 0;
+                                if (ch1.getCreatedAt() == null) return -1;
+                                if (ch2.getCreatedAt() == null) return 1;
+                                return ch1.getCreatedAt().compareTo(ch2.getCreatedAt());
+                            })
+                            .map(com.medi.backend.youtube.dto.YoutubeChannelDto::getId)
+                            .orElse(syncedChannels.get(0).getId()); // createdAt이 없으면 첫 번째 채널 사용
+                        
+                        log.info("📌 [OAuth 콜백] 최신 채널 ID 추출: channelId={}", latestChannelId);
+                    } else {
                         log.warn("⚠️ [OAuth 콜백] 동기화된 채널이 없습니다: userId={}", userId);
                     }
                 } catch (Exception syncEx) {
@@ -142,7 +154,7 @@ public class YoutubeOAuthController {
             }
 
             // ✅ 채널 등록 완료 후 필터링 설정 확인 및 조건부 리다이렉트
-            String redirectPath = determineRedirectPath(userId);
+            String redirectPath = determineRedirectPath(userId, latestChannelId);
             response.sendRedirect(frontendBase + redirectPath);
         } catch (Exception ex) {
             log.error("[YouTube] OAuth 콜백 처리 실패 - state={}, message={}", state, ex.getMessage(), ex);
@@ -198,76 +210,42 @@ public class YoutubeOAuthController {
      * 채널 등록 후 필터링 설정 확인 및 리다이렉트 경로 결정
      * 
      * @param userId 사용자 ID
+     * @param channelId 새로 추가된 채널 ID (null 가능)
      * @return 리다이렉트 경로 (쿼리 파라미터 포함)
      */
-    private String determineRedirectPath(Integer userId) {
+    private String determineRedirectPath(Integer userId, Integer channelId) {
         if (userId == null) {
             log.warn("⚠️ [채널 등록 리다이렉트] userId가 null → 기본 대시보드로 이동");
             return "/dashboard?youtube=connected";
         }
         
         try {
-            // 동기화된 채널 중 최신 채널 ID 가져오기
-            List<YoutubeChannelDto> channels = channelService.getChannelsByUserId(userId);
-            Integer latestChannelId = null;
+            // ✅ 채널별 필터링 설정 확인 (channelId가 있으면 해당 채널, 없으면 전역)
+            Optional<FilterPreferenceResponse> preference = 
+                filterPreferenceService.getPreference(userId, channelId);
             
-            if (channels != null && !channels.isEmpty()) {
-                // 최신 채널 찾기 (created_at 기준으로 정렬되어 있다고 가정, 아니면 직접 정렬)
-                latestChannelId = channels.stream()
-                    .filter(ch -> ch.getCreatedAt() != null)
-                    .max((c1, c2) -> c1.getCreatedAt().compareTo(c2.getCreatedAt()))
-                    .map(YoutubeChannelDto::getId)
-                    .orElse(channels.get(0).getId()); // 정렬 실패 시 첫 번째 채널 사용
-                
-                log.info("📺 [채널 등록 리다이렉트] 최신 채널 ID 확인: userId={}, channelId={}", userId, latestChannelId);
-            }
-            
-            // 최신 채널의 필터링 설정 확인
-            Optional<FilterPreferenceResponse> channelPreference = Optional.empty();
-            if (latestChannelId != null) {
-                channelPreference = filterPreferenceService.getPreference(userId, latestChannelId);
-                log.info("📝 [채널 등록 리다이렉트] 채널별 필터링 설정 확인: userId={}, channelId={}, 설정존재={}", 
-                    userId, latestChannelId, channelPreference.isPresent());
-            }
-            
-            // 전역 필터링 설정 확인 (채널별 설정이 없을 경우 대비)
-            Optional<FilterPreferenceResponse> globalPreference = 
-                filterPreferenceService.getPreference(userId, null);
-            
-            // 채널별 설정이 있으면 채널별 설정 우선, 없으면 전역 설정 확인
-            Optional<FilterPreferenceResponse> activePreference = channelPreference.isPresent() 
-                ? channelPreference 
-                : globalPreference;
-            
-            boolean hasActiveFilter = activePreference.isPresent() && 
-                activePreference.get().getIsActive() != null && 
-                activePreference.get().getIsActive();
-            
-            if (!hasActiveFilter) {
-                // 필터링 설정이 없거나 비활성화된 경우
+            if (preference.isEmpty() || 
+                preference.get().getIsActive() == null || 
+                !preference.get().getIsActive()) {
+                // 필터링 설정이 없거나 비활성화된 경우 → 필터링 폼 페이지로 이동
                 log.info("📝 [채널 등록 리다이렉트] 필터링 설정 없음 → 필터링 폼 페이지로 이동: userId={}, channelId={}", 
-                    userId, latestChannelId);
+                    userId, channelId);
                 
-                if (latestChannelId != null) {
-                    return "/filter/setup?youtube=connected&channelId=" + latestChannelId;
+                if (channelId != null) {
+                    return "/filter/setup?channelId=" + channelId + "&youtube=connected";
                 } else {
                     return "/filter/setup?youtube=connected";
                 }
             } else {
-                // 필터링 설정이 있는 경우
+                // 필터링 설정이 있는 경우 → 대시보드로 이동
                 log.info("✅ [채널 등록 리다이렉트] 필터링 설정 있음 → 대시보드로 이동: userId={}, channelId={}", 
-                    userId, latestChannelId);
-                
-                if (latestChannelId != null) {
-                    return "/dashboard?youtube=connected&channelId=" + latestChannelId;
-                } else {
-                    return "/dashboard?youtube=connected";
-                }
+                    userId, channelId);
+                return "/dashboard?youtube=connected";
             }
             
         } catch (Exception e) {
-            log.error("❌ [채널 등록 리다이렉트] 필터링 설정 확인 중 오류 발생: userId={}, error={}", 
-                userId, e.getMessage(), e);
+            log.error("❌ [채널 등록 리다이렉트] 필터링 설정 확인 중 오류 발생: userId={}, channelId={}, error={}", 
+                userId, channelId, e.getMessage(), e);
             // 오류 발생 시 기본적으로 대시보드로 이동
             return "/dashboard?youtube=connected";
         }
