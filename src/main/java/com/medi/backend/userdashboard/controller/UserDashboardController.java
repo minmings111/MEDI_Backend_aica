@@ -2,6 +2,7 @@ package com.medi.backend.userdashboard.controller;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
@@ -22,7 +23,10 @@ import com.medi.backend.userdashboard.dto.UserDashboardSummaryDto;
 import com.medi.backend.userdashboard.dto.UserFilteringStatisticsDto;
 import com.medi.backend.userdashboard.dto.VideoFilteringRankingDto;
 import com.medi.backend.userdashboard.dto.VideoFilteringStatisticsDto;
+import com.medi.backend.userdashboard.dto.OriginalCommentDto;
 import com.medi.backend.userdashboard.service.UserDashboardService;
+import com.medi.backend.agent.service.AgentService;
+import com.medi.backend.agent.dto.FilteredCommentResponse;
 
 @RestController
 @RequestMapping("/api/user/dashboard")
@@ -31,10 +35,12 @@ public class UserDashboardController {
 
     private final UserDashboardService dashboardService;
     private final AuthUtil authUtil;
+    private final AgentService agentService;
 
-    public UserDashboardController(UserDashboardService dashboardService, AuthUtil authUtil) {
+    public UserDashboardController(UserDashboardService dashboardService, AuthUtil authUtil, AgentService agentService) {
         this.dashboardService = dashboardService;
         this.authUtil = authUtil;
+        this.agentService = agentService;
     }
 
     // UDB-01: 사용자 대시보드 요약 통계
@@ -141,5 +147,37 @@ public class UserDashboardController {
         List<VideoFilteringRankingDto> ranking =
             dashboardService.getVideoFilteringRanking(userId, limit);
         return ResponseEntity.ok(ranking);
+    }
+
+    // UDB-08: 비디오별 원본 댓글 조회 (대시보드용)
+    @PreAuthorize("isAuthenticated()")
+    @GetMapping("/videos/{videoId}/original-comments")
+    public ResponseEntity<List<OriginalCommentDto>> getOriginalCommentsByVideoId(
+            @PathVariable("videoId") Integer videoId
+    ) {
+        Integer userId = authUtil.getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        // AgentService에서 필터링된 댓글 조회 (status=null이면 전체)
+        List<FilteredCommentResponse> filteredComments = 
+            agentService.getFilteredCommentsByVideoId(videoId, userId, null);
+
+        // FilteredCommentResponse → OriginalCommentDto 변환
+        List<OriginalCommentDto> comments = filteredComments.stream()
+            .map(comment -> OriginalCommentDto.builder()
+                .id(comment.getYoutubeCommentId())
+                .author(comment.getCommenterName())
+                .content(comment.getCommentText())
+                .publishedAt(comment.getPublishedAt() != null 
+                    ? comment.getPublishedAt().toString() 
+                    : null)
+                .likes(comment.getLikeCount())
+                .build())
+            .filter(comment -> comment.getContent() != null && !comment.getContent().trim().isEmpty())
+            .collect(Collectors.toList());
+        
+        return ResponseEntity.ok(comments);
     }
 }
