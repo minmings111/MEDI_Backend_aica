@@ -309,26 +309,26 @@ public class YoutubeService {
             } else if (syncVideosEveryTime) {
                 // 비동기로 Redis 동기화 시작 (사용자는 기다리지 않음)
                 try {
-                    log.info("🔄 [비동기] Redis 초기 동기화 시작: userId={} (백그라운드 실행)", userId);
-
-                    // ⚡ 안전한 CompletableFuture 처리: whenComplete로 완료 보장
-                    youtubeRedisSyncService.syncToRedisAsync(userId)
-                        .whenComplete((result, ex) -> {
-                            if (ex != null) {
-                                // 예외 발생 시
-                                log.error("❌ [비동기] Redis 초기 동기화 예외 발생: userId={}", userId, ex);
-                            } else if (result != null) {
-                                // 정상 완료 시
-                                if (result.isSuccess()) {
-                                    log.info("✅ [비동기] Redis 초기 동기화 완료: userId={}, 채널={}개, 비디오={}개, 댓글={}개",
-                                        userId, result.getChannelCount(), result.getVideoCount(), result.getCommentCount());
-                                } else {
-                                    log.error("❌ [비동기] Redis 초기 동기화 실패: userId={}, error={}",
-                                        userId, result.getErrorMessage());
-                                }
+                log.info("🔄 [비동기] Redis 초기 동기화 시작: userId={} (백그라운드 실행)", userId);
+                
+                // ⚡ 안전한 CompletableFuture 처리: whenComplete로 완료 보장
+                youtubeRedisSyncService.syncToRedisAsync(userId)
+                    .whenComplete((result, ex) -> {
+                        if (ex != null) {
+                            // 예외 발생 시
+                            log.error("❌ [비동기] Redis 초기 동기화 예외 발생: userId={}", userId, ex);
+                        } else if (result != null) {
+                            // 정상 완료 시
+                            if (result.isSuccess()) {
+                                log.info("✅ [비동기] Redis 초기 동기화 완료: userId={}, 채널={}개, 비디오={}개, 댓글={}개", 
+                                    userId, result.getChannelCount(), result.getVideoCount(), result.getCommentCount());
+                            } else {
+                                log.error("❌ [비동기] Redis 초기 동기화 실패: userId={}, error={}", 
+                                    userId, result.getErrorMessage());
                             }
-                            // 완료되면 GC 대상이 되어 메모리 누수 방지
-                        });
+                        }
+                        // 완료되면 GC 대상이 되어 메모리 누수 방지
+                    });
                 } catch (Exception redisStartEx) {
                     // syncToRedisAsync 호출 자체에서 발생하는 예외는 DB 트랜잭션을 롤백시키지 않도록 방어
                     log.error("⚠️ [비동기] Redis 초기 동기화 시작 실패 (DB 저장은 유지됨): userId={}, error={}",

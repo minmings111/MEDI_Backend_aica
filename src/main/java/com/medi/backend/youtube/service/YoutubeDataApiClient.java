@@ -55,17 +55,17 @@ public class YoutubeDataApiClient {
     public PlaylistItemListResponse fetchPlaylistItems(String playlistId, String pageToken)
             throws IOException {
         try {
-            return executeWithApiKey(apiKey -> {
-                YouTube.PlaylistItems.List request = youtube.playlistItems()
-                        .list(List.of("snippet", "contentDetails"));
-                request.setPlaylistId(playlistId);
-                request.setMaxResults(50L);
-                if (pageToken != null) {
-                    request.setPageToken(pageToken);
-                }
-                request.setKey(apiKey);
-                return request.execute();
-            });
+        return executeWithApiKey(apiKey -> {
+            YouTube.PlaylistItems.List request = youtube.playlistItems()
+                    .list(List.of("snippet", "contentDetails"));
+            request.setPlaylistId(playlistId);
+            request.setMaxResults(50L);
+            if (pageToken != null) {
+                request.setPageToken(pageToken);
+            }
+            request.setKey(apiKey);
+            return request.execute();
+        });
         } catch (GoogleJsonResponseException e) {
             // 업로드 플레이리스트가 존재하지 않거나 접근 불가한 경우(404 + playlistNotFound)는
             // "영상이 0개인 채널"로 간주하고 빈 응답을 반환한다.
