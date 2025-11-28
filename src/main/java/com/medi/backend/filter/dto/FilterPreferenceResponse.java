@@ -5,7 +5,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 필터링 설정 조회 응답 DTO
@@ -20,7 +19,7 @@ public class FilterPreferenceResponse {
     private Integer channelId;
     
     private List<String> selectedCategories;
-    private Map<String, List<String>> customRuleKeywords;
+    private String userFilteringDescription;
     private List<String> dislikeExamples;
     private List<String> allowExamples;
     

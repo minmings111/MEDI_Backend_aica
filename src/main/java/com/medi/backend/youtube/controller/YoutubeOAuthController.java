@@ -1,5 +1,7 @@
 package com.medi.backend.youtube.controller;
 
+import com.medi.backend.filter.dto.FilterPreferenceResponse;
+import com.medi.backend.filter.service.FilterPreferenceService;
 import com.medi.backend.global.util.AuthUtil;
 import com.medi.backend.youtube.dto.YoutubeOAuthTokenDto;
 import com.medi.backend.youtube.mapper.YoutubeOAuthTokenMapper;
@@ -46,6 +48,7 @@ public class YoutubeOAuthController {
     private final YoutubeService youtubeService;
     private final YoutubeOAuthTokenMapper tokenMapper;
     private final AuthUtil authUtil;
+    private final FilterPreferenceService filterPreferenceService;
 
     @Value("${cors.allowed-origins}")
     private String allowedOrigins;
@@ -135,7 +138,9 @@ public class YoutubeOAuthController {
                 log.warn("⚠️ [OAuth 콜백] userId가 null입니다. 채널 동기화를 건너뜁니다.");
             }
 
-            response.sendRedirect(frontendBase + "/dashboard?youtube=connected");
+            // ✅ 채널 등록 완료 후 필터링 설정 확인 및 조건부 리다이렉트
+            String redirectPath = determineRedirectPath(userId);
+            response.sendRedirect(frontendBase + redirectPath);
         } catch (Exception ex) {
             log.error("[YouTube] OAuth 콜백 처리 실패 - state={}, message={}", state, ex.getMessage(), ex);
             response.sendRedirect(frontendBase + "/dashboard?error=youtube_oauth_callback_failed");
@@ -184,6 +189,43 @@ public class YoutubeOAuthController {
         body.put("requiresReconnect", requiresReconnect);
 
         return ResponseEntity.ok(body);
+    }
+
+    /**
+     * 채널 등록 후 필터링 설정 확인 및 리다이렉트 경로 결정
+     * 
+     * @param userId 사용자 ID
+     * @return 리다이렉트 경로 (쿼리 파라미터 포함)
+     */
+    private String determineRedirectPath(Integer userId) {
+        if (userId == null) {
+            log.warn("⚠️ [채널 등록 리다이렉트] userId가 null → 기본 대시보드로 이동");
+            return "/dashboard?youtube=connected";
+        }
+        
+        try {
+            // 전역 필터링 설정 확인 (channelId = null)
+            Optional<FilterPreferenceResponse> preference = 
+                filterPreferenceService.getPreference(userId, null);
+            
+            if (preference.isEmpty() || 
+                preference.get().getIsActive() == null || 
+                !preference.get().getIsActive()) {
+                // 필터링 설정이 없거나 비활성화된 경우
+                log.info("📝 [채널 등록 리다이렉트] 필터링 설정 없음 → 필터링 폼 페이지로 이동: userId={}", userId);
+                return "/filter/setup?youtube=connected";
+            } else {
+                // 필터링 설정이 있는 경우
+                log.info("✅ [채널 등록 리다이렉트] 필터링 설정 있음 → 대시보드로 이동: userId={}", userId);
+                return "/dashboard?youtube=connected";
+            }
+            
+        } catch (Exception e) {
+            log.error("❌ [채널 등록 리다이렉트] 필터링 설정 확인 중 오류 발생: userId={}, error={}", 
+                userId, e.getMessage(), e);
+            // 오류 발생 시 기본적으로 대시보드로 이동
+            return "/dashboard?youtube=connected";
+        }
     }
 
     private String resolveFrontendBase() {

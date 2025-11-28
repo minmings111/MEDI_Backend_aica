@@ -63,7 +63,7 @@
             </choose>,
             <choose>
                 <when test="analyzedAt != null">
-                    STR_TO_DATE(#{analyzedAt}, '%Y-%m-%dT%H:%i:%s.%f')
+                    STR_TO_DATE(REPLACE(#{analyzedAt}, 'Z', ''), '%Y-%m-%dT%H:%i:%s.%f')
                 </when>
                 <otherwise>
                     NOW()
@@ -99,7 +99,7 @@
             #{riskSummary},
             <choose>
                 <when test="analysisTimestamp != null">
-                    STR_TO_DATE(#{analysisTimestamp}, '%Y-%m-%dT%H:%i:%s.%f')
+                    STR_TO_DATE(REPLACE(#{analysisTimestamp}, 'Z', ''), '%Y-%m-%dT%H:%i:%s.%f')
                 </when>
                 <otherwise>
                     NOW()

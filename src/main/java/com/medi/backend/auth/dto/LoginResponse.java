@@ -22,6 +22,7 @@ public class LoginResponse {
     private UserInfo user;
     private String sessionId;  // 보안상 제거 권장 (쿠키로 자동 전달)
     private String error;      // 에러 코드 (실패 시에만)
+    private String redirectUrl; // 리다이렉트 URL (필터링 설정 여부에 따라 결정)
     
     /**
      * 중첩된 사용자 정보 DTO
@@ -42,6 +43,13 @@ public class LoginResponse {
      * 성공 응답 생성 메서드
      */
     public static LoginResponse success(UserDTO user, String sessionId) {
+        return success(user, sessionId, null);
+    }
+    
+    /**
+     * 성공 응답 생성 메서드 (redirectUrl 포함)
+     */
+    public static LoginResponse success(UserDTO user, String sessionId, String redirectUrl) {
         return LoginResponse.builder()
             .success(true)
             .message("로그인 성공")
@@ -53,6 +61,7 @@ public class LoginResponse {
                 .profileImage(user.getProfileImage())
                 .build())
             .sessionId(sessionId)
+            .redirectUrl(redirectUrl)
             .build();
     }
     

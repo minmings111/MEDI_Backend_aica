@@ -162,8 +162,8 @@ CREATE TABLE user_filter_preferences (
     -- Step 1: 카테고리 선택
     selected_categories JSON NULL COMMENT '선택한 카테고리 배열 ["profanity", "appearance", ...]',
     
-    -- Step 2: 카테고리별 텍스트 입력 (키워드 배열)
-    custom_rule_keywords JSON NULL COMMENT '카테고리별 키워드 {"profanity": ["ㅅㅂ", "병X"], "appearance": ["못생겼다"]}',
+    -- Step 2: 사용자 필터링 설명 (자유 텍스트)
+    user_filtering_description TEXT NULL COMMENT '사용자가 입력한 필터링하고 싶은 댓글에 대한 자유 텍스트 설명',
     
     -- Step 3: 예시 라벨링 결과
     dislike_examples JSON NULL COMMENT '숨기고 싶다고 표시한 댓글 예시 배열',

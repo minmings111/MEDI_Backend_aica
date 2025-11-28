@@ -278,15 +278,23 @@ public class AgentServiceImpl implements AgentService {
             
             // 4. 수신자 이메일 주소 결정
             String recipientEmail = emailSettings.getEmail();
+            log.info("📧 [이메일 알림] 설정에서 조회한 이메일: emailNotificationSettings.email={}, userId={}", 
+                recipientEmail, userId);
+            
             if (recipientEmail == null || recipientEmail.isBlank()) {
                 // 설정에 이메일이 없으면 users 테이블의 email 사용
+                log.info("📧 [이메일 알림] 설정에 이메일이 없어서 users 테이블에서 조회: userId={}", userId);
                 com.medi.backend.user.dto.UserDTO user = userMapper.findById(userId);
                 if (user == null || user.getEmail() == null || user.getEmail().isBlank()) {
                     log.warn("⚠️ [이메일 알림] 사용자 이메일을 찾을 수 없음: userId={}, channelId={}", userId, internalChannelId);
                     return;
                 }
                 recipientEmail = user.getEmail();
+                log.info("📧 [이메일 알림] users 테이블에서 조회한 이메일: user.email={}, userId={}", 
+                    recipientEmail, userId);
             }
+            
+            log.info("📧 [이메일 알림] 최종 수신자 이메일: recipientEmail={}, userId={}", recipientEmail, userId);
             
             // 5. 이메일 발송
             String channelName = channel.getChannelName() != null ? channel.getChannelName() : "알 수 없음";
@@ -309,7 +317,7 @@ public class AgentServiceImpl implements AgentService {
     
     private int processComment(AgentFilteredCommentsRequest.CommentData comment, Integer videoId, String status, String analyzedAt) {
         try {
-            // 1. youtube_comments 테이블에 기본 댓글 정보 저장
+            // 1. youtube_comments 테이블에 기본 댓글 정보 저장 (INSERT or UPDATE)
             Integer insertResult = agentMapper.insertFilteredComment(
                 videoId,
                 comment.getCommentId(),
@@ -319,38 +327,45 @@ public class AgentServiceImpl implements AgentService {
                 comment.getLikeCount()
             );
             
-            log.debug("INSERT result: insertResult={}, youtubeCommentId={}", insertResult, comment.getCommentId());
+            log.info("📝 [댓글 저장] youtube_comments 테이블 저장 결과: insertResult={}, youtubeCommentId={}, videoId={}", 
+                insertResult, comment.getCommentId(), videoId);
             
-            if (insertResult > 0) {
-                // 2. 저장된 댓글의 id 조회
-                Integer commentId = agentMapper.findCommentIdByYoutubeCommentId(comment.getCommentId());
-                
-                log.debug("SELECT result: commentId={}, youtubeCommentId={}", commentId, comment.getCommentId());
-                
-                if (commentId != null) {
-                    // 3. ai_comment_analysis_result 테이블에 분석 결과 저장
-                    Integer analysisResult = agentMapper.insertCommentAnalysisResult(
-                        commentId,
-                        status,
-                        comment.getReason(),
-                        analyzedAt
-                    );
-                    log.debug("Analysis result insert: result={}, commentId={}, status={}", 
-                        analysisResult, commentId, status);
-                    return 1;
-                } else {
-                    log.warn("Failed to find comment id after insert: videoId={}, youtubeCommentId={}", 
-                        videoId, comment.getCommentId());
-                }
-            } else {
-                log.warn("INSERT failed or no rows affected: insertResult={}, youtubeCommentId={}", 
-                    insertResult, comment.getCommentId());
+            // 2. 저장된 댓글의 id 조회 (INSERT/UPDATE 상관없이 항상 조회)
+            // ON DUPLICATE KEY UPDATE인 경우에도 ID는 항상 조회 가능해야 함
+            Integer commentId = agentMapper.findCommentIdByYoutubeCommentId(comment.getCommentId());
+            
+            if (commentId == null) {
+                log.error("❌ [댓글 저장 실패] youtube_comments 저장 후 ID 조회 실패: youtubeCommentId={}, videoId={}, insertResult={}", 
+                    comment.getCommentId(), videoId, insertResult);
+                return 0;
             }
+            
+            log.info("✅ [댓글 저장] youtube_comments ID 조회 성공: commentId={}, youtubeCommentId={}", 
+                commentId, comment.getCommentId());
+            
+            // 3. ai_comment_analysis_result 테이블에 분석 결과 저장
+            Integer analysisResult = agentMapper.insertCommentAnalysisResult(
+                commentId,
+                status,
+                comment.getReason(),
+                analyzedAt
+            );
+            
+            if (analysisResult != null && analysisResult > 0) {
+                log.info("✅ [댓글 저장] ai_comment_analysis_result 저장 성공: commentId={}, status={}, analysisResult={}", 
+                    commentId, status, analysisResult);
+                return 1;
+            } else {
+                log.error("❌ [댓글 저장 실패] ai_comment_analysis_result 저장 실패: commentId={}, status={}, analysisResult={}", 
+                    commentId, status, analysisResult);
+                return 0;
+            }
+            
         } catch (Exception e) {
-            log.error("Failed to save comment: videoId={}, commentId={}, status={}", 
-                videoId, comment.getCommentId(), status, e);
+            log.error("❌ [댓글 저장 예외] 저장 중 예외 발생: videoId={}, youtubeCommentId={}, status={}, error={}", 
+                videoId, comment.getCommentId(), status, e.getMessage(), e);
+            return 0;
         }
-        return 0;
     }
     
     @Override

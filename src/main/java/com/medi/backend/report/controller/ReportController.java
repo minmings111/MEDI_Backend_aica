@@ -291,11 +291,11 @@ public class ReportController {
             }
         }
         
-        // Step 2: 카테고리별 키워드
-        if (data.containsKey("customRuleKeywords")) {
-            Object keywords = data.get("customRuleKeywords");
-            if (keywords instanceof Map) {
-                request.setCustomRuleKeywords((Map<String, List<String>>) keywords);
+        // Step 2: 사용자 필터링 설명
+        if (data.containsKey("userFilteringDescription")) {
+            Object description = data.get("userFilteringDescription");
+            if (description instanceof String) {
+                request.setUserFilteringDescription((String) description);
             }
         }
         
