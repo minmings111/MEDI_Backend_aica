@@ -39,43 +39,43 @@ services:
       timeout: 3s
       retries: 5
 
-  # Backend Application
-  backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: medi-backend
-    ports:
-      - "8080:8080"
-
-    # 메모리 및 CPU 제한 (서버 안정성 개선)
-    mem_limit: 2500m # 최대 2.5GB
-    mem_reservation: 512m # 최소 512MB 보장
-    memswap_limit: 2500m # Swap 사용 금지 (성능 저하 방지)
-    cpus: '2.0' # 2 코어
-
-    # 볼륨 마운트 (힙 덤프 및 GC 로그 저장용)
-    volumes:
-      - ./logs:/app/logs
-
-    environment:
-      SPRING_PROFILES_ACTIVE: prod
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/medi?serverTimezone=Asia/Seoul&characterEncoding=utf8
-      SPRING_DATASOURCE_USERNAME: admin
-      SPRING_DATASOURCE_PASSWORD: 1234
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
-      # JVM 메모리 및 GC 설정 (Dockerfile ENV 오버라이드)
-      JAVA_OPTS: "-Xms1500m -Xmx1500m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/logs/heapdump.hprof"
-
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - medi-network
-    restart: unless-stopped
+  # Backend Application (개발 환경에서는 로컬에서 직접 실행하므로 비활성화)
+  # backend:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: medi-backend
+  #   ports:
+  #     - "8080:8080"
+  #
+  #   # 메모리 및 CPU 제한 (서버 안정성 개선)
+  #   mem_limit: 2500m # 최대 2.5GB
+  #   mem_reservation: 512m # 최소 512MB 보장
+  #   memswap_limit: 2500m # Swap 사용 금지 (성능 저하 방지)
+  #   cpus: '2.0' # 2 코어
+  #
+  #   # 볼륨 마운트 (힙 덤프 및 GC 로그 저장용)
+  #   volumes:
+  #     - ./logs:/app/logs
+  #
+  #   environment:
+  #     SPRING_PROFILES_ACTIVE: prod
+  #     SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/medi?serverTimezone=Asia/Seoul&characterEncoding=utf8
+  #     SPRING_DATASOURCE_USERNAME: admin
+  #     SPRING_DATASOURCE_PASSWORD: 1234
+  #     SPRING_DATA_REDIS_HOST: redis
+  #     SPRING_DATA_REDIS_PORT: 6379
+  #     # JVM 메모리 및 GC 설정 (Dockerfile ENV 오버라이드)
+  #     JAVA_OPTS: "-Xms1500m -Xmx1500m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/logs/heapdump.hprof"
+  #
+  #   depends_on:
+  #     mysql:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   networks:
+  #     - medi-network
+  #   restart: unless-stopped
 
 volumes:
   mysql_data:
