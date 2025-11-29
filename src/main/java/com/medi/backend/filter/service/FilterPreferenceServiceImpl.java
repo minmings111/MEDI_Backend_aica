@@ -41,7 +41,7 @@ public class FilterPreferenceServiceImpl implements FilterPreferenceService {
     
     @Override
     @Transactional
-    @CacheEvict(value = "filterPrompt", key = "#userId + ':' + (#request.channelId != null ? #request.channelId : 'global')")
+    @CacheEvict(value = "filterPrompt", key = "#userId + ':' + (#request?.channelId != null ? #request.channelId : 'global')")
     public FilterPreferenceResponse savePreference(Integer userId, FilterPreferenceRequest request) {
         log.info("💾 [필터 설정] 저장 시작: userId={}, channelId={}", userId, request.getChannelId());
         
