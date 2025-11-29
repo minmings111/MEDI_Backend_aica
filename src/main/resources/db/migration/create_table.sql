@@ -1,5 +1,6 @@
 -- ==================================================
 -- Medi Project - MySQL Schema (실제 테이블 구조 완전 반영)
+-- 외래키 의존성 순서로 정리된 실행 가능한 버전
 -- ==================================================
 
 CREATE SCHEMA IF NOT EXISTS `medi` 
@@ -11,17 +12,16 @@ USE `medi`;
 SELECT DATABASE();
 
 -- ==================================================
--- 1단계: 최상위 부모 테이블
+-- 1단계: 최상위 부모 테이블 (외래키 없는 테이블들)
 -- ==================================================
 
 -- 1-1. users 테이블
--- ✅ phone UNIQUE 제약조건 추가
 CREATE TABLE users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     email VARCHAR(254) NOT NULL UNIQUE,
     password VARCHAR(255) NULL,
     name VARCHAR(50) NOT NULL,
-    phone VARCHAR(20) NULL UNIQUE,  -- ✅ UNIQUE 추가
+    phone VARCHAR(20) NULL UNIQUE,
     provider VARCHAR(20) NOT NULL DEFAULT 'LOCAL' 
         CHECK (provider IN ('LOCAL', 'GOOGLE')),
     provider_id VARCHAR(255) NULL COMMENT 'Google sub ID',
@@ -63,12 +63,43 @@ CREATE TABLE subscription_plans (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT '구독 플랜 정보';
 
+-- 1-4. filter_example_comments 테이블 (예시 댓글 마스터)
+CREATE TABLE filter_example_comments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    category_id VARCHAR(50) NOT NULL COMMENT '카테고리 ID (profanity, appearance, common 등)',
+    comment_text TEXT NOT NULL COMMENT '예시 댓글 내용',
+    suggested_label VARCHAR(20) NOT NULL 
+        CHECK (suggested_label IN ('allow', 'block'))
+        COMMENT '추천 라벨 (사용자에게 힌트)',
+    difficulty_level VARCHAR(20) NOT NULL DEFAULT 'MEDIUM'
+        CHECK (difficulty_level IN ('EASY', 'MEDIUM', 'HARD'))
+        COMMENT '판단 난이도 (EASY: 명확, HARD: 애매한 케이스)',
+    usage_count INT DEFAULT 0 COMMENT '사용 횟수 (통계용)',
+    is_active BOOLEAN DEFAULT TRUE COMMENT '활성화 여부',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    INDEX idx_category (category_id),
+    INDEX idx_active (is_active),
+    INDEX idx_difficulty (difficulty_level)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT '필터링 예시 댓글 마스터 (카테고리별)';
+
+-- 1-5. youtube_comment_sync_cursor 테이블 (독립적인 테이블)
+CREATE TABLE youtube_comment_sync_cursor (
+    video_id VARCHAR(50) PRIMARY KEY COMMENT 'YouTube 영상 ID (예: dQw4w9WgXcQ)',
+    last_sync_time DATETIME NOT NULL COMMENT '마지막 댓글 동기화 시간',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '커서 수정 시간',
+    
+    INDEX idx_updated (updated_at) COMMENT '오래된 커서 정리용'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT 'YouTube 댓글 동기화 커서 (Redis 백업용)';
+
 -- ==================================================
 -- 2단계: 1단계 테이블을 참조하는 테이블들
 -- ==================================================
 
--- 2-1. youtube_oauth_tokens 테이블
--- ✅ refresh_count, is_revoked 제거 (실제 테이블에 없음)
+-- 2-1. youtube_oauth_tokens 테이블 (users 참조)
 CREATE TABLE youtube_oauth_tokens (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -94,7 +125,7 @@ CREATE TABLE youtube_oauth_tokens (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT 'YouTube OAuth 토큰 정보 (토큰 추적 포함)';
 
--- 2-2. user_subscriptions 테이블
+-- 2-2. user_subscriptions 테이블 (users, subscription_plans 참조)
 CREATE TABLE user_subscriptions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -117,7 +148,7 @@ CREATE TABLE user_subscriptions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT '사용자 구독 정보';
 
--- 2-3. payment_methods 테이블
+-- 2-3. payment_methods 테이블 (users 참조)
 CREATE TABLE payment_methods (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -135,7 +166,7 @@ CREATE TABLE payment_methods (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT '결제 수단 정보';
 
--- 2-4. user_global_rules 테이블
+-- 2-4. user_global_rules 테이블 (users 참조)
 CREATE TABLE user_global_rules (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -153,7 +184,79 @@ CREATE TABLE user_global_rules (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT '사용자 전역 필터링 규칙';
 
--- 2-5. user_filter_preferences 테이블 (댓글 필터링 3단계 폼 설정)
+-- ==================================================
+-- 3단계: 2단계 테이블을 참조하는 테이블들
+-- ==================================================
+
+-- 3-1. payments 테이블 (user_subscriptions, payment_methods 참조)
+CREATE TABLE payments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    subscription_id INT NOT NULL,
+    method_id INT NOT NULL,
+    amount DECIMAL(12, 2) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING' 
+        CHECK (status IN ('PENDING', 'COMPLETED', 'FAILED', 'REFUNDED')),
+    pg_transaction_id VARCHAR(255) COMMENT 'Payment Gateway Transaction ID',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    CONSTRAINT fk_user_payment 
+        FOREIGN KEY (user_id) REFERENCES users(id) 
+        ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_subscription_payment 
+        FOREIGN KEY (subscription_id) REFERENCES user_subscriptions(id) 
+        ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_method_payment 
+        FOREIGN KEY (method_id) REFERENCES payment_methods(id) 
+        ON DELETE RESTRICT ON UPDATE CASCADE,
+    INDEX idx_user_payment_user (user_id),
+    INDEX idx_subscription_payment (subscription_id),
+    INDEX idx_payment_status (status),
+    INDEX idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT '결제 내역';
+
+-- 3-2. youtube_channels 테이블 (users, youtube_oauth_tokens 참조)
+CREATE TABLE youtube_channels (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    oauth_token_id INT NULL,
+    youtube_channel_id VARCHAR(50) NOT NULL UNIQUE COMMENT 'ID from YouTube API',
+    channel_name VARCHAR(255) NOT NULL,
+    channel_handle VARCHAR(100) UNIQUE,
+    thumbnail_url VARCHAR(2048),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    last_synced_at DATETIME NULL COMMENT '마지막 전체 동기화 시간',
+    last_video_published_at DATETIME NULL COMMENT '마지막 새 영상 발행 시간 (증분 조회 기준점)',
+    uploads_playlist_id VARCHAR(64) NULL UNIQUE COMMENT 'YouTube 업로드 플레이리스트 ID (예: UUxxxxxxxxxx)',
+    deleted_at DATETIME NULL DEFAULT NULL COMMENT '소프트 삭제용 컬럼',
+
+    subscriber_count BIGINT UNSIGNED NULL COMMENT 'statistics.subscriberCount',
+
+    CONSTRAINT fk_user_channel 
+        FOREIGN KEY (user_id) REFERENCES users(id) 
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_oauth_channel 
+        FOREIGN KEY (oauth_token_id) REFERENCES youtube_oauth_tokens(id) 
+        ON DELETE RESTRICT ON UPDATE CASCADE,
+
+    INDEX idx_user_channel (user_id),
+    INDEX idx_youtube_channel_id (youtube_channel_id),
+    INDEX idx_last_synced (last_synced_at),
+    INDEX idx_deleted_at (deleted_at),
+    INDEX idx_user_id_deleted_at (user_id, deleted_at),
+    INDEX idx_subscriber_count (subscriber_count)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT 'YouTube 채널 정보 (증분 동기화 메타 + 소프트 삭제 + 구독자 수)';
+
+-- ==================================================
+-- 4단계: youtube_channels를 참조하는 테이블들
+-- ==================================================
+
+-- 4-1. user_filter_preferences 테이블 (users, youtube_channels 참조)
 CREATE TABLE user_filter_preferences (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL COMMENT 'users 테이블 FK',
@@ -197,156 +300,25 @@ CREATE TABLE user_filter_preferences (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT '사용자 필터링 설정 (3단계 폼 데이터 + 이메일 알림 설정 저장)';
 
--- 2-6. filter_example_comments 테이블 (예시 댓글 마스터)
-CREATE TABLE filter_example_comments (
+-- 4-2. youtube_channel_rules 테이블 (youtube_channels 참조)
+CREATE TABLE youtube_channel_rules (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    category_id VARCHAR(50) NOT NULL COMMENT '카테고리 ID (profanity, appearance, common 등)',
-    comment_text TEXT NOT NULL COMMENT '예시 댓글 내용',
-    suggested_label VARCHAR(20) NOT NULL 
-        CHECK (suggested_label IN ('allow', 'block'))
-        COMMENT '추천 라벨 (사용자에게 힌트)',
-    difficulty_level VARCHAR(20) NOT NULL DEFAULT 'MEDIUM'
-        CHECK (difficulty_level IN ('EASY', 'MEDIUM', 'HARD'))
-        COMMENT '판단 난이도 (EASY: 명확, HARD: 애매한 케이스)',
-    usage_count INT DEFAULT 0 COMMENT '사용 횟수 (통계용)',
-    is_active BOOLEAN DEFAULT TRUE COMMENT '활성화 여부',
+    channel_id INT NOT NULL,
+    rule_type VARCHAR(30) NOT NULL 
+        CHECK (rule_type IN ('KEYWORD_BLACKLIST', 'KEYWORD_WHITELIST', 
+                             'USER_BLACKLIST', 'EXCLUDE_FROM_SCANNING')),
+    value VARCHAR(255),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
-    INDEX idx_category (category_id),
-    INDEX idx_active (is_active),
-    INDEX idx_difficulty (difficulty_level)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT '필터링 예시 댓글 마스터 (카테고리별)';
-
--- 2-7. user_example_responses 테이블 (사용자 예시 응답 기록, 선택)
-CREATE TABLE user_example_responses (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    preference_id INT NOT NULL COMMENT 'user_filter_preferences FK',
-    example_comment_id INT NOT NULL COMMENT 'filter_example_comments FK',
-    user_label VARCHAR(20) NOT NULL 
-        CHECK (user_label IN ('allow', 'block'))
-        COMMENT '사용자가 선택한 라벨',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
-    CONSTRAINT fk_user_response_user 
-        FOREIGN KEY (user_id) REFERENCES users(id) 
-        ON DELETE CASCADE,
-    CONSTRAINT fk_user_response_pref 
-        FOREIGN KEY (preference_id) REFERENCES user_filter_preferences(id) 
-        ON DELETE CASCADE,
-    CONSTRAINT fk_user_response_example 
-        FOREIGN KEY (example_comment_id) REFERENCES filter_example_comments(id) 
-        ON DELETE CASCADE,
-    
-    INDEX idx_user_pref (user_id, preference_id),
-    UNIQUE KEY uk_user_example (user_id, preference_id, example_comment_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT '사용자별 예시 라벨링 응답 기록 (학습 데이터)';
-
--- 2-8. daily_comment_stats 테이블 (일별 댓글 통계)
-CREATE TABLE daily_comment_stats (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    channel_id INT NOT NULL COMMENT 'youtube_channels FK',
-    video_id INT NOT NULL COMMENT 'youtube_videos FK',
-    stat_date DATE NOT NULL COMMENT '집계 날짜',
-    total_count INT NOT NULL DEFAULT 0 COMMENT 'AI가 분석한 전체 댓글 수 (neutral + filtered + suggestion)',
-    filtered_count INT NOT NULL DEFAULT 0 COMMENT '필터링된 댓글 수',
-    youtube_total_count BIGINT UNSIGNED NULL DEFAULT NULL COMMENT 'YouTube Data API에서 가져온 실제 전체 댓글 수',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    
-    CONSTRAINT fk_dcs_channel
-        FOREIGN KEY (channel_id) REFERENCES youtube_channels(id)
+    CONSTRAINT fk_channel_rule 
+        FOREIGN KEY (channel_id) REFERENCES youtube_channels(id) 
         ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT fk_dcs_video
-        FOREIGN KEY (video_id) REFERENCES youtube_videos(id)
-        ON DELETE CASCADE ON UPDATE CASCADE,
-    
-    UNIQUE KEY uk_video_date (video_id, stat_date),
-    INDEX idx_channel_date (channel_id, stat_date),
-    INDEX idx_stat_date (stat_date)
+    INDEX idx_channel_rule (channel_id, rule_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT '날짜별 전체/필터링 댓글 통계 (YouTube 실제 댓글 수 포함)';
+COMMENT '채널별 필터링 규칙';
 
--- ==================================================
--- 3단계: 2단계 테이블을 참조하는 테이블들
--- ==================================================
-
--- 3-1. payments 테이블
-CREATE TABLE payments (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    subscription_id INT NOT NULL,
-    method_id INT NOT NULL,
-    amount DECIMAL(12, 2) NOT NULL,
-    status VARCHAR(20) NOT NULL DEFAULT 'PENDING' 
-        CHECK (status IN ('PENDING', 'COMPLETED', 'FAILED', 'REFUNDED')),
-    pg_transaction_id VARCHAR(255) COMMENT 'Payment Gateway Transaction ID',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    
-    CONSTRAINT fk_user_payment 
-        FOREIGN KEY (user_id) REFERENCES users(id) 
-        ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT fk_subscription_payment 
-        FOREIGN KEY (subscription_id) REFERENCES user_subscriptions(id) 
-        ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT fk_method_payment 
-        FOREIGN KEY (method_id) REFERENCES payment_methods(id) 
-        ON DELETE RESTRICT ON UPDATE CASCADE,
-    INDEX idx_user_payment_user (user_id),
-    INDEX idx_subscription_payment (subscription_id),
-    INDEX idx_payment_status (status),
-    INDEX idx_created_at (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT '결제 내역';
-
--- 3-2. youtube_channels 테이블
--- ✅ sync_status, last_sync_error 제거 (실제 테이블에 없음)
--- ✅ oauth_token_id NULL 허용 (실제 테이블과 일치)
--- ✅ deleted_at 포함 (소프트 삭제)
-CREATE TABLE youtube_channels (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    oauth_token_id INT NULL,
-    youtube_channel_id VARCHAR(50) NOT NULL UNIQUE COMMENT 'ID from YouTube API',
-    channel_name VARCHAR(255) NOT NULL,
-    channel_handle VARCHAR(100) UNIQUE,
-    thumbnail_url VARCHAR(2048),
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-    last_synced_at DATETIME NULL COMMENT '마지막 전체 동기화 시간',
-    last_video_published_at DATETIME NULL COMMENT '마지막 새 영상 발행 시간 (증분 조회 기준점)',
-    uploads_playlist_id VARCHAR(64) NULL UNIQUE COMMENT 'YouTube 업로드 플레이리스트 ID (예: UUxxxxxxxxxx)',
-    deleted_at DATETIME NULL DEFAULT NULL COMMENT '소프트 삭제용 컬럼',
-
-    -- ✅ 구독자 수 (YouTube API statistics.subscriberCount)
-    subscriber_count BIGINT UNSIGNED NULL COMMENT 'statistics.subscriberCount',
-
-    CONSTRAINT fk_user_channel 
-        FOREIGN KEY (user_id) REFERENCES users(id) 
-        ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT fk_oauth_channel 
-        FOREIGN KEY (oauth_token_id) REFERENCES youtube_oauth_tokens(id) 
-        ON DELETE RESTRICT ON UPDATE CASCADE,
-
-    INDEX idx_user_channel (user_id),
-    INDEX idx_youtube_channel_id (youtube_channel_id),
-    INDEX idx_last_synced (last_synced_at),
-    INDEX idx_deleted_at (deleted_at),
-    INDEX idx_user_id_deleted_at (user_id, deleted_at),
-    INDEX idx_subscriber_count (subscriber_count)  -- ❓ 필요 시 정렬/조회용
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT 'YouTube 채널 정보 (증분 동기화 메타 + 소프트 삭제 + 구독자 수)';
-
--- ==================================================
--- 4단계: 3단계 테이블을 참조하는 테이블들
--- ==================================================
-
--- 4-1. youtube_videos 테이블
+-- 4-3. youtube_videos 테이블 (youtube_channels 참조)
 CREATE TABLE youtube_videos (
     id INT AUTO_INCREMENT PRIMARY KEY,
     channel_id INT NOT NULL,
@@ -374,10 +346,95 @@ CREATE TABLE youtube_videos (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT 'YouTube 비디오 정보 (통계 포함)';
 
--- 4-2. youtube_channel_rules 테이블
-CREATE TABLE youtube_channel_rules (
+-- 4-4. ai_channel_profiling 테이블 (youtube_channels 참조)
+CREATE TABLE ai_channel_profiling (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    channel_id INT NOT NULL,
+    channel_id INT NOT NULL COMMENT 'youtube_channels.id (FK)',
+    youtube_channel_id VARCHAR(50) NOT NULL COMMENT 'YouTube 채널 ID (UC...) - 빠른 조회용',
+    
+    -- JSON 데이터 컬럼
+    profile_data JSON NOT NULL COMMENT 'profileData 전체 (creatorProfile 포함)',
+    comment_ecosystem JSON NOT NULL COMMENT 'commentEcosystem 데이터',
+    channel_communication JSON NOT NULL COMMENT 'channelCommunication 데이터',
+    metadata JSON NOT NULL COMMENT 'metadata 데이터',
+    
+    -- 타임스탬프
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    -- 외래키
+    CONSTRAINT fk_profiling_channel 
+        FOREIGN KEY (channel_id) REFERENCES youtube_channels(id) 
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    
+    -- 인덱스
+    INDEX idx_channel_id (channel_id),
+    INDEX idx_youtube_channel_id (youtube_channel_id),
+    
+    -- 유니크 제약 (채널당 하나의 프로파일링 결과)
+    UNIQUE KEY uk_channel_profiling (channel_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT 'AI 채널 프로파일링 결과 (JSON 형태로 저장)';
+
+-- ==================================================
+-- 5단계: user_filter_preferences와 youtube_videos를 참조하는 테이블들
+-- ==================================================
+
+-- 5-1. user_example_responses 테이블 (users, user_filter_preferences, filter_example_comments 참조)
+CREATE TABLE user_example_responses (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    preference_id INT NOT NULL COMMENT 'user_filter_preferences FK',
+    example_comment_id INT NOT NULL COMMENT 'filter_example_comments FK',
+    user_label VARCHAR(20) NOT NULL 
+        CHECK (user_label IN ('allow', 'block'))
+        COMMENT '사용자가 선택한 라벨',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT fk_user_response_user 
+        FOREIGN KEY (user_id) REFERENCES users(id) 
+        ON DELETE CASCADE,
+    CONSTRAINT fk_user_response_pref 
+        FOREIGN KEY (preference_id) REFERENCES user_filter_preferences(id) 
+        ON DELETE CASCADE,
+    CONSTRAINT fk_user_response_example 
+        FOREIGN KEY (example_comment_id) REFERENCES filter_example_comments(id) 
+        ON DELETE CASCADE,
+    
+    INDEX idx_user_pref (user_id, preference_id),
+    UNIQUE KEY uk_user_example (user_id, preference_id, example_comment_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT '사용자별 예시 라벨링 응답 기록 (학습 데이터)';
+
+-- 5-2. daily_comment_stats 테이블 (youtube_channels, youtube_videos 참조)
+CREATE TABLE daily_comment_stats (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    channel_id INT NOT NULL COMMENT 'youtube_channels FK',
+    video_id INT NOT NULL COMMENT 'youtube_videos FK',
+    stat_date DATE NOT NULL COMMENT '집계 날짜',
+    total_count INT NOT NULL DEFAULT 0 COMMENT 'AI가 분석한 전체 댓글 수 (neutral + filtered + suggestion)',
+    filtered_count INT NOT NULL DEFAULT 0 COMMENT '필터링된 댓글 수',
+    youtube_total_count BIGINT UNSIGNED NULL DEFAULT NULL COMMENT 'YouTube Data API에서 가져온 실제 전체 댓글 수',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    CONSTRAINT fk_dcs_channel
+        FOREIGN KEY (channel_id) REFERENCES youtube_channels(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_dcs_video
+        FOREIGN KEY (video_id) REFERENCES youtube_videos(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    
+    UNIQUE KEY uk_video_date (video_id, stat_date),
+    INDEX idx_channel_date (channel_id, stat_date),
+    INDEX idx_stat_date (stat_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT '날짜별 전체/필터링 댓글 통계 (YouTube 실제 댓글 수 포함)';
+
+-- 5-3. youtube_video_rules 테이블 (youtube_videos 참조)
+CREATE TABLE youtube_video_rules (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    video_id INT NOT NULL,
     rule_type VARCHAR(30) NOT NULL 
         CHECK (rule_type IN ('KEYWORD_BLACKLIST', 'KEYWORD_WHITELIST', 
                              'USER_BLACKLIST', 'EXCLUDE_FROM_SCANNING')),
@@ -385,18 +442,14 @@ CREATE TABLE youtube_channel_rules (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
-    CONSTRAINT fk_channel_rule 
-        FOREIGN KEY (channel_id) REFERENCES youtube_channels(id) 
+    CONSTRAINT fk_video_rule 
+        FOREIGN KEY (video_id) REFERENCES youtube_videos(id) 
         ON DELETE CASCADE ON UPDATE CASCADE,
-    INDEX idx_channel_rule (channel_id, rule_type)
+    INDEX idx_video_rule (video_id, rule_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT '채널별 필터링 규칙';
+COMMENT '비디오별 필터링 규칙';
 
--- ==================================================
--- 5단계: 4단계 테이블을 참조하는 테이블들
--- ==================================================
-
--- 5-1. youtube_comments 테이블
+-- 5-4. youtube_comments 테이블 (youtube_videos 참조)
 CREATE TABLE youtube_comments (
     id INT AUTO_INCREMENT PRIMARY KEY,
     video_id INT NOT NULL,
@@ -424,66 +477,7 @@ CREATE TABLE youtube_comments (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT 'YouTube 댓글 정보 (DESC 인덱스로 최신 댓글 조회 최적화)';
 
--- 5-2. youtube_video_rules 테이블
-CREATE TABLE youtube_video_rules (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    video_id INT NOT NULL,
-    rule_type VARCHAR(30) NOT NULL 
-        CHECK (rule_type IN ('KEYWORD_BLACKLIST', 'KEYWORD_WHITELIST', 
-                             'USER_BLACKLIST', 'EXCLUDE_FROM_SCANNING')),
-    value VARCHAR(255),
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    
-    CONSTRAINT fk_video_rule 
-        FOREIGN KEY (video_id) REFERENCES youtube_videos(id) 
-        ON DELETE CASCADE ON UPDATE CASCADE,
-    INDEX idx_video_rule (video_id, rule_type)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT '비디오별 필터링 규칙';
-
--- ==================================================
--- 6단계: 5단계 테이블을 참조하는 테이블들 (AI 분석 관련)
--- ==================================================
-
--- 6-1. ai_comment_analysis_result 테이블
--- ✅ 팀원 제공 SQL 반영 (status: 'filtered', 'content_suggestion', 'normal')
--- ✅ reason, analyzed_at 컬럼 추가
-CREATE TABLE ai_comment_analysis_result (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    youtube_comment_id INT NOT NULL UNIQUE,
-    detected_category VARCHAR(50) COMMENT 'e.g., SPAM, HATE_SPEECH',
-    harmfulness_level VARCHAR(20) NOT NULL DEFAULT 'MEDIUM'
-        CHECK (harmfulness_level IN ('LOW', 'MEDIUM', 'HIGH'))
-        COMMENT 'AI가 판별한 해로움 수준 (약, 중, 강)',
-    detection_source VARCHAR(30) NOT NULL DEFAULT 'AI_MODEL'
-        CHECK (detection_source IN ('AI_MODEL', 'USER_KEYWORD', 'USER_CONTEXT'))
-        COMMENT 'AI 자체 판단, 사용자 키워드 필터, 사용자 문맥 필터 등',
-    ai_model_version VARCHAR(50) COMMENT 'e.g., v1, v1.1 ...',
-    status VARCHAR(20) NOT NULL DEFAULT 'filtered'
-        CHECK (status IN ('filtered', 'content_suggestion', 'normal')),
-    reason VARCHAR(100) NULL
-        COMMENT '필터링 이유 (AI 서버의 reason 필드)',
-    analyzed_at DATETIME NULL
-        COMMENT 'AI가 분석한 시간 (AI 서버의 analyzed_at 필드)',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        COMMENT 'DB에 저장된 시간',
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        COMMENT '사용자가 status를 변경한 시간',
-
-    CONSTRAINT fk_comment_analysis
-        FOREIGN KEY (youtube_comment_id) REFERENCES youtube_comments(id)
-        ON DELETE CASCADE ON UPDATE CASCADE,
-    INDEX idx_status (status),
-    INDEX idx_harmfulness_level (harmfulness_level),
-    INDEX idx_detection_source (detection_source),
-    INDEX idx_status_created_desc (status, created_at DESC),
-    INDEX idx_analyzed_at (analyzed_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT 'AI 댓글 분석 결과 (상태별 조회 최적화)';
-
--- 6-2. ai_analysis_summary 테이블
--- ✅ 팀원 제공 SQL 반영 (비디오별 분석 요약)
+-- 5-5. ai_analysis_summary 테이블 (youtube_videos 참조)
 CREATE TABLE ai_analysis_summary (
     id INT AUTO_INCREMENT PRIMARY KEY,
     video_id INT NOT NULL,
@@ -518,51 +512,43 @@ CREATE TABLE ai_analysis_summary (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT 'AI 분석 요약 (비디오 단위)';
 
--- 6-3. ai_channel_profiling 테이블
--- ✅ 새로 만든 프로파일링 테이블 (JSON 형태로 저장)
-CREATE TABLE ai_channel_profiling (
+-- ==================================================
+-- 6단계: youtube_comments를 참조하는 테이블들
+-- ==================================================
+
+-- 6-1. ai_comment_analysis_result 테이블 (youtube_comments 참조)
+CREATE TABLE ai_comment_analysis_result (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    channel_id INT NOT NULL COMMENT 'youtube_channels.id (FK)',
-    youtube_channel_id VARCHAR(50) NOT NULL COMMENT 'YouTube 채널 ID (UC...) - 빠른 조회용',
-    
-    -- JSON 데이터 컬럼
-    profile_data JSON NOT NULL COMMENT 'profileData 전체 (creatorProfile 포함)',
-    comment_ecosystem JSON NOT NULL COMMENT 'commentEcosystem 데이터',
-    channel_communication JSON NOT NULL COMMENT 'channelCommunication 데이터',
-    metadata JSON NOT NULL COMMENT 'metadata 데이터',
-    
-    -- 타임스탬프
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    
-    -- 외래키
-    CONSTRAINT fk_profiling_channel 
-        FOREIGN KEY (channel_id) REFERENCES youtube_channels(id) 
+    youtube_comment_id INT NOT NULL UNIQUE,
+    detected_category VARCHAR(50) COMMENT 'e.g., SPAM, HATE_SPEECH',
+    harmfulness_level VARCHAR(20) NOT NULL DEFAULT 'MEDIUM'
+        CHECK (harmfulness_level IN ('LOW', 'MEDIUM', 'HIGH'))
+        COMMENT 'AI가 판별한 해로움 수준 (약, 중, 강)',
+    detection_source VARCHAR(30) NOT NULL DEFAULT 'AI_MODEL'
+        CHECK (detection_source IN ('AI_MODEL', 'USER_KEYWORD', 'USER_CONTEXT'))
+        COMMENT 'AI 자체 판단, 사용자 키워드 필터, 사용자 문맥 필터 등',
+    ai_model_version VARCHAR(50) COMMENT 'e.g., v1, v1.1 ...',
+    status VARCHAR(20) NOT NULL DEFAULT 'filtered'
+        CHECK (status IN ('filtered', 'content_suggestion', 'normal')),
+    reason VARCHAR(100) NULL
+        COMMENT '필터링 이유 (AI 서버의 reason 필드)',
+    analyzed_at DATETIME NULL
+        COMMENT 'AI가 분석한 시간 (AI 서버의 analyzed_at 필드)',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        COMMENT 'DB에 저장된 시간',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        COMMENT '사용자가 status를 변경한 시간',
+
+    CONSTRAINT fk_comment_analysis
+        FOREIGN KEY (youtube_comment_id) REFERENCES youtube_comments(id)
         ON DELETE CASCADE ON UPDATE CASCADE,
-    
-    -- 인덱스
-    INDEX idx_channel_id (channel_id),
-    INDEX idx_youtube_channel_id (youtube_channel_id),
-    
-    -- 유니크 제약 (채널당 하나의 프로파일링 결과)
-    UNIQUE KEY uk_channel_profiling (channel_id)
+    INDEX idx_status (status),
+    INDEX idx_harmfulness_level (harmfulness_level),
+    INDEX idx_detection_source (detection_source),
+    INDEX idx_status_created_desc (status, created_at DESC),
+    INDEX idx_analyzed_at (analyzed_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT 'AI 채널 프로파일링 결과 (JSON 형태로 저장)';
-
--- ==================================================
--- 7단계: 기타 유틸리티 테이블
--- ==================================================
-
--- 7-1. youtube_comment_sync_cursor 테이블
--- YouTube 댓글 동기화 커서 백업 테이블
-CREATE TABLE youtube_comment_sync_cursor (
-    video_id VARCHAR(50) PRIMARY KEY COMMENT 'YouTube 영상 ID (예: dQw4w9WgXcQ)',
-    last_sync_time DATETIME NOT NULL COMMENT '마지막 댓글 동기화 시간',
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '커서 수정 시간',
-    
-    INDEX idx_updated (updated_at) COMMENT '오래된 커서 정리용'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT 'YouTube 댓글 동기화 커서 (Redis 백업용)';
+COMMENT 'AI 댓글 분석 결과 (상태별 조회 최적화)';
 
 -- ==================================================
 -- 테이블 생성 완료 확인
@@ -571,37 +557,6 @@ COMMENT 'YouTube 댓글 동기화 커서 (Redis 백업용)';
 USE medi;
 
 SHOW TABLES;
-
--- 각 테이블 구조 확인
-DESC ai_analysis_summary;
-DESC ai_channel_profiling;
-DESC ai_comment_analysis_result;
-DESC email_verifications;
-DESC payment_methods;
-DESC payments;
-DESC subscription_plans;
-DESC user_global_rules;
-DESC user_subscriptions;
-DESC users;
-DESC youtube_channel_rules;
-DESC youtube_channels;
-DESC youtube_comments;
-DESC youtube_comment_sync_cursor;
-DESC youtube_oauth_tokens;
-DESC youtube_video_rules;
-DESC youtube_videos;
-
--- ==================================================
--- 인덱스 상세 확인
--- ==================================================
-
-SHOW INDEXES FROM youtube_channels;
-SHOW INDEXES FROM youtube_videos;
-SHOW INDEXES FROM youtube_comments;
-SHOW INDEXES FROM youtube_oauth_tokens;
-SHOW INDEXES FROM ai_comment_analysis_result;
-SHOW INDEXES FROM ai_analysis_summary;
-SHOW INDEXES FROM ai_channel_profiling;
 
 -- ==================================================
 -- filter_example_comments 초기 데이터 (Seed Data)
@@ -696,3 +651,57 @@ INSERT INTO filter_example_comments
 ('spam', '와 진짜 미쳤다 ㄷㄷㄷㄷㄷㄷㄷㄷ', 'allow', 'HARD', TRUE),
 ('spam', 'ㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋ', 'allow', 'MEDIUM', TRUE);
 
+-- ==================================================
+-- 생성된 테이블 확인
+-- ==================================================
+
+SHOW TABLES;
+
+-- 각 테이블 구조 간단 확인
+SELECT 'users' as table_name, COUNT(*) as row_count FROM users
+UNION ALL
+SELECT 'email_verifications', COUNT(*) FROM email_verifications
+UNION ALL
+SELECT 'subscription_plans', COUNT(*) FROM subscription_plans
+UNION ALL
+SELECT 'filter_example_comments', COUNT(*) FROM filter_example_comments
+UNION ALL
+SELECT 'youtube_comment_sync_cursor', COUNT(*) FROM youtube_comment_sync_cursor
+UNION ALL
+SELECT 'youtube_oauth_tokens', COUNT(*) FROM youtube_oauth_tokens
+UNION ALL
+SELECT 'user_subscriptions', COUNT(*) FROM user_subscriptions
+UNION ALL
+SELECT 'payment_methods', COUNT(*) FROM payment_methods
+UNION ALL
+SELECT 'user_global_rules', COUNT(*) FROM user_global_rules
+UNION ALL
+SELECT 'payments', COUNT(*) FROM payments
+UNION ALL
+SELECT 'youtube_channels', COUNT(*) FROM youtube_channels
+UNION ALL
+SELECT 'user_filter_preferences', COUNT(*) FROM user_filter_preferences
+UNION ALL
+SELECT 'youtube_channel_rules', COUNT(*) FROM youtube_channel_rules
+UNION ALL
+SELECT 'youtube_videos', COUNT(*) FROM youtube_videos
+UNION ALL
+SELECT 'ai_channel_profiling', COUNT(*) FROM ai_channel_profiling
+UNION ALL
+SELECT 'user_example_responses', COUNT(*) FROM user_example_responses
+UNION ALL
+SELECT 'daily_comment_stats', COUNT(*) FROM daily_comment_stats
+UNION ALL
+SELECT 'youtube_video_rules', COUNT(*) FROM youtube_video_rules
+UNION ALL
+SELECT 'youtube_comments', COUNT(*) FROM youtube_comments
+UNION ALL
+SELECT 'ai_analysis_summary', COUNT(*) FROM ai_analysis_summary
+UNION ALL
+SELECT 'ai_comment_analysis_result', COUNT(*) FROM ai_comment_analysis_result;
+
+-- ==================================================
+-- 스키마 생성 완료
+-- ==================================================
+
+SELECT '스키마 생성이 완료되었습니다!' as message;
