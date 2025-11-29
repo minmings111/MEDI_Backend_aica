@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.medi.backend.youtube.mapper.ChannelThreatAnalysisMapper">
+    <!-- ResultMap with JsonTypeHandler -->
+    <resultMap id="ChannelThreatAnalysisResultMap" type="com.medi.backend.youtube.dto.ChannelThreatAnalysisDto">
+        <id property="id" column="id"/>
+        <result property="channelId" column="channel_id"/>
+        <result property="channelName" column="channel_name"/>
+        <result property="generatedAt" column="generated_at"/>
+        <result property="totalComments" column="total_comments"/>
+        <result property="criticalCount" column="critical_count"/>
+        <result property="highCount" column="high_count"/>
+        <result property="section1ThreatIntelligence" column="section_1_threat_intelligence" 
+                typeHandler="com.medi.backend.global.config.JsonTypeHandler"/>
+        <result property="section2DefenseStrategy" column="section_2_defense_strategy" 
+                typeHandler="com.medi.backend.global.config.JsonTypeHandler"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <!-- INSERT -->
+    <insert id="insertAnalysis" parameterType="ChannelThreatAnalysisDto" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO ai_channel_threat_analysis (
+            channel_id, channel_name, generated_at, total_comments,
+            critical_count, high_count, section_1_threat_intelligence, section_2_defense_strategy
+        ) VALUES (
+            #{channelId}, #{channelName}, #{generatedAt}, #{totalComments},
+            #{criticalCount}, #{highCount}, 
+            #{section1ThreatIntelligence, typeHandler=com.medi.backend.global.config.JsonTypeHandler},
+            #{section2DefenseStrategy, typeHandler=com.medi.backend.global.config.JsonTypeHandler}
+        )
+    </insert>
+
+    <!-- UPDATE -->
+    <update id="updateAnalysis" parameterType="ChannelThreatAnalysisDto">
+        UPDATE ai_channel_threat_analysis
+        SET channel_name = #{channelName},
+            generated_at = #{generatedAt},
+            total_comments = #{totalComments},
+            critical_count = #{criticalCount},
+            high_count = #{highCount},
+            section_1_threat_intelligence = #{section1ThreatIntelligence, typeHandler=com.medi.backend.global.config.JsonTypeHandler},
+            section_2_defense_strategy = #{section2DefenseStrategy, typeHandler=com.medi.backend.global.config.JsonTypeHandler},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE channel_id = #{channelId}
+          AND generated_at = #{generatedAt}
+    </update>
+
+    <!-- SELECT 쿼리들 -->
+    <select id="findLatestByChannelId" resultMap="ChannelThreatAnalysisResultMap">
+        SELECT * FROM ai_channel_threat_analysis
+        WHERE channel_id = #{channelId}
+        ORDER BY generated_at DESC, created_at DESC
+        LIMIT 1
+    </select>
+
+    <select id="findByChannelIdAndGeneratedAt" resultMap="ChannelThreatAnalysisResultMap">
+        SELECT * FROM ai_channel_threat_analysis
+        WHERE channel_id = #{channelId}
+          AND generated_at = #{generatedAt}
+        LIMIT 1
+    </select>
+
+    <select id="findByChannelIdOrderByGeneratedAt" resultMap="ChannelThreatAnalysisResultMap">
+        SELECT * FROM ai_channel_threat_analysis
+        WHERE channel_id = #{channelId}
+        ORDER BY generated_at DESC, created_at DESC
+        <if test="limit != null">
+            LIMIT #{limit}
+        </if>
+    </select>
+
+    <select id="existsByChannelIdAndGeneratedAt" resultType="boolean">
+        SELECT COUNT(*) > 0 FROM ai_channel_threat_analysis
+        WHERE channel_id = #{channelId}
+          AND generated_at = #{generatedAt}
+    </select>
+
+</mapper>
+

@@ -698,7 +698,54 @@ SELECT 'youtube_comments', COUNT(*) FROM youtube_comments
 UNION ALL
 SELECT 'ai_analysis_summary', COUNT(*) FROM ai_analysis_summary
 UNION ALL
-SELECT 'ai_comment_analysis_result', COUNT(*) FROM ai_comment_analysis_result;
+SELECT 'ai_comment_analysis_result', COUNT(*) FROM ai_comment_analysis_result
+UNION ALL
+SELECT 'ai_channel_threat_analysis', COUNT(*) FROM ai_channel_threat_analysis;
+
+-- ==================================================
+-- 6단계: ai_channel_threat_analysis 테이블 (youtube_channels 참조)
+-- ==================================================
+
+-- AI 채널 위협 분석 시스템 테이블 (생성 시간 기준)
+CREATE TABLE IF NOT EXISTS ai_channel_threat_analysis (
+    -- 기본 키
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    
+    -- 외래키 (채널 기준)
+    channel_id INT NOT NULL COMMENT 'youtube_channels FK',
+    
+    -- FastAPI Agent JSON 원본 필드 (NULL 허용)
+    channel_name VARCHAR(255) NULL COMMENT 'Agent JSON: channel_name',
+    generated_at DATETIME NULL COMMENT 'Agent JSON: generated_at (Agent가 분석한 시간)',
+    total_comments INT NULL DEFAULT 0 COMMENT 'Agent JSON: total_comments (채널 전체)',
+    
+    -- 빠른 조회용 추출 데이터
+    critical_count INT NULL DEFAULT 0 COMMENT 'section_1.intensity_distribution.critical',
+    high_count INT NULL DEFAULT 0 COMMENT 'section_1.intensity_distribution.high',
+    
+    -- 원본 JSON 섹션 저장 (Agent 응답 그대로)
+    section_1_threat_intelligence JSON NULL COMMENT '위협 인텔리전스 원본 JSON',
+    section_2_defense_strategy JSON NULL COMMENT '방어 전략 원본 JSON',
+    
+    -- 메타데이터 (DB 관리용)
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT 'DB에 저장된 시간',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'DB 수정 시간',
+    
+    -- 외래키 제약
+    CONSTRAINT fk_channel_threat_analysis 
+        FOREIGN KEY (channel_id) REFERENCES youtube_channels(id) 
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    
+    -- 성능 인덱스
+    INDEX idx_channel_threat (channel_id),
+    INDEX idx_threat_critical_count (critical_count DESC),
+    INDEX idx_threat_generated_at (generated_at DESC),
+    
+    -- 유니크 제약 (채널별 + 생성 시간 기준 중복 방지)
+    UNIQUE KEY uk_channel_generated (channel_id, generated_at)
+    
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT 'AI 채널 위협 분석 보고서 (generated_at 기준 관리)';
 
 -- ==================================================
 -- 스키마 생성 완료
