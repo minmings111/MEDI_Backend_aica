@@ -17,8 +17,8 @@ import java.util.Map;
  * DB 1: Task Queue
  * - profiling_agent:tasks:queue (Profiling 작업)
  * - filtering_agent:tasks:queue (Filtering 작업)
- * - legal_report_agent:tasks:queue (합법 보고서 작업)
- * - content_report_agent:tasks:queue (콘텐츠 보고서 작업)
+ * - report_agent:tasks:queue (보고서 작업 통합: legal_report, content_report, threat_analysis)
+ * - threat_analysis_agent:tasks:queue (채널 위협 분석 보고서 작업)
  * 
  * DB 0: Form 데이터 저장
  * - channel:{channelId}:form (채널별 Form 데이터, agent에서 프롬프트로 사용)
@@ -32,8 +32,8 @@ public class RedisQueueService {
     private final FilterPreferenceService filterPreferenceService;
     private static final String PROFILING_QUEUE_KEY = "profiling_agent:tasks:queue";
     private static final String FILTERING_QUEUE_KEY = "filtering_agent:tasks:queue";
-    private static final String LEGAL_REPORT_QUEUE_KEY = "legal_report_agent:tasks:queue";
-    private static final String CONTENT_REPORT_QUEUE_KEY = "content_report_agent:tasks:queue";
+    private static final String REPORT_QUEUE_KEY = "report_agent:tasks:queue";  // 통합된 보고서 큐
+    private static final String THREAT_ANALYSIS_QUEUE_KEY = "threat_analysis_agent:tasks:queue";  // 위협 분석 큐
     
     // Redis 저장용 템플릿 (DB 0, 기본 Redis)
     private final StringRedisTemplate stringRedisTemplate;
@@ -109,56 +109,72 @@ public class RedisQueueService {
     }
 
     /**
-     * 합법 보고서 (Legal Report) 작업 추가
+     * 보고서 작업 추가 (통합 큐)
+     * - legal_report, content_report를 하나의 큐로 통합
+     * - type 필드로 구분: "legal_report", "content_report"
      * - DB 작업 없이 큐에만 추가
      * - channelId와 userId를 포함하여 사용자 식별 가능
      */
-    public void enqueueLegalReport(String channelId, Integer userId, Map<String, Object> requestData) {
+    public void enqueueReport(String channelId, Integer userId, String reportType, Map<String, Object> requestData) {
         try {
             Map<String, Object> task = new HashMap<>();
             task.put("channelId", channelId);
-            task.put("userId", userId);  // ⭐ 사용자 식별을 위한 userId 추가
-            task.put("type", "legal_report");
-            
-            // ⭐ 프론트에서 전달받은 추가 데이터는 포함하지 않음 (필요한 필드만 task에 추가)
+            task.put("userId", userId);
+            task.put("type", reportType);  // "legal_report" 또는 "content_report"
             
             String taskJson = objectMapper.writeValueAsString(task);
             
-            // ⭐ DB 1의 LEGAL REPORT Queue에 추가
-            redisQueueTemplate.opsForList().leftPush(LEGAL_REPORT_QUEUE_KEY, taskJson);
+            // ⭐ DB 1의 통합 REPORT Queue에 추가
+            redisQueueTemplate.opsForList().leftPush(REPORT_QUEUE_KEY, taskJson);
             
-            log.info("✅ Legal Report task 추가 (DB 1): channelId={}, userId={}, queue={}, type=legal_report", 
-                channelId, userId, LEGAL_REPORT_QUEUE_KEY);
+            log.info("✅ Report task 추가 (DB 1): channelId={}, userId={}, queue={}, type={}", 
+                channelId, userId, REPORT_QUEUE_KEY, reportType);
         } catch (Exception e) {
-            log.error("❌ Legal Report task 추가 실패: channelId={}, userId={}", channelId, userId, e);
-            throw new RuntimeException("Failed to enqueue legal report task", e);
+            log.error("❌ Report task 추가 실패: channelId={}, userId={}, type={}", channelId, userId, reportType, e);
+            throw new RuntimeException("Failed to enqueue report task", e);
         }
     }
 
     /**
-     * 콘텐츠 보고서 (Content Report) 작업 추가
+     * 합법 보고서 (Legal Report) 작업 추가 (하위 호환성 유지)
+     * @deprecated enqueueReport() 사용 권장
+     */
+    @Deprecated
+    public void enqueueLegalReport(String channelId, Integer userId, Map<String, Object> requestData) {
+        enqueueReport(channelId, userId, "legal_report", requestData);
+    }
+
+    /**
+     * 콘텐츠 보고서 (Content Report) 작업 추가 (하위 호환성 유지)
+     * @deprecated enqueueReport() 사용 권장
+     */
+    @Deprecated
+    public void enqueueContentReport(String channelId, Integer userId, Map<String, Object> requestData) {
+        enqueueReport(channelId, userId, "content_report", requestData);
+    }
+
+    /**
+     * 채널 위협 분석 보고서 (Threat Analysis Report) 작업 추가
      * - DB 작업 없이 큐에만 추가
      * - channelId와 userId를 포함하여 사용자 식별 가능
      */
-    public void enqueueContentReport(String channelId, Integer userId, Map<String, Object> requestData) {
+    public void enqueueThreatAnalysis(String channelId, Integer userId, Map<String, Object> requestData) {
         try {
             Map<String, Object> task = new HashMap<>();
             task.put("channelId", channelId);
-            task.put("userId", userId);  // ⭐ 사용자 식별을 위한 userId 추가
-            task.put("type", "content_report");
-            
-            // ⭐ 프론트에서 전달받은 추가 데이터는 포함하지 않음 (필요한 필드만 task에 추가)
+            task.put("userId", userId);
+            task.put("type", "threat_analysis");
             
             String taskJson = objectMapper.writeValueAsString(task);
             
-            // ⭐ DB 1의 CONTENT REPORT Queue에 추가
-            redisQueueTemplate.opsForList().leftPush(CONTENT_REPORT_QUEUE_KEY, taskJson);
+            // ⭐ DB 1의 THREAT ANALYSIS Queue에 추가
+            redisQueueTemplate.opsForList().leftPush(THREAT_ANALYSIS_QUEUE_KEY, taskJson);
             
-            log.info("✅ Content Report task 추가 (DB 1): channelId={}, userId={}, queue={}, type=content_report", 
-                channelId, userId, CONTENT_REPORT_QUEUE_KEY);
+            log.info("✅ Threat Analysis task 추가 (DB 1): channelId={}, userId={}, queue={}, type=threat_analysis", 
+                channelId, userId, THREAT_ANALYSIS_QUEUE_KEY);
         } catch (Exception e) {
-            log.error("❌ Content Report task 추가 실패: channelId={}, userId={}", channelId, userId, e);
-            throw new RuntimeException("Failed to enqueue content report task", e);
+            log.error("❌ Threat Analysis task 추가 실패: channelId={}, userId={}", channelId, userId, e);
+            throw new RuntimeException("Failed to enqueue threat analysis task", e);
         }
     }
 
@@ -170,20 +186,19 @@ public class RedisQueueService {
         
         Long profilingLength = redisQueueTemplate.opsForList().size(PROFILING_QUEUE_KEY);
         Long filteringLength = redisQueueTemplate.opsForList().size(FILTERING_QUEUE_KEY);
-        Long legalReportLength = redisQueueTemplate.opsForList().size(LEGAL_REPORT_QUEUE_KEY);
-        Long contentReportLength = redisQueueTemplate.opsForList().size(CONTENT_REPORT_QUEUE_KEY);
+        Long reportLength = redisQueueTemplate.opsForList().size(REPORT_QUEUE_KEY);
+        Long threatAnalysisLength = redisQueueTemplate.opsForList().size(THREAT_ANALYSIS_QUEUE_KEY);
         
         stats.put("profiling_queue_length", profilingLength != null ? profilingLength : 0L);
         stats.put("filtering_queue_length", filteringLength != null ? filteringLength : 0L);
-        stats.put("legal_report_queue_length", legalReportLength != null ? legalReportLength : 0L);
-        stats.put("content_report_queue_length", contentReportLength != null ? contentReportLength : 0L);
+        stats.put("report_queue_length", reportLength != null ? reportLength : 0L);
+        stats.put("threat_analysis_queue_length", threatAnalysisLength != null ? threatAnalysisLength : 0L);
         
-        log.debug("Queue 통계: Profiling={}, Filtering={}, LegalReport={}, ContentReport={}, Form={}", 
+        log.debug("Queue 통계: Profiling={}, Filtering={}, Report={}, ThreatAnalysis={}", 
             stats.get("profiling_queue_length"), 
             stats.get("filtering_queue_length"),
-            stats.get("legal_report_queue_length"),
-            stats.get("content_report_queue_length"),
-            0L);
+            stats.get("report_queue_length"),
+            stats.get("threat_analysis_queue_length"));
         
         return stats;
     }
@@ -199,17 +214,17 @@ public class RedisQueueService {
             } else if ("filtering".equalsIgnoreCase(queueType)) {
                 redisQueueTemplate.delete(FILTERING_QUEUE_KEY);
                 log.info("🗑️ Filtering Queue 비움");
-            } else if ("legal_report".equalsIgnoreCase(queueType)) {
-                redisQueueTemplate.delete(LEGAL_REPORT_QUEUE_KEY);
-                log.info("🗑️ Legal Report Queue 비움");
-            } else if ("content_report".equalsIgnoreCase(queueType)) {
-                redisQueueTemplate.delete(CONTENT_REPORT_QUEUE_KEY);
-                log.info("🗑️ Content Report Queue 비움");
+            } else if ("report".equalsIgnoreCase(queueType)) {
+                redisQueueTemplate.delete(REPORT_QUEUE_KEY);
+                log.info("🗑️ Report Queue 비움");
+            } else if ("threat_analysis".equalsIgnoreCase(queueType)) {
+                redisQueueTemplate.delete(THREAT_ANALYSIS_QUEUE_KEY);
+                log.info("🗑️ Threat Analysis Queue 비움");
             } else if ("all".equalsIgnoreCase(queueType)) {
                 redisQueueTemplate.delete(PROFILING_QUEUE_KEY);
                 redisQueueTemplate.delete(FILTERING_QUEUE_KEY);
-                redisQueueTemplate.delete(LEGAL_REPORT_QUEUE_KEY);
-                redisQueueTemplate.delete(CONTENT_REPORT_QUEUE_KEY);
+                redisQueueTemplate.delete(REPORT_QUEUE_KEY);
+                redisQueueTemplate.delete(THREAT_ANALYSIS_QUEUE_KEY);
                 log.info("🗑️ 모든 Queue 비움");
             }
         } catch (Exception e) {

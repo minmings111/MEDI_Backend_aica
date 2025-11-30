@@ -193,6 +193,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/test/**").permitAll()
                 .requestMatchers("/api/v1/analysis/**").permitAll()  // AI 서버에서 POST로 결과 전송
                 .requestMatchers("/api/filter/prompt/**").permitAll()  // 에이전트용 프롬프트 조회 API
+                .requestMatchers("/api/youtube/analysis/channel/save").permitAll()  // FastAPI Agent에서 분석 결과 저장
                 .requestMatchers("/api/youtube/connect").authenticated()
                 .requestMatchers("/api/youtube/oauth/callback").permitAll()
                 .requestMatchers("/api/youtube/token/status").authenticated()

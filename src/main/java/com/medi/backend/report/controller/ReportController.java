@@ -137,8 +137,8 @@ public class ReportController {
             // 프론트에서 전달받은 추가 데이터를 Map으로 변환
             Map<String, Object> requestData = request.getData() != null ? request.getData() : new HashMap<>();
             
-            // 큐에 작업 추가 (channelId, userId 포함)
-            redisQueueService.enqueueLegalReport(request.getChannelId(), userId, requestData);
+            // 통합된 큐에 작업 추가 (type="legal_report")
+            redisQueueService.enqueueReport(request.getChannelId(), userId, "legal_report", requestData);
             
             Map<String, Object> response = new HashMap<>();
             response.put("message", "Legal report task added to queue successfully");
@@ -183,8 +183,8 @@ public class ReportController {
             // 프론트에서 전달받은 추가 데이터를 Map으로 변환
             Map<String, Object> requestData = request.getData() != null ? request.getData() : new HashMap<>();
             
-            // 큐에 작업 추가 (channelId, userId 포함)
-            redisQueueService.enqueueContentReport(request.getChannelId(), userId, requestData);
+            // 통합된 큐에 작업 추가 (type="content_report")
+            redisQueueService.enqueueReport(request.getChannelId(), userId, "content_report", requestData);
             
             Map<String, Object> response = new HashMap<>();
             response.put("message", "Content report task added to queue successfully");
@@ -198,6 +198,52 @@ public class ReportController {
             log.error("❌ 콘텐츠 보고서 생성 요청 실패: userId={}, channelId={}", userId, request.getChannelId(), e);
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("message", "Failed to add content report task to queue");
+            errorResponse.put("error", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
+
+    /**
+     * 채널 위협 분석 보고서 (Threat Analysis Report) 생성 요청
+     * POST /api/reports/threat-analysis
+     * 
+     * @param request 보고서 생성 요청 (channelId, 추가 데이터)
+     * @return 큐 추가 성공 응답
+     */
+    @PreAuthorize("isAuthenticated()")
+    @PostMapping("/threat-analysis")
+    @Operation(summary = "채널 위협 분석 보고서 생성 요청", description = "채널 위협 분석 보고서 생성을 위한 작업을 큐에 추가합니다.")
+    public ResponseEntity<Map<String, Object>> createThreatAnalysisReport(@RequestBody ReportRequest request) {
+        Integer userId = authUtil.getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        if (request.getChannelId() == null || request.getChannelId().isEmpty()) {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("message", "channelId is required");
+            return ResponseEntity.badRequest().body(errorResponse);
+        }
+
+        try {
+            // 프론트에서 전달받은 추가 데이터를 Map으로 변환
+            Map<String, Object> requestData = request.getData() != null ? request.getData() : new HashMap<>();
+            
+            // 위협 분석 큐에 작업 추가
+            redisQueueService.enqueueThreatAnalysis(request.getChannelId(), userId, requestData);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("message", "Threat analysis report task added to queue successfully");
+            response.put("channelId", request.getChannelId());
+            response.put("userId", userId);
+            
+            log.info("✅ 채널 위협 분석 보고서 생성 요청: userId={}, channelId={}", userId, request.getChannelId());
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("❌ 채널 위협 분석 보고서 생성 요청 실패: userId={}, channelId={}", userId, request.getChannelId(), e);
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("message", "Failed to add threat analysis report task to queue");
             errorResponse.put("error", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
