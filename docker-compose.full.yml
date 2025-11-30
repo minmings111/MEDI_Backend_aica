@@ -1,0 +1,152 @@
+version: '3.8'
+
+services:
+  # ==================================================
+  # Nginx - Reverse Proxy & SSL Termination
+  # ==================================================
+  nginx:
+    image: nginx:alpine
+    container_name: medi-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./nginx/logs:/var/log/nginx
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - medi-network
+    restart: unless-stopped
+
+  # ==================================================
+  # Frontend - Next.js Application
+  # ==================================================
+  frontend:
+    # 프론트엔드 팀의 이미지 사용
+    image: ghcr.io/team-yun-chan/frontend:latest
+    container_name: medi-frontend
+    expose:
+      - "3000"
+    environment:
+      NEXT_PUBLIC_API_URL: https://yourdomain.com/api
+    networks:
+      - medi-network
+    restart: unless-stopped
+
+  # ==================================================
+  # Backend - Spring Boot API Server
+  # ==================================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: medi-backend
+    expose:
+      - "8080"
+
+    mem_limit: 2500m
+    mem_reservation: 512m
+    memswap_limit: 2500m
+    cpus: '2.0'
+
+    volumes:
+      - ./logs:/app/logs
+
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-medi}?serverTimezone=Asia/Seoul&characterEncoding=utf8}
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-admin}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      SPRING_MAIL_USERNAME: ${MAIL_USERNAME}
+      SPRING_MAIL_PASSWORD: ${MAIL_PASSWORD}
+      CHATBOT_API_URL: http://ai-agent:8000
+      JAVA_OPTS: "-Xms1500m -Xmx1500m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/logs/heapdump.hprof"
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - medi-network
+    restart: unless-stopped
+
+  # ==================================================
+  # AI Agent - FastAPI Application
+  # ==================================================
+  ai-agent:
+    # AI 팀의 이미지 사용
+    image: ghcr.io/team-yun-chan/ai-agent:latest
+    container_name: medi-ai-agent
+    expose:
+      - "8000"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - redis
+    networks:
+      - medi-network
+    restart: unless-stopped
+
+  # ==================================================
+  # MySQL Database (AWS RDS 사용 시 주석 처리)
+  # ==================================================
+  mysql:
+    image: mysql:8.0
+    container_name: medi-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-medi}
+      MYSQL_USER: ${MYSQL_USER:-admin}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    expose:
+      - "3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./src/main/resources/db/migration:/docker-entrypoint-initdb.d
+    networks:
+      - medi-network
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ==================================================
+  # Redis - Cache & Message Queue
+  # ==================================================
+  redis:
+    image: redis:7-alpine
+    container_name: medi-redis
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - medi-network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  redis_data:
+
+
+networks:
+  medi-network:
+    driver: bridge

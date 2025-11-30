@@ -1,0 +1,168 @@
+# ==================================================
+# Medi Backend - Application Configuration Template
+# ==================================================
+# 이 파일을 복사하여 application.yml을 생성하고 실제 값으로 변경하세요
+# cp src/main/resources/application.yml.example src/main/resources/application.yml
+
+spring:
+  application:
+    name: backend
+
+  # --------------------------------------------------
+  # 데이터베이스 설정 (MySQL)
+  # --------------------------------------------------
+  datasource:
+    # 로컬 개발: jdbc:mysql://localhost:3306/medi?serverTimezone=Asia/Seoul&characterEncoding=utf8
+    # Docker: jdbc:mysql://mysql:3306/medi?serverTimezone=Asia/Seoul&characterEncoding=utf8
+    url: jdbc:mysql://localhost:3306/medi?serverTimezone=Asia/Seoul&characterEncoding=utf8
+    username: admin
+    password: 1234  # 프로덕션에서는 강력한 비밀번호 사용
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # --------------------------------------------------
+  # JPA 설정
+  # --------------------------------------------------
+  jpa:
+    hibernate:
+      ddl-auto: none  # 프로덕션에서는 반드시 none 또는 validate 사용
+    show-sql: false  # 프로덕션에서는 false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+
+  # --------------------------------------------------
+  # Redis 설정
+  # --------------------------------------------------
+  data:
+    redis:
+      # 로컬 개발: localhost
+      # Docker: redis
+      host: localhost
+      port: 6379
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 10
+          max-idle: 10
+          min-idle: 2
+
+  # --------------------------------------------------
+  # Google OAuth2 설정 (일반 로그인용)
+  # --------------------------------------------------
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            # Google Cloud Console에서 발급받은 클라이언트 ID/Secret
+            # https://console.cloud.google.com/apis/credentials
+            client-id: YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com
+            client-secret: YOUR_GOOGLE_CLIENT_SECRET
+            scope:
+              - email
+              - profile
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+
+        provider:
+          google:
+            authorization-uri: https://accounts.google.com/o/oauth2/v2/auth
+            token-uri: https://oauth2.googleapis.com/token
+            user-info-uri: https://www.googleapis.com/oauth2/v3/userinfo
+            user-name-attribute: sub
+
+  # --------------------------------------------------
+  # 이메일 설정 (Gmail SMTP)
+  # --------------------------------------------------
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    # Gmail 계정 및 앱 비밀번호
+    # 앱 비밀번호 생성: https://myaccount.google.com/apppasswords
+    username: your-email@gmail.com
+    password: your-gmail-app-password
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+
+# --------------------------------------------------
+# MyBatis 설정
+# --------------------------------------------------
+mybatis:
+  mapper-locations: classpath:mapper/**/*.xml
+  type-aliases-package: com.medi.backend
+  configuration:
+    map-underscore-to-camel-case: true
+    jdbc-type-for-null: NULL
+
+# --------------------------------------------------
+# CORS 설정
+# --------------------------------------------------
+cors:
+  # 허용할 프론트엔드 도메인 (쉼표로 구분)
+  # 로컬 개발: http://localhost:3000
+  # 프로덕션: https://yourdomain.com
+  allowed-origins: http://localhost:3000,http://localhost:5173
+
+# --------------------------------------------------
+# 챗봇 API 설정 (선택)
+# --------------------------------------------------
+chatbot:
+  # 챗봇 서비스 URL
+  # 로컬: http://localhost:8000
+  # Docker: http://chatbot-service:8000
+  api-url: http://localhost:8000
+
+# --------------------------------------------------
+# YouTube 동기화 설정
+# --------------------------------------------------
+youtube:
+  sync:
+    # 스케줄러 활성화 여부
+    enabled: true
+    # 동시 실행 최대 채널 수
+    max-concurrent-channels: 3
+    # 채널 간 대기 시간 (초)
+    delay-between-channels: 10
+
+  data-api:
+    # YouTube Data API 설정
+    max-results-per-page: 50
+    request-timeout-seconds: 30
+
+# --------------------------------------------------
+# Spring Boot Actuator (모니터링)
+# --------------------------------------------------
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+
+# --------------------------------------------------
+# 로깅 설정
+# --------------------------------------------------
+logging:
+  level:
+    root: INFO
+    com.medi.backend: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/application.log
+    max-size: 10MB
+    max-history: 30

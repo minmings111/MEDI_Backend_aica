@@ -30,6 +30,9 @@ RUN apt-get update && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
 
+# yt-dlp 설치 (YouTube 영상 메타데이터 수집용)
+RUN pip3 install --no-cache-dir yt-dlp>=2025.11.12
+
 # JAR 복사
 COPY --from=builder /app/build/libs/*.jar app.jar
 
@@ -41,9 +44,10 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
   CMD curl -f http://localhost:8080/actuator/health || exit 1
 
 # 실행
-# JVM 메모리 설정 (기본값) - 컨테이너 실행 시 오버라이드 가능
-# Python(yt-dlp) 실행을 위해 Heap 크기를 줄이고 Native 메모리 여유 확보
-ENV JAVA_OPTS="-Xms256m -Xmx512m"
+# JVM 메모리 설정 (프로덕션 기본값) - 컨테이너 실행 시 오버라이드 가능
+# Python(yt-dlp) 실행을 위해 Native 메모리 여유 확보
+# 2.5GB 컨테이너 기준: Heap 1.5GB + Native/yt-dlp 1GB
+ENV JAVA_OPTS="-Xms1500m -Xmx1500m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/logs/heapdump.hprof"
 
 # 실행
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
