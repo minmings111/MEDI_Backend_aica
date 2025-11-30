@@ -752,3 +752,24 @@ COMMENT 'AI 채널 위협 분석 보고서 (generated_at 기준 관리)';
 -- ==================================================
 
 SELECT '스키마 생성이 완료되었습니다!' as message;
+
+-- ==================================================
+-- 현재 mysql 테이블 확인 
+-- ==================================================
+
+
+SELECT 
+    t.TABLE_NAME,
+    c.COLUMN_NAME,
+    c.DATA_TYPE,
+    c.CHARACTER_MAXIMUM_LENGTH,
+    c.IS_NULLABLE,
+    c.COLUMN_DEFAULT,
+    c.COLUMN_KEY,
+    c.EXTRA
+FROM INFORMATION_SCHEMA.TABLES t
+JOIN INFORMATION_SCHEMA.COLUMNS c 
+    ON t.TABLE_NAME = c.TABLE_NAME 
+    AND t.TABLE_SCHEMA = c.TABLE_SCHEMA
+WHERE t.TABLE_SCHEMA = 'medi'
+ORDER BY t.TABLE_NAME, c.ORDINAL_POSITION;
