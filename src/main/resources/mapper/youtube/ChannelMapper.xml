@@ -58,24 +58,11 @@
         WHERE (deleted_at IS NULL)
     </select>
 
-
-
-
-
-
-    <update id="deleteChannelById">
-        UPDATE youtube_channels
-        SET deleted_at = NOW()
+    <delete id="deleteChannelById">
+        DELETE FROM youtube_channels
         WHERE 
             id = #{id} AND
             user_id = #{userId}
-            AND (deleted_at IS NULL)
-    </update>
-
-
-
-
-
-
+    </delete>
 
 </mapper>
