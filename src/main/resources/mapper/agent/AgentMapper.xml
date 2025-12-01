@@ -443,6 +443,29 @@
             </choose>
         ORDER BY date DESC
     </select>
+    
+    <!-- 댓글 소유권 확인 -->
+    <select id="checkCommentOwnership" resultType="java.lang.Integer">
+        SELECT COUNT(*)
+        FROM youtube_comments yc
+        INNER JOIN youtube_videos yv ON yc.video_id = yv.id
+        INNER JOIN youtube_channels ych ON yv.channel_id = ych.id
+        WHERE yc.youtube_comment_id = #{youtubeCommentId}
+          AND ych.user_id = #{userId}
+          AND ych.deleted_at IS NULL
+    </select>
+    
+    <!-- 댓글 상태를 DELETED로 업데이트 (소프트 삭제) -->
+    <update id="updateCommentStatusToDeleted">
+        UPDATE ai_comment_analysis_result
+        SET status = 'DELETED',
+            updated_at = NOW()
+        WHERE youtube_comment_id = (
+            SELECT id 
+            FROM youtube_comments 
+            WHERE youtube_comment_id = #{youtubeCommentId}
+        )
+    </update>
 
 </mapper>
 
