@@ -48,6 +48,12 @@
             updated_at = NOW()
     </insert>
 
+    <select id="findById" parameterType="int" resultMap="ChannelResultMap">
+        SELECT * FROM youtube_channels 
+        WHERE id = #{id} 
+        AND (deleted_at IS NULL)
+    </select>
+
     <select id="findByYoutubeChannelId" parameterType="string" resultMap="ChannelResultMap">
         SELECT * FROM youtube_channels 
         WHERE youtube_channel_id = #{youtubeChannelId} 
