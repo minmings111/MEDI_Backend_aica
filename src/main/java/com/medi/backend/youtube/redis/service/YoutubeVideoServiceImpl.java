@@ -33,12 +33,12 @@ import lombok.extern.slf4j.Slf4j;
  * YouTube 비디오 정보 조회 및 Redis 저장 서비스 구현체
  * 
  * 주요 기능:
- * 1. 사용자의 채널별 조회수 상위 20개 영상 조회
- * 2. 채널별 Top20 비디오 ID Set 저장 (Redis Set)
+ * 1. 사용자의 채널별 조회수 상위 10개 영상 조회
+ * 2. 채널별 Top10 비디오 ID Set 저장 (Redis Set)
  * 3. 개별 비디오 메타데이터 저장 (Redis String, JSON 형식)
  * 
  * Redis 저장 형식:
- * 1. channel:{channel_id}:top20_video_ids (Set 타입) - 비디오 ID 목록
+ * 1. channel:{channel_id}:top10_video_ids (Set 타입) - 비디오 ID 목록
  * 2. video:{video_id}:meta:json (String 타입) - 비디오 메타데이터
  */
 @Slf4j
@@ -54,7 +54,7 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
     private final com.medi.backend.youtube.config.YoutubeDataApiProperties youtubeDataApiProperties;
 
     @Override
-    public Map<String, List<RedisYoutubeVideo>> getTop20VideosByChannel(YouTube yt, List<String> channelIds) {
+    public Map<String, List<RedisYoutubeVideo>> getTop10VideosByChannel(YouTube yt, List<String> channelIds) {
         try {
             // 1. 채널 ID 리스트 검증
             if (channelIds == null || channelIds.isEmpty()) {
@@ -64,8 +64,8 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
 
             // 2. each channel, get the top 20 videos by view count
             Map<String, List<RedisYoutubeVideo>> videosByChannel = new HashMap<>(
-                Math.max(16, channelIds.size()), 0.75f);
-            
+                    Math.max(16, channelIds.size()), 0.75f);
+
             // 2-0. process each channel
             for (String channelId : channelIds) {
                 try {
@@ -73,7 +73,7 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                         log.warn("유효하지 않은 채널 ID: {}", channelId);
                         continue;
                     }
-                    
+
                     // 2-1. get the list of videos of the channel from YouTube API
                     // API 키 fallback: API 키 우선, 실패 시 OAuth 토큰으로 fallback
                     List<SearchResult> searchResults;
@@ -82,35 +82,37 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                             log.info("🔑 채널 비디오 검색 시작 (API 키 사용): channelId={}", channelId);
                             try {
                                 searchResults = fetchChannelVideosWithApiKey(channelId);
-                                log.info("✅ 채널 비디오 검색 성공 (API 키): channelId={}, videoCount={}", 
-                                    channelId, searchResults != null ? searchResults.size() : 0);
+                                log.info("✅ 채널 비디오 검색 성공 (API 키): channelId={}, videoCount={}",
+                                        channelId, searchResults != null ? searchResults.size() : 0);
                             } catch (com.medi.backend.youtube.exception.NoAvailableApiKeyException ex) {
                                 if (!youtubeDataApiProperties.isEnableFallback()) {
                                     throw ex;
                                 }
                                 log.warn("⚠️ YouTube Data API 키 모두 사용 불가, OAuth 토큰으로 폴백: channelId={}", channelId);
                                 searchResults = fetchChannelVideos(yt, channelId);
-                                log.info("✅ 채널 비디오 검색 성공 (OAuth 토큰 fallback): channelId={}, videoCount={}", 
-                                    channelId, searchResults != null ? searchResults.size() : 0);
+                                log.info("✅ 채널 비디오 검색 성공 (OAuth 토큰 fallback): channelId={}, videoCount={}",
+                                        channelId, searchResults != null ? searchResults.size() : 0);
                             }
                         } else {
                             log.info("🔑 채널 비디오 검색 시작 (API 키 없음, OAuth 토큰 사용): channelId={}", channelId);
                             searchResults = fetchChannelVideos(yt, channelId);
-                            log.info("✅ 채널 비디오 검색 성공 (OAuth 토큰): channelId={}, videoCount={}", 
-                                channelId, searchResults != null ? searchResults.size() : 0);
+                            log.info("✅ 채널 비디오 검색 성공 (OAuth 토큰): channelId={}, videoCount={}",
+                                    channelId, searchResults != null ? searchResults.size() : 0);
                         }
                     } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
                         // API 키 쿼터 초과 등 403 에러 처리
-                        if (youtubeDataApiClient.hasApiKeys() && youtubeDataApiProperties.isEnableFallback() 
+                        if (youtubeDataApiClient.hasApiKeys() && youtubeDataApiProperties.isEnableFallback()
                                 && e.getStatusCode() == 403) {
-                            String errorReason = com.medi.backend.youtube.redis.util.YoutubeErrorUtil.extractErrorReason(e);
-                            if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason) 
+                            String errorReason = com.medi.backend.youtube.redis.util.YoutubeErrorUtil
+                                    .extractErrorReason(e);
+                            if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason)
                                     || "userRateLimitExceeded".equals(errorReason)) {
-                                log.warn("⚠️ YouTube Data API 키 쿼터 초과 (403), OAuth 토큰으로 폴백: channelId={}, errorReason={}", 
-                                    channelId, errorReason);
+                                log.warn(
+                                        "⚠️ YouTube Data API 키 쿼터 초과 (403), OAuth 토큰으로 폴백: channelId={}, errorReason={}",
+                                        channelId, errorReason);
                                 searchResults = fetchChannelVideos(yt, channelId);
-                                log.info("✅ 채널 비디오 검색 성공 (OAuth 토큰 fallback): channelId={}, videoCount={}", 
-                                    channelId, searchResults != null ? searchResults.size() : 0);
+                                log.info("✅ 채널 비디오 검색 성공 (OAuth 토큰 fallback): channelId={}, videoCount={}",
+                                        channelId, searchResults != null ? searchResults.size() : 0);
                             } else {
                                 throw e;
                             }
@@ -118,7 +120,7 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                             throw e;
                         }
                     }
-                    
+
                     if (searchResults == null || searchResults.isEmpty()) {
                         videosByChannel.put(channelId, Collections.emptyList());
                         continue;
@@ -126,9 +128,9 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
 
                     // 2-2. extract the list of video IDs
                     List<String> videoIds = searchResults.stream()
-                        .map(result -> result.getId().getVideoId())
-                        .filter(id -> id != null)
-                        .collect(Collectors.toList());
+                            .map(result -> result.getId().getVideoId())
+                            .filter(id -> id != null)
+                            .collect(Collectors.toList());
 
                     if (videoIds.isEmpty()) {
                         videosByChannel.put(channelId, Collections.emptyList());
@@ -138,24 +140,25 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                     // 2-3. get the details of the videos from YouTube API (include view count)
                     List<Video> videos = fetchVideoDetails(yt, videoIds);
 
-                    // 2-4. remove shorts and sort by view count and select the top 20
-                    List<Video> top20Videos = videos.stream()
-                        // .filter(video -> !isShortsVideo(video))  // remove shorts
-                        .sorted(Comparator.comparing(
-                            video -> {
-                                if (video.getStatistics() != null && video.getStatistics().getViewCount() != null) {
-                                    return video.getStatistics().getViewCount().longValue();
-                                }
-                                return 0L;
-                            },
-                            Comparator.reverseOrder()  // sort by view count in descending order
-                        ))
-                        .limit(20)  // select the top 20 by view count
-                        .collect(Collectors.toList());
+                    // 2-4. remove shorts and sort by view count and select the top 10
+                    List<Video> top10Videos = videos.stream()
+                            // .filter(video -> !isShortsVideo(video)) // remove shorts
+                            .sorted(Comparator.comparing(
+                                    video -> {
+                                        if (video.getStatistics() != null
+                                                && video.getStatistics().getViewCount() != null) {
+                                            return video.getStatistics().getViewCount().longValue();
+                                        }
+                                        return 0L;
+                                    },
+                                    Comparator.reverseOrder() // sort by view count in descending order
+                            ))
+                            .limit(10) // select the top 10 by view count (프로파일링용)
+                            .collect(Collectors.toList());
 
                     // 3-5. convert the videos to Redis DTO (pass channelId, only basic metadata)
                     List<RedisYoutubeVideo> channelVideos = new ArrayList<>();
-                    for (Video video : top20Videos) {
+                    for (Video video : top10Videos) {
                         RedisYoutubeVideo redisVideo = redisMapper.toRedisVideo(video, channelId);
                         if (redisVideo != null) {
                             channelVideos.add(redisVideo);
@@ -163,13 +166,13 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                     }
 
                     videosByChannel.put(channelId, channelVideos);
-                    
-                    // 3-6. save the top 20 video IDs and video metadata to Redis
-                    saveTop20VideoIdsToRedis(channelId, channelVideos);
+
+                    // 3-6. save the top 10 video IDs and video metadata to Redis
+                    saveTop10VideoIdsToRedis(channelId, channelVideos);
                     saveVideoMetadataToRedis(channelVideos);
-                    
-                    log.debug("채널 {}의 조회수 상위 20개 영상 조회 및 Redis 저장 완료: {}개", channelId, channelVideos.size());
-                    
+
+                    log.debug("채널 {}의 조회수 상위 10개 영상 조회 및 Redis 저장 완료: {}개", channelId, channelVideos.size());
+
                 } catch (Exception e) {
                     log.error("채널 {}의 영상 조회 실패: {}", channelId, e.getMessage());
                     videosByChannel.put(channelId, Collections.emptyList());
@@ -177,16 +180,15 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                 }
             }
 
-            log.info("각 채널별 조회수 상위 20개 영상 조회 완료: {}개 채널", 
-                videosByChannel.size());
+            log.info("각 채널별 조회수 상위 10개 영상 조회 완료: {}개 채널",
+                    videosByChannel.size());
             return videosByChannel;
 
         } catch (Exception e) {
             log.error("각 채널별 조회수 상위 20개 영상 조회 실패", e);
-            throw new RuntimeException("getTop20VideosByChannel failed", e);
+            throw new RuntimeException("getTop10VideosByChannel failed", e);
         }
     }
-
 
     /**
      * 채널의 영상 목록 조회 (API 키 사용)
@@ -206,9 +208,9 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                 // API 키 쿼터 초과 시 예외 다시 던져서 상위에서 fallback 처리
                 if (e.getStatusCode() == 403) {
                     String errorReason = com.medi.backend.youtube.redis.util.YoutubeErrorUtil.extractErrorReason(e);
-                    if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason) 
+                    if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason)
                             || "userRateLimitExceeded".equals(errorReason)) {
-                        throw e;  // 상위로 전달하여 fallback 처리
+                        throw e; // 상위로 전달하여 fallback 처리
                     }
                 }
                 throw e;
@@ -234,7 +236,7 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
             searchReq.setMaxResults(50L);
             searchReq.setOrder("date");
             searchReq.setType(Arrays.asList("video"));
-            
+
             if (nextPageToken != null) {
                 searchReq.setPageToken(nextPageToken);
             }
@@ -242,7 +244,7 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
             // ⭐ 실제 YouTube Search API 호출 실행
             // 이 시점에서 YouTube 서버로 HTTP 요청이 전송됨
             SearchListResponse response = searchReq.execute();
-            
+
             if (response.getItems() != null) {
                 allResults.addAll(response.getItems());
             }
@@ -274,9 +276,9 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                 // API 키 쿼터 초과 시 예외 다시 던져서 상위에서 fallback 처리
                 if (e.getStatusCode() == 403) {
                     String errorReason = com.medi.backend.youtube.redis.util.YoutubeErrorUtil.extractErrorReason(e);
-                    if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason) 
+                    if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason)
                             || "userRateLimitExceeded".equals(errorReason)) {
-                        throw e;  // 상위로 전달하여 fallback 처리
+                        throw e; // 상위로 전달하여 fallback 처리
                     }
                 }
                 throw e;
@@ -302,10 +304,11 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
             // 용도: 비디오 ID 목록으로 상세 정보 조회 (조회수, 좋아요 수 등 통계 포함)
             // contentDetails: 비디오 길이(duration) 정보 포함 (쇼츠 필터링용)
             YouTube.Videos.List req = yt.videos().list(
-                Arrays.asList("snippet", "statistics", "contentDetails")  // snippet: 제목, 썸네일 등 / statistics: 조회수, 좋아요 수 등 / contentDetails: 비디오 길이
+                    Arrays.asList("snippet", "statistics", "contentDetails") // snippet: 제목, 썸네일 등 / statistics: 조회수,
+                                                                             // 좋아요 수 등 / contentDetails: 비디오 길이
             );
             req.setId(batch);
-            
+
             // ⭐ 실제 YouTube Videos API 호출 실행
             // 이 시점에서 YouTube 서버로 HTTP 요청이 전송됨
             VideoListResponse resp = req.execute();
@@ -317,7 +320,7 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
 
         return videos;
     }
-    
+
     /**
      * 비디오가 쇼츠인지 확인
      * 
@@ -330,30 +333,29 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
         if (video == null || video.getContentDetails() == null) {
             return false;
         }
-        
+
         String duration = video.getContentDetails().getDuration();
         if (duration == null || duration.isBlank()) {
             return false;
         }
-        
+
         // ISO 8601 duration 형식 파싱 (예: "PT1M30S" = 1분 30초, "PT30M30S" = 30분 30초)
         // 쇼츠 판단 기준: 30분 30초(1830초) 미만
         try {
             long totalSeconds = parseDurationToSeconds(duration);
-            return totalSeconds > 0 && totalSeconds < 1830;  // 30분 30초(1830초) 미만이면 쇼츠
+            return totalSeconds > 0 && totalSeconds < 1830; // 30분 30초(1830초) 미만이면 쇼츠
         } catch (Exception e) {
             log.warn("비디오 duration 파싱 실패: videoId={}, duration={}", video.getId(), duration, e);
             return false;
         }
     }
-    
 
     // ISO 8601 duration -> seconds
     private long parseDurationToSeconds(String duration) {
         if (duration == null || duration.isBlank()) {
             return 0;
         }
-        
+
         try {
             // java.time.Duration.parse()를 사용하여 ISO 8601 duration 형식 파싱
             Duration parsedDuration = Duration.parse(duration);
@@ -363,7 +365,7 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
             return 0;
         }
     }
-    
+
     /**
      * 특정 비디오들의 메타데이터를 조회하여 Redis에 저장 (증분 동기화용)
      * 
@@ -373,9 +375,9 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
      * 
      * 주의: 초기 동기화와 증분 동기화 모두 기본 메타데이터만 저장합니다.
      * 
-     * @param userId 사용자 ID (OAuth 토큰 조회용)
+     * @param userId   사용자 ID (OAuth 토큰 조회용)
      * @param videoIds 비디오 ID 리스트
-     * @param options 동기화 옵션 (사용하지 않음, 기본 메타데이터만 저장)
+     * @param options  동기화 옵션 (사용하지 않음, 기본 메타데이터만 저장)
      * @return 저장된 비디오 개수
      */
     @Override
@@ -385,11 +387,11 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                 log.warn("비디오 ID 리스트가 비어있습니다: userId={}", userId);
                 return 0;
             }
-            
+
             // OAuth 토큰 가져오기 (fallback용)
             String token = youtubeOAuthService.getValidAccessToken(userId);
             YouTube yt = YoutubeApiClientUtil.buildClient(token);
-            
+
             // 비디오 상세 정보 조회 (배치 처리로 API 호출 최소화)
             // ⭐ YouTube Videos API 호출: API 키 우선, 실패 시 OAuth 토큰으로 fallback
             List<Video> videos;
@@ -405,24 +407,27 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                         }
                         log.warn("⚠️ YouTube Data API 키 모두 사용 불가, OAuth 토큰으로 폴백: userId={}", userId);
                         videos = fetchVideoDetails(yt, videoIds);
-                        log.info("✅ 비디오 메타데이터 조회 성공 (OAuth 토큰 fallback): userId={}, videoCount={}", userId, videos.size());
+                        log.info("✅ 비디오 메타데이터 조회 성공 (OAuth 토큰 fallback): userId={}, videoCount={}", userId,
+                                videos.size());
                     }
                 } else {
-                    log.info("🔑 비디오 메타데이터 조회 시작 (API 키 없음, OAuth 토큰 사용): userId={}, videoCount={}", userId, videoIds.size());
+                    log.info("🔑 비디오 메타데이터 조회 시작 (API 키 없음, OAuth 토큰 사용): userId={}, videoCount={}", userId,
+                            videoIds.size());
                     videos = fetchVideoDetails(yt, videoIds);
                     log.info("✅ 비디오 메타데이터 조회 성공 (OAuth 토큰): userId={}, videoCount={}", userId, videos.size());
                 }
             } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
                 // API 키 쿼터 초과 등 403 에러 처리
-                if (youtubeDataApiClient.hasApiKeys() && youtubeDataApiProperties.isEnableFallback() 
+                if (youtubeDataApiClient.hasApiKeys() && youtubeDataApiProperties.isEnableFallback()
                         && e.getStatusCode() == 403) {
                     String errorReason = com.medi.backend.youtube.redis.util.YoutubeErrorUtil.extractErrorReason(e);
-                    if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason) 
+                    if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason)
                             || "userRateLimitExceeded".equals(errorReason)) {
-                        log.warn("⚠️ YouTube Data API 키 쿼터 초과 (403), OAuth 토큰으로 폴백: userId={}, errorReason={}", 
-                            userId, errorReason);
+                        log.warn("⚠️ YouTube Data API 키 쿼터 초과 (403), OAuth 토큰으로 폴백: userId={}, errorReason={}",
+                                userId, errorReason);
                         videos = fetchVideoDetails(yt, videoIds);
-                        log.info("✅ 비디오 메타데이터 조회 성공 (OAuth 토큰 fallback): userId={}, videoCount={}", userId, videos.size());
+                        log.info("✅ 비디오 메타데이터 조회 성공 (OAuth 토큰 fallback): userId={}, videoCount={}", userId,
+                                videos.size());
                     } else {
                         throw e;
                     }
@@ -430,12 +435,12 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                     throw e;
                 }
             }
-            
+
             if (videos.isEmpty()) {
                 log.warn("비디오 상세 정보를 가져올 수 없습니다: userId={}, videoIds={}", userId, videoIds.size());
                 return 0;
             }
-            
+
             // 채널 ID 추출 (비디오에서 가져오기)
             Map<String, String> videoIdToChannelId = new HashMap<>();
             for (Video video : videos) {
@@ -443,7 +448,7 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                     videoIdToChannelId.put(video.getId(), video.getSnippet().getChannelId());
                 }
             }
-            
+
             // 기본 메타데이터 DTO로 변환 (초기/증분 모두 동일)
             List<RedisYoutubeVideo> redisVideos = new ArrayList<>();
             for (Video video : videos) {
@@ -453,13 +458,13 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                     redisVideos.add(redisVideo);
                 }
             }
-            
+
             // Redis에 저장 (기본 메타데이터만)
             saveVideoMetadataToRedis(redisVideos);
-            
+
             log.info("비디오 메타데이터 동기화 완료: userId={}, 비디오={}개", userId, redisVideos.size());
             return redisVideos.size();
-            
+
         } catch (Exception e) {
             log.error("비디오 메타데이터 동기화 실패: userId={}", userId, e);
             throw new RuntimeException("syncVideoMetadata failed", e);
@@ -467,10 +472,10 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
     }
 
     /**
-     * 채널별 Top20 비디오 ID Set을 Redis에 저장
+     * 채널별 Top10 비디오 ID Set을 Redis에 저장
      * 
      * Redis 저장 형식:
-     * - Key: channel:{channel_id}:top20_video_ids
+     * - Key: channel:{channel_id}:top10_video_ids
      * - Type: Set
      * - Value: 비디오 ID 목록 (예: ["td7kfwpTDcA", "o6Ju5r82EwA", ...])
      * 
@@ -482,36 +487,36 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
      * Set 타입 사용 이유:
      * - 중복 제거
      * - O(1) 시간 복잡도로 특정 비디오 ID 존재 여부 확인 가능
-     * - AI 서버에서 빠르게 Top20 비디오 목록 조회 가능
+     * - AI 서버에서 빠르게 Top10 비디오 목록 조회 가능
      * 
-     * @param channelId YouTube 채널 ID
-     * @param top20Videos 상위 20개 비디오 리스트
+     * @param channelId   YouTube 채널 ID
+     * @param top10Videos 상위 10개 비디오 리스트
      */
-    private void saveTop20VideoIdsToRedis(String channelId, List<RedisYoutubeVideo> top20Videos) {
-        if (top20Videos.isEmpty()) {
+    private void saveTop10VideoIdsToRedis(String channelId, List<RedisYoutubeVideo> top10Videos) {
+        if (top10Videos.isEmpty()) {
             return;
         }
 
         try {
-            String setKey = "channel:" + channelId + ":top20_video_ids";
-            
+            String setKey = "channel:" + channelId + ":top10_video_ids";
+
             // 1. 기존 Set 삭제 (덮어쓰기)
             stringRedisTemplate.delete(setKey);
-            
+
             // 2. 새로운 비디오 ID들을 Set에 추가
-            // SADD channel:{channel_id}:top20_video_ids "video_id_1" "video_id_2" ...
-            for (RedisYoutubeVideo video : top20Videos) {
+            // SADD channel:{channel_id}:top10_video_ids "video_id_1" "video_id_2" ...
+            for (RedisYoutubeVideo video : top10Videos) {
                 if (video.getYoutubeVideoId() != null) {
                     stringRedisTemplate.opsForSet().add(setKey, video.getYoutubeVideoId());
                 }
             }
-            
+
             // 3. TTL 설정: 3일 후 자동 삭제
             stringRedisTemplate.expire(setKey, Duration.ofDays(3));
-            
-            log.debug("채널 {}의 Top20 비디오 ID Set 저장 완료: {}개", channelId, top20Videos.size());
+
+            log.debug("채널 {}의 Top10 비디오 ID Set 저장 완료: {}개", channelId, top10Videos.size());
         } catch (Exception e) {
-            log.error("채널 {}의 Top20 비디오 ID Set 저장 실패", channelId, e);
+            log.error("채널 {}의 Top10 비디오 ID Set 저장 실패", channelId, e);
             // 저장 실패해도 진행 (비지니스 로직에 영향 없음)
         }
     }
@@ -543,16 +548,16 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
                 }
 
                 String metaKey = "video:" + videoId + ":meta:json";
-                
+
                 // 기본 메타데이터만 저장 (초기/증분 동기화 모두 동일)
                 String metaJson = objectMapper.writeValueAsString(video);
-                
+
                 // Redis에 String 타입으로 저장
                 stringRedisTemplate.opsForValue().set(metaKey, metaJson);
-                
+
                 // TTL 설정: 3일 후 자동 삭제
                 stringRedisTemplate.expire(metaKey, Duration.ofDays(3));
-                
+
                 log.debug("비디오 {} 메타데이터 저장 완료", videoId);
             } catch (JsonProcessingException e) {
                 log.error("비디오 {} 메타데이터 직렬화 실패", video.getYoutubeVideoId(), e);
@@ -563,6 +568,5 @@ public class YoutubeVideoServiceImpl implements YoutubeVideoService {
             }
         }
     }
-    
-}
 
+}

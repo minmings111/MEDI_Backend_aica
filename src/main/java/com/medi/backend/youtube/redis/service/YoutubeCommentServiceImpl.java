@@ -46,13 +46,13 @@ import lombok.extern.slf4j.Slf4j;
  * 
  * Redis 저장 형식:
  * - 초기 동기화: video:{video_id}:comments:init (채널 프로파일링용)
- *                Type: String (JSON 배열)
+ * Type: String (JSON 배열)
  * - 증분 동기화: video:{video_id}:comments (원본 데이터, 절대 수정 금지)
- *                Type: Hash
- *                Field: comment_id, Value: JSON 문자열 (전체 메타데이터)
+ * Type: Hash
+ * Field: comment_id, Value: JSON 문자열 (전체 메타데이터)
  * - 필터링 결과: video:{video_id}:classification (FastAPI agent가 저장)
- *                Type: Hash
- *                Field: comment_id, Value: JSON 문자열 (분류 결과)
+ * Type: Hash
+ * Field: comment_id, Value: JSON 문자열 (분류 결과)
  * 
  * 참고:
  * - channel_comment_fetcher.py의 로직을 Java로 구현
@@ -71,23 +71,24 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
     private final com.medi.backend.youtube.service.YoutubeDataApiClient youtubeDataApiClient;
     private final com.medi.backend.youtube.config.YoutubeDataApiProperties youtubeDataApiProperties;
 
-private static final Duration COMMENT_HASH_TTL = Duration.ofDays(3);
-private static final Duration PROCESSED_SET_TTL = Duration.ofDays(30);
-private static final Duration DEFAULT_CURSOR_LOOKBACK = Duration.ofDays(30);
-private static final int MAX_PAGE_LIMIT = 50;
-private static final int CONSECUTIVE_OLD_PAGE_THRESHOLD = 5;
-private static final ZoneId YOUTUBE_TIME_ZONE = ZoneId.of("UTC");
-private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+    private static final Duration COMMENT_HASH_TTL = Duration.ofDays(3);
+    private static final Duration PROCESSED_SET_TTL = Duration.ofDays(30);
+    private static final Duration DEFAULT_CURSOR_LOOKBACK = Duration.ofDays(30);
+    private static final int MAX_PAGE_LIMIT = 50;
+    private static final int CONSECUTIVE_OLD_PAGE_THRESHOLD = 5;
+    private static final ZoneId YOUTUBE_TIME_ZONE = ZoneId.of("UTC");
+    private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
     @Override
-    public long syncTop20VideoComments(Integer userId, Map<String, List<RedisYoutubeVideo>> videosByChannel, SyncOptions options) {
+    public long syncTop10VideoComments(Integer userId, Map<String, List<RedisYoutubeVideo>> videosByChannel,
+            SyncOptions options) {
         try {
             // 1. videosByChannel 검증 (이미 조회된 결과를 재사용하여 중복 API 호출 방지)
             if (videosByChannel == null || videosByChannel.isEmpty()) {
                 log.warn("비디오 리스트가 비어있습니다: userId={}", userId);
                 return 0;
             }
-            
+
             // 옵션이 null이면 기본 옵션 사용
             if (options == null) {
                 options = SyncOptions.initialSync();
@@ -102,36 +103,36 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
             for (Map.Entry<String, List<RedisYoutubeVideo>> entry : videosByChannel.entrySet()) {
                 String channelId = entry.getKey();
                 List<RedisYoutubeVideo> videos = entry.getValue();
-                
+
                 log.debug("채널 {}의 {}개 영상 댓글 조회 시작", channelId, videos.size());
-                
+
                 for (RedisYoutubeVideo video : videos) {
                     try {
                         String videoId = video.getYoutubeVideoId();
-                        
+
                         // 보안: videoId null 체크 및 빈 문자열 검증
                         if (videoId == null || videoId.isBlank()) {
                             log.warn("영상 ID가 없습니다. 건너뜁니다: {}", video);
                             continue;
                         }
-                        
+
                         // 변경: Redis Key 형식 변경
                         // 초기 동기화: video:{videoId}:comments:init (채널 프로파일링용)
                         String redisKey = "video:" + videoId + ":comments:init";
-                        
+
                         // 부분 실패 방지: 기존 댓글 백업 (String 타입으로 저장되어 있음)
                         String existingComments = stringRedisTemplate.opsForValue().get(redisKey);
-                        
+
                         long commentCount = 0;
                         try {
                             commentCount = fetchAndSaveCommentsSnapshot(yt, videoId, redisKey, options);
-                            
+
                             // 부분 실패 처리: 새 댓글이 없고 기존 댓글이 있었으면 복구
                             if (commentCount == 0 && existingComments != null && !existingComments.isEmpty()) {
                                 log.warn("댓글 조회 실패 또는 댓글 없음. 기존 댓글 복구: {}", videoId);
                                 stringRedisTemplate.opsForValue().set(redisKey, existingComments);
                             }
-                            
+
                             totalCommentCount += commentCount;
                             log.debug("영상 {}의 댓글 {}개 저장 완료", videoId, commentCount);
                         } catch (Exception saveException) {
@@ -140,7 +141,7 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                                 log.warn("댓글 저장 실패. 기존 댓글 복구: {}", videoId);
                                 stringRedisTemplate.opsForValue().set(redisKey, existingComments);
                             }
-                            throw saveException;  // 예외를 다시 던져서 상위 catch에서 처리
+                            throw saveException; // 예외를 다시 던져서 상위 catch에서 처리
                         }
                     } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
                         // Python 코드 참고: HttpError 예외 처리
@@ -149,8 +150,8 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                         if ("commentsDisabled".equals(errorReason) || "disabledComments".equals(errorReason)) {
                             log.info("영상 {}의 댓글이 비활성화되어 있습니다", video.getYoutubeVideoId());
                         } else {
-                            log.error("영상 {}의 댓글 조회 실패: {} (reason: {})", 
-                                video.getYoutubeVideoId(), e.getMessage(), errorReason);
+                            log.error("영상 {}의 댓글 조회 실패: {} (reason: {})",
+                                    video.getYoutubeVideoId(), e.getMessage(), errorReason);
                         }
                         // 한 영상 실패해도 다른 영상은 계속 처리
                     } catch (Exception e) {
@@ -160,16 +161,16 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                 }
             }
 
-            log.info("각 채널별 조회수 상위 20개 영상의 댓글 동기화 완료: userId={}, 총 댓글 수={}", 
-                userId, totalCommentCount);
+            log.info("각 채널별 조회수 상위 20개 영상의 댓글 동기화 완료: userId={}, 총 댓글 수={}",
+                    userId, totalCommentCount);
             return totalCommentCount;
 
         } catch (Exception e) {
             log.error("각 채널별 조회수 상위 20개 영상 댓글 동기화 실패: userId={}", userId, e);
-            throw new RuntimeException("syncTop20VideoComments failed", e);
+            throw new RuntimeException("syncTop10VideoComments failed", e);
         }
     }
-    
+
     @Override
     public long syncVideoComments(Integer userId, List<String> videoIds, SyncOptions options) {
         try {
@@ -177,7 +178,7 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                 log.warn("비디오 ID 리스트가 비어있습니다: userId={}", userId);
                 return 0;
             }
-            
+
             // 옵션이 null이면 증분 동기화 옵션 사용
             if (options == null) {
                 options = SyncOptions.incrementalSync();
@@ -196,22 +197,22 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                         log.warn("유효하지 않은 비디오 ID: {}", videoId);
                         continue;
                     }
-                    
+
                     String commentsKey = buildCommentsKey(videoId);
                     String processedKey = buildProcessedKey(videoId);
                     String cursorKey = buildCursorKey(videoId);
-                    
+
                     LocalDateTime cursorTime = getLastSyncTime(cursorKey, videoId);
-                    
-                    IncrementalFetchResult incrementalResult =
-                            fetchAndSaveCommentsIncremental(yt, videoId, commentsKey, cursorTime, options);
+
+                    IncrementalFetchResult incrementalResult = fetchAndSaveCommentsIncremental(yt, videoId, commentsKey,
+                            cursorTime, options);
                     totalCommentCount += incrementalResult.getNewCount();
                     log.debug("영상 {}의 새 댓글 {}개 저장 완료", videoId, incrementalResult.getNewCount());
-                    
+
                     if (incrementalResult.getLatestPublishedAt() != null) {
                         updateLastSyncTime(cursorKey, videoId, incrementalResult.getLatestPublishedAt());
                     }
-                    
+
                     stringRedisTemplate.expire(commentsKey, COMMENT_HASH_TTL);
                     stringRedisTemplate.expire(processedKey, PROCESSED_SET_TTL);
                 } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
@@ -226,8 +227,8 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                 }
             }
 
-            log.info("비디오 댓글 동기화 완료: userId={}, 비디오={}개, 총 댓글 수={}", 
-                userId, videoIds.size(), totalCommentCount);
+            log.info("비디오 댓글 동기화 완료: userId={}, 비디오={}개, 총 댓글 수={}",
+                    userId, videoIds.size(), totalCommentCount);
             return totalCommentCount;
 
         } catch (Exception e) {
@@ -236,18 +237,17 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
         }
     }
 
-
     /**
      * 영상의 댓글을 조회하여 Redis Hash에 증분 저장
      */
     private IncrementalFetchResult fetchAndSaveCommentsIncremental(YouTube yt,
-                                                                   String videoId,
-                                                                   String commentsKey,
-                                                                   LocalDateTime cursorTime,
-                                                                   SyncOptions options) throws Exception {
+            String videoId,
+            String commentsKey,
+            LocalDateTime cursorTime,
+            SyncOptions options) throws Exception {
         // 옵션에 따라 기본 또는 전체 메타데이터 사용
         boolean useFullMetadata = options != null && options.isIncludeFullMetadata();
-        
+
         Set<Object> existingKeys = stringRedisTemplate.opsForHash().keys(commentsKey);
         Set<String> existingIds = existingKeys.stream()
                 .map(Object::toString)
@@ -258,7 +258,7 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
         int pageCount = 0;
         int consecutiveOldPages = 0;
         LocalDateTime latestPublishedAt = null;
-        
+
         // 댓글 개수 제한: 옵션에 따라 결정 (null이면 제한 없음)
         Integer maxCommentCount = options != null ? options.getMaxCommentCount() : null;
         LocalDateTime cursorThreshold = cursorTime != null
@@ -270,26 +270,26 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                 break;
             }
             pageCount++;
-            
+
             // ⭐ YouTube CommentThreads API 요청 생성
             // API 엔드포인트: youtube.commentThreads.list
             // 용도: 특정 영상의 댓글 스레드 조회 (최상위 댓글 + 대댓글)
             // Python 코드 참고: commentThreads().list(part="snippet,replies")
             YouTube.CommentThreads.List req = yt.commentThreads()
-                .list(Arrays.asList("snippet", "replies"));  // snippet: 댓글 내용, 작성자 등 / replies: 대댓글
+                    .list(Arrays.asList("snippet", "replies")); // snippet: 댓글 내용, 작성자 등 / replies: 대댓글
             req.setVideoId(videoId);
-            
+
             // Python 코드 참고: order 파라미터 (기본값 "relevance", 여기서는 "time" 사용)
             // Python: order=self.order (choices: "relevance" | "time")
-            req.setOrder("time");  // 시간순 정렬
-            
+            req.setOrder("time"); // 시간순 정렬
+
             // Python 코드 참고: maxResults (Python: page_size, 기본값 100, 범위 1~100)
             // YouTube API 최대값 100 사용
-            req.setMaxResults(100L);  // 한 페이지당 최대 100개 댓글
-            
+            req.setMaxResults(100L); // 한 페이지당 최대 100개 댓글
+
             // Python 코드 참고: pageToken=next_page_token
             if (nextPageToken != null) {
-                req.setPageToken(nextPageToken);  // 페이지네이션: 다음 페이지 토큰 설정
+                req.setPageToken(nextPageToken); // 페이지네이션: 다음 페이지 토큰 설정
             }
 
             // ⭐ 실제 YouTube CommentThreads API 호출 실행
@@ -311,10 +311,10 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                 }
             } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
                 // API 키 쿼터 초과 등 403 에러 처리
-                if (youtubeDataApiClient.hasApiKeys() && youtubeDataApiProperties.isEnableFallback() 
+                if (youtubeDataApiClient.hasApiKeys() && youtubeDataApiProperties.isEnableFallback()
                         && e.getStatusCode() == 403) {
                     String errorReason = com.medi.backend.youtube.redis.util.YoutubeErrorUtil.extractErrorReason(e);
-                    if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason) 
+                    if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason)
                             || "userRateLimitExceeded".equals(errorReason)) {
                         log.debug("YouTube Data API 키 쿼터 초과, OAuth 토큰으로 폴백: videoId={}", videoId);
                         resp = req.execute();
@@ -335,7 +335,7 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                     if (maxCommentCount != null && maxCommentCount > 0 && newComments.size() >= maxCommentCount) {
                         break;
                     }
-                    
+
                     Comment top = thread.getSnippet().getTopLevelComment();
                     if (top == null) {
                         continue;
@@ -349,7 +349,7 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                         continue;
                     }
                     boolean alreadyExists = existingIds.contains(topId);
-                    
+
                     if (!alreadyExists && useFullMetadata) {
                         Long totalReplyCount = null;
                         if (thread.getSnippet().getTotalReplyCount() != null) {
@@ -359,7 +359,8 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                         if (topComment != null) {
                             newComments.add(topComment);
                             existingIds.add(topId);
-                            if (maxCommentCount != null && maxCommentCount > 0 && newComments.size() >= maxCommentCount) {
+                            if (maxCommentCount != null && maxCommentCount > 0
+                                    && newComments.size() >= maxCommentCount) {
                                 break;
                             }
                             newInPage++;
@@ -370,7 +371,8 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                         if (topComment != null) {
                             newComments.add(topComment);
                             existingIds.add(topId);
-                            if (maxCommentCount != null && maxCommentCount > 0 && newComments.size() >= maxCommentCount) {
+                            if (maxCommentCount != null && maxCommentCount > 0
+                                    && newComments.size() >= maxCommentCount) {
                                 break;
                             }
                             newInPage++;
@@ -380,14 +382,15 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
 
                     // 대댓글 처리
                     // Python 코드 참고: replies도 동일하게 처리
-                    if (thread.getReplies() != null 
-                        && thread.getReplies().getComments() != null) {
+                    if (thread.getReplies() != null
+                            && thread.getReplies().getComments() != null) {
                         for (Comment reply : thread.getReplies().getComments()) {
-                    // 댓글 개수 제한 체크 (제한이 설정된 경우에만)
-                            if (maxCommentCount != null && maxCommentCount > 0 && newComments.size() >= maxCommentCount) {
+                            // 댓글 개수 제한 체크 (제한이 설정된 경우에만)
+                            if (maxCommentCount != null && maxCommentCount > 0
+                                    && newComments.size() >= maxCommentCount) {
                                 break;
                             }
-                            
+
                             String replyId = reply != null ? reply.getId() : null;
                             if (replyId == null || existingIds.contains(replyId)) {
                                 continue;
@@ -398,7 +401,7 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                             if (replyPublishedAt != null && !replyPublishedAt.isAfter(cursorThreshold)) {
                                 continue;
                             }
-                            
+
                             if (useFullMetadata) {
                                 RedisYoutubeCommentFull replyComment = redisMapper.toRedisCommentFull(
                                         reply, top.getId(), null);
@@ -425,7 +428,7 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
 
             // Python 코드 참고: next_page_token = response.get("nextPageToken")
             nextPageToken = resp.getNextPageToken();
-            
+
             if (newInPage == 0) {
                 consecutiveOldPages++;
             } else {
@@ -443,9 +446,9 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                 break;
             }
 
-        } while (nextPageToken != null && 
-                 (maxCommentCount == null || maxCommentCount <= 0 || newComments.size() < maxCommentCount));
-        
+        } while (nextPageToken != null &&
+                (maxCommentCount == null || maxCommentCount <= 0 || newComments.size() < maxCommentCount));
+
         if (maxCommentCount != null && maxCommentCount > 0 && newComments.size() > maxCommentCount) {
             newComments = newComments.subList(0, maxCommentCount);
         }
@@ -460,7 +463,8 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
     /**
      * 초기 동기화용: 영상의 댓글을 조회하여 JSON 배열(String)로 저장
      */
-    private long fetchAndSaveCommentsSnapshot(YouTube yt, String videoId, String redisKey, SyncOptions options) throws Exception {
+    private long fetchAndSaveCommentsSnapshot(YouTube yt, String videoId, String redisKey, SyncOptions options)
+            throws Exception {
         boolean useFullMetadata = options != null && options.isIncludeFullMetadata();
         List<Object> allComments = new ArrayList<>();
         String nextPageToken = null;
@@ -499,10 +503,10 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                 }
             } catch (com.google.api.client.googleapis.json.GoogleJsonResponseException e) {
                 // API 키 쿼터 초과 등 403 에러 처리
-                if (youtubeDataApiClient.hasApiKeys() && youtubeDataApiProperties.isEnableFallback() 
+                if (youtubeDataApiClient.hasApiKeys() && youtubeDataApiProperties.isEnableFallback()
                         && e.getStatusCode() == 403) {
                     String errorReason = com.medi.backend.youtube.redis.util.YoutubeErrorUtil.extractErrorReason(e);
-                    if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason) 
+                    if ("quotaExceeded".equals(errorReason) || "dailyLimitExceeded".equals(errorReason)
                             || "userRateLimitExceeded".equals(errorReason)) {
                         log.debug("YouTube Data API 키 쿼터 초과, OAuth 토큰으로 폴백: videoId={}", videoId);
                         resp = req.execute();
@@ -518,7 +522,7 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                     if (maxCommentCount != null && maxCommentCount > 0 && allComments.size() >= maxCommentCount) {
                         break;
                     }
-                    
+
                     Comment top = thread.getSnippet().getTopLevelComment();
                     if (useFullMetadata) {
                         Long totalReplyCount = null;
@@ -528,7 +532,8 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                         RedisYoutubeCommentFull topComment = redisMapper.toRedisCommentFull(top, null, totalReplyCount);
                         if (topComment != null) {
                             allComments.add(topComment);
-                            if (maxCommentCount != null && maxCommentCount > 0 && allComments.size() >= maxCommentCount) {
+                            if (maxCommentCount != null && maxCommentCount > 0
+                                    && allComments.size() >= maxCommentCount) {
                                 break;
                             }
                         }
@@ -536,30 +541,30 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
                         RedisYoutubeComment topComment = redisMapper.toRedisComment(top, null);
                         if (topComment != null) {
                             allComments.add(topComment);
-                            if (maxCommentCount != null && maxCommentCount > 0 && allComments.size() >= maxCommentCount) {
+                            if (maxCommentCount != null && maxCommentCount > 0
+                                    && allComments.size() >= maxCommentCount) {
                                 break;
                             }
                         }
                     }
 
-                    if (thread.getReplies() != null 
-                        && thread.getReplies().getComments() != null) {
+                    if (thread.getReplies() != null
+                            && thread.getReplies().getComments() != null) {
                         for (Comment reply : thread.getReplies().getComments()) {
-                            if (maxCommentCount != null && maxCommentCount > 0 && allComments.size() >= maxCommentCount) {
+                            if (maxCommentCount != null && maxCommentCount > 0
+                                    && allComments.size() >= maxCommentCount) {
                                 break;
                             }
-                            
+
                             if (useFullMetadata) {
                                 RedisYoutubeCommentFull replyComment = redisMapper.toRedisCommentFull(
-                                        reply, top != null ? top.getId() : null, null
-                                );
+                                        reply, top != null ? top.getId() : null, null);
                                 if (replyComment != null) {
                                     allComments.add(replyComment);
                                 }
                             } else {
                                 RedisYoutubeComment replyComment = redisMapper.toRedisComment(
-                                        reply, top != null ? top.getId() : null
-                                );
+                                        reply, top != null ? top.getId() : null);
                                 if (replyComment != null) {
                                     allComments.add(replyComment);
                                 }
@@ -570,9 +575,9 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
             }
 
             nextPageToken = resp.getNextPageToken();
-        } while (nextPageToken != null && 
-                 (maxCommentCount == null || maxCommentCount <= 0 || allComments.size() < maxCommentCount));
-        
+        } while (nextPageToken != null &&
+                (maxCommentCount == null || maxCommentCount <= 0 || allComments.size() < maxCommentCount));
+
         if (maxCommentCount != null && maxCommentCount > 0 && allComments.size() > maxCommentCount) {
             allComments = allComments.subList(0, maxCommentCount);
         }
@@ -694,8 +699,7 @@ private static final DateTimeFormatter CURSOR_FORMATTER = DateTimeFormatter.ISO_
         }
         return LocalDateTime.ofInstant(
                 Instant.ofEpochMilli(dateTime.getValue()),
-                YOUTUBE_TIME_ZONE
-        );
+                YOUTUBE_TIME_ZONE);
     }
 
     private LocalDateTime max(LocalDateTime left, LocalDateTime right) {
