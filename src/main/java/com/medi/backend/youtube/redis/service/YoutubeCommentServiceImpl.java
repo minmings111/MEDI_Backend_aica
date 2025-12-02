@@ -40,7 +40,7 @@ import lombok.extern.slf4j.Slf4j;
  * YouTube 댓글 동기화 서비스 구현체
  * 
  * 주요 기능:
- * 1. 사용자의 채널별 조회수 상위 20개 영상의 댓글 조회
+ * 1. 사용자의 채널별 조회수 상위 10개 영상의 댓글 조회
  * 2. YouTube API를 통해 댓글 데이터 수집
  * 3. Redis에 JSON 배열 형식으로 저장
  * 
@@ -99,7 +99,7 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
 
             long totalCommentCount = 0;
 
-            // 3. 각 채널의 상위 20개 영상의 댓글 조회 및 Redis 저장
+            // 3. 각 채널의 상위 10개 영상의 댓글 조회 및 Redis 저장
             for (Map.Entry<String, List<RedisYoutubeVideo>> entry : videosByChannel.entrySet()) {
                 String channelId = entry.getKey();
                 List<RedisYoutubeVideo> videos = entry.getValue();
@@ -161,12 +161,12 @@ public class YoutubeCommentServiceImpl implements YoutubeCommentService {
                 }
             }
 
-            log.info("각 채널별 조회수 상위 20개 영상의 댓글 동기화 완료: userId={}, 총 댓글 수={}",
+            log.info("각 채널별 조회수 상위 10개 영상의 댓글 동기화 완료: userId={}, 총 댓글 수={}",
                     userId, totalCommentCount);
             return totalCommentCount;
 
         } catch (Exception e) {
-            log.error("각 채널별 조회수 상위 20개 영상 댓글 동기화 실패: userId={}", userId, e);
+            log.error("각 채널별 조회수 상위 10개 영상 댓글 동기화 실패: userId={}", userId, e);
             throw new RuntimeException("syncTop10VideoComments failed", e);
         }
     }

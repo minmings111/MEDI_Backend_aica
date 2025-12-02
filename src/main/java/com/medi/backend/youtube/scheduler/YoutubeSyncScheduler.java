@@ -123,30 +123,19 @@ public class YoutubeSyncScheduler {
                 log.debug("[YouTube] 스케줄링 동기화 성공 - userId={}, channelId={}, 새 영상={}개",
                         userId, youtubeChannelId, newVideos != null ? newVideos.size() : 0);
 
-                // 2. MySQL에 저장된 영상 중 "최신 5개" + "최근 24시간 내 생성된 영상"만 댓글 동기화
-                // (메모리/API 최적화 + 신규 영상 누락 방지)
+                // 2. MySQL에 저장된 "모든 영상" 댓글 동기화 (초기 20개 + 누적된 신규 영상)
+                // (사용자 요구사항: 등록된 영상들은 계속해서 댓글 필터링)
                 List<YoutubeVideoDto> allVideos = youtubeVideoMapper.findByChannelId(channel.getId());
                 if (!allVideos.isEmpty()) {
-                    // A. 최근 24시간 내에 DB에 생성된 영상 (신규 수집된 영상)
-                    java.time.LocalDateTime oneDayAgo = java.time.LocalDateTime.now().minusHours(24);
-                    List<YoutubeVideoDto> newVideosInDb = allVideos.stream()
-                            .filter(v -> v.getCreatedAt() != null && v.getCreatedAt().isAfter(oneDayAgo))
-                            .collect(Collectors.toList());
 
-                    // B. 게시일 기준 최신 5개 영상 (기존 영상 중 최신 유지)
-                    // allVideos는 이미 published_at DESC로 정렬되어 있음 (Mapper XML)
-                    List<YoutubeVideoDto> top5Videos = allVideos.stream()
-                            .limit(5)
-                            .collect(Collectors.toList());
+                    // B. DB에 저장된 모든 영상 (초기 20개 + 누적된 신규 영상)
+                    // limit 없이 전체를 대상으로 함 (사용자 요구사항: 누적된 영상 모두 필터링)
+                    List<YoutubeVideoDto> accumulatedVideos = allVideos;
 
                     // C. 합집합 (중복 제거)
                     java.util.Set<String> targetVideoIds = new java.util.HashSet<>();
 
-                    for (YoutubeVideoDto v : newVideosInDb) {
-                        if (v.getYoutubeVideoId() != null)
-                            targetVideoIds.add(v.getYoutubeVideoId());
-                    }
-                    for (YoutubeVideoDto v : top5Videos) {
+                    for (YoutubeVideoDto v : accumulatedVideos) {
                         if (v.getYoutubeVideoId() != null)
                             targetVideoIds.add(v.getYoutubeVideoId());
                     }
@@ -155,9 +144,9 @@ public class YoutubeSyncScheduler {
 
                     if (!finalVideoIds.isEmpty()) {
                         try {
-                            log.info("[YouTube] 댓글 동기화 대상 선정: userId={}, channelId={}, 대상={}개 (신규={} + Top5={}, 중복제거됨)",
-                                    userId, youtubeChannelId, finalVideoIds.size(), newVideosInDb.size(),
-                                    top5Videos.size());
+                            log.info(
+                                    "[YouTube] 댓글 동기화 대상 선정: userId={}, channelId={}, 대상={}개 (누적된 전체 영상)",
+                                    userId, youtubeChannelId, finalVideoIds.size());
 
                             var syncResult = youtubeRedisSyncService.syncIncrementalToRedis(userId, finalVideoIds);
 

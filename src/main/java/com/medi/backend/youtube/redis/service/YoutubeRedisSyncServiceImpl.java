@@ -122,7 +122,7 @@ public class YoutubeRedisSyncServiceImpl implements YoutubeRedisSyncService {
                     .mapToInt(List::size)
                     .sum();
 
-            // 4. save the comments metadata of each video to Redis(limit: 10)
+            // 4. save the comments metadata of each video to Redis(limit: 20)
             long totalCommentCount = commentService.syncTop10VideoComments(
                     userId, videosByChannel, SyncOptions.initialSync());
 

@@ -15,12 +15,12 @@ import org.springframework.validation.annotation.Validated;
  * 
  * 예시:
  * youtube:
- *   sync:
- *     max-videos-per-hour: 50
- *     max-videos-initial: 5
+ * sync:
+ * max-videos-per-hour: 50
+ * max-videos-initial: 5
  * 
  * @Validated 어노테이션으로 설정값 검증을 수행합니다.
- * 잘못된 값(음수, 범위 초과) 입력 시 애플리케이션 시작 시점에 오류가 발생합니다.
+ *            잘못된 값(음수, 범위 초과) 입력 시 애플리케이션 시작 시점에 오류가 발생합니다.
  */
 @Getter
 @Setter
@@ -60,7 +60,7 @@ public class YoutubeSyncConfigProperties {
      */
     @Positive(message = "max-videos-initial는 양수여야 합니다")
     @Max(value = 20, message = "max-videos-initial는 20을 초과할 수 없습니다")
-    private int maxVideosInitial = 5;
+    private int maxVideosInitial = 20;
 
     /**
      * yt-dlp를 사용하여 자막 추출 여부
@@ -91,4 +91,3 @@ public class YoutubeSyncConfigProperties {
      */
     private boolean enableParallelTranscript = true;
 }
-
