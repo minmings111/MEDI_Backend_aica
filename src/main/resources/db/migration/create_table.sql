@@ -1,15 +1,46 @@
 -- ==================================================
--- Medi Project - MySQL Schema (실제 테이블 구조 완전 반영)
+-- Medi Project - MySQL Schema (DROP + CREATE)
 -- 외래키 의존성 순서로 정리된 실행 가능한 버전
 -- ==================================================
 
-CREATE SCHEMA IF NOT EXISTS `medi` 
-DEFAULT CHARACTER SET utf8mb4 
-COLLATE utf8mb4_unicode_ci;
+-- ==================================================
+-- 0단계: 기존 테이블 전체 삭제 (외래키 체크 비활성화)
+-- ==================================================
 
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- 스키마 확인
 USE `medi`;
-
 SELECT DATABASE();
+
+-- 테이블 DROP (순서 무관)
+DROP TABLE IF EXISTS ai_comment_analysis_result;
+DROP TABLE IF EXISTS ai_analysis_summary;
+DROP TABLE IF EXISTS ai_channel_threat_analysis;
+DROP TABLE IF EXISTS youtube_comments;
+DROP TABLE IF EXISTS youtube_video_rules;
+DROP TABLE IF EXISTS daily_comment_stats;
+DROP TABLE IF EXISTS user_example_responses;
+DROP TABLE IF EXISTS ai_channel_profiling;
+DROP TABLE IF EXISTS youtube_videos;
+DROP TABLE IF EXISTS youtube_channel_rules;
+DROP TABLE IF EXISTS user_filter_preferences;
+DROP TABLE IF EXISTS youtube_channels;
+DROP TABLE IF EXISTS payments;
+DROP TABLE IF EXISTS user_global_rules;
+DROP TABLE IF EXISTS payment_methods;
+DROP TABLE IF EXISTS user_subscriptions;
+DROP TABLE IF EXISTS youtube_oauth_tokens;
+DROP TABLE IF EXISTS youtube_comment_sync_cursor;
+DROP TABLE IF EXISTS filter_example_comments;
+DROP TABLE IF EXISTS subscription_plans;
+DROP TABLE IF EXISTS email_verifications;
+DROP TABLE IF EXISTS users;
+
+-- 외래키 체크 재활성화
+SET FOREIGN_KEY_CHECKS = 1;
+
+SELECT 'All tables dropped successfully!' as message;
 
 -- ==================================================
 -- 1단계: 최상위 부모 테이블 (외래키 없는 테이블들)
@@ -376,6 +407,47 @@ CREATE TABLE ai_channel_profiling (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT 'AI 채널 프로파일링 결과 (JSON 형태로 저장)';
 
+-- 4-5. ai_channel_threat_analysis 테이블 (youtube_channels 참조)
+CREATE TABLE ai_channel_threat_analysis (
+    -- 기본 키
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    
+    -- 외래키 (채널 기준)
+    channel_id INT NOT NULL COMMENT 'youtube_channels FK',
+    
+    -- FastAPI Agent JSON 원본 필드 (NULL 허용)
+    channel_name VARCHAR(255) NULL COMMENT 'Agent JSON: channel_name',
+    generated_at DATETIME NULL COMMENT 'Agent JSON: generated_at (Agent가 분석한 시간)',
+    total_comments INT NULL DEFAULT 0 COMMENT 'Agent JSON: total_comments (채널 전체)',
+    
+    -- 빠른 조회용 추출 데이터
+    critical_count INT NULL DEFAULT 0 COMMENT 'section_1.intensity_distribution.critical',
+    high_count INT NULL DEFAULT 0 COMMENT 'section_1.intensity_distribution.high',
+    
+    -- 원본 JSON 섹션 저장 (Agent 응답 그대로)
+    section_1_threat_intelligence JSON NULL COMMENT '위협 인텔리전스 원본 JSON',
+    section_2_defense_strategy JSON NULL COMMENT '방어 전략 원본 JSON',
+    
+    -- 메타데이터 (DB 관리용)
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT 'DB에 저장된 시간',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'DB 수정 시간',
+    
+    -- 외래키 제약
+    CONSTRAINT fk_channel_threat_analysis 
+        FOREIGN KEY (channel_id) REFERENCES youtube_channels(id) 
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    
+    -- 성능 인덱스
+    INDEX idx_channel_threat (channel_id),
+    INDEX idx_threat_critical_count (critical_count DESC),
+    INDEX idx_threat_generated_at (generated_at DESC),
+    
+    -- 유니크 제약 (채널별 + 생성 시간 기준 중복 방지)
+    UNIQUE KEY uk_channel_generated (channel_id, generated_at)
+    
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT 'AI 채널 위협 분석 보고서 (generated_at 기준 관리)';
+
 -- ==================================================
 -- 5단계: user_filter_preferences와 youtube_videos를 참조하는 테이블들
 -- ==================================================
@@ -467,15 +539,31 @@ CREATE TABLE youtube_comments (
     can_rate BOOLEAN NULL DEFAULT TRUE COMMENT '평가 가능 여부',
     viewer_rating VARCHAR(20) NULL COMMENT '시청자 평가 (like, none, dislike)',
     
+    -- 삭제 추적 컬럼 (Soft Delete)
+    deletion_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE'
+        CHECK (deletion_status IN ('ACTIVE', 'PENDING_DELETE', 'DELETED'))
+        COMMENT '삭제 상태: ACTIVE(활성), PENDING_DELETE(삭제 대기), DELETED(삭제 완료)',
+    deleted_at DATETIME NULL COMMENT '삭제 완료 시간',
+    deletion_requested_at DATETIME NULL COMMENT '삭제 요청 시간',
+    youtube_deletion_status VARCHAR(20) NOT NULL DEFAULT 'NOT_ATTEMPTED'
+        CHECK (youtube_deletion_status IN ('NOT_ATTEMPTED', 'SUCCESS', 'FAILED', 'NOT_FOUND'))
+        COMMENT 'YouTube API 삭제 결과: NOT_ATTEMPTED(미시도), SUCCESS(성공), FAILED(실패), NOT_FOUND(이미 삭제됨)',
+    deletion_retry_count INT NOT NULL DEFAULT 0 COMMENT '삭제 재시도 횟수',
+    last_deletion_error TEXT NULL COMMENT '마지막 삭제 오류 메시지',
+    deletion_request_id VARCHAR(36) NULL COMMENT '삭제 요청 ID (배치 삭제 추적용)',
+    
     CONSTRAINT fk_video_comment 
         FOREIGN KEY (video_id) REFERENCES youtube_videos(id) 
         ON DELETE CASCADE ON UPDATE CASCADE,
     INDEX idx_video_comment (video_id),
     INDEX idx_youtube_comment_id (youtube_comment_id),
     INDEX idx_published_at (published_at),
-    INDEX idx_video_published_desc (video_id, published_at DESC)
+    INDEX idx_video_published_desc (video_id, published_at DESC),
+    INDEX idx_deletion_status (deletion_status),
+    INDEX idx_deletion_pending (deletion_status, deletion_requested_at),
+    INDEX idx_deletion_request_id (deletion_request_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT 'YouTube 댓글 정보 (DESC 인덱스로 최신 댓글 조회 최적화)';
+COMMENT 'YouTube 댓글 정보 (삭제 추적 포함)';
 
 -- 5-5. ai_analysis_summary 테이블 (youtube_videos 참조)
 CREATE TABLE ai_analysis_summary (
@@ -551,14 +639,6 @@ CREATE TABLE ai_comment_analysis_result (
 COMMENT 'AI 댓글 분석 결과 (상태별 조회 최적화)';
 
 -- ==================================================
--- 테이블 생성 완료 확인
--- ==================================================
-
-USE medi;
-
-SHOW TABLES;
-
--- ==================================================
 -- filter_example_comments 초기 데이터 (Seed Data)
 -- ==================================================
 
@@ -576,7 +656,7 @@ INSERT INTO filter_example_comments
 ('profanity', '아오 짜증나 씨부랄', 'block', 'EASY', TRUE),
 ('profanity', '개새끼가 어따 대고', 'block', 'EASY', TRUE),
 ('profanity', '닥치고 꺼져 이 병신아', 'block', 'EASY', TRUE),
-('profanity', '와 진짜 재앙이네 ㅋㅋㅋ', 'allow', 'HARD', TRUE),      -- 은유적
+('profanity', '와 진짜 재앙이네 ㅋㅋㅋ', 'allow', 'HARD', TRUE),
 ('profanity', '미쳤나봐 완전 미친놈이네', 'block', 'MEDIUM', TRUE),
 
 -- 2. 외모·신체 비하 (appearance) 총 12개
@@ -621,7 +701,7 @@ INSERT INTO filter_example_comments
 ('hate_speech', '요즘 애들은 버릇이 없어', 'allow', 'HARD', TRUE),
 ('hate_speech', '남자들 대부분 다 똑같더라', 'block', 'MEDIUM', TRUE),
 
--- 5. 성적 발언·희롱 (sexual) 총 13개 (가장 오탐 많아서 하나 더 넣음)
+-- 5. 성적 발언·희롱 (sexual) 총 13개
 ('sexual', '가슴 진짜 크다 한 번 빨고 싶네', 'block', 'EASY', TRUE),
 ('sexual', '치마 짧아서 팬티 보이던데 일부러지?', 'block', 'EASY', TRUE),
 ('sexual', '뒤태 미쳤어 뒤치기하고 싶다', 'block', 'EASY', TRUE),
@@ -652,12 +732,18 @@ INSERT INTO filter_example_comments
 ('spam', 'ㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋ', 'allow', 'MEDIUM', TRUE);
 
 -- ==================================================
+-- 스키마 생성 완료
+-- ==================================================
+
+SELECT 'Schema creation completed successfully!' as message;
+
+-- ==================================================
 -- 생성된 테이블 확인
 -- ==================================================
 
 SHOW TABLES;
 
--- 각 테이블 구조 간단 확인
+-- 각 테이블 row count 확인
 SELECT 'users' as table_name, COUNT(*) as row_count FROM users
 UNION ALL
 SELECT 'email_verifications', COUNT(*) FROM email_verifications
@@ -703,60 +789,8 @@ UNION ALL
 SELECT 'ai_channel_threat_analysis', COUNT(*) FROM ai_channel_threat_analysis;
 
 -- ==================================================
--- 6단계: ai_channel_threat_analysis 테이블 (youtube_channels 참조)
+-- 현재 테이블 상세 정보 확인
 -- ==================================================
-
--- AI 채널 위협 분석 시스템 테이블 (생성 시간 기준)
-CREATE TABLE IF NOT EXISTS ai_channel_threat_analysis (
-    -- 기본 키
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    
-    -- 외래키 (채널 기준)
-    channel_id INT NOT NULL COMMENT 'youtube_channels FK',
-    
-    -- FastAPI Agent JSON 원본 필드 (NULL 허용)
-    channel_name VARCHAR(255) NULL COMMENT 'Agent JSON: channel_name',
-    generated_at DATETIME NULL COMMENT 'Agent JSON: generated_at (Agent가 분석한 시간)',
-    total_comments INT NULL DEFAULT 0 COMMENT 'Agent JSON: total_comments (채널 전체)',
-    
-    -- 빠른 조회용 추출 데이터
-    critical_count INT NULL DEFAULT 0 COMMENT 'section_1.intensity_distribution.critical',
-    high_count INT NULL DEFAULT 0 COMMENT 'section_1.intensity_distribution.high',
-    
-    -- 원본 JSON 섹션 저장 (Agent 응답 그대로)
-    section_1_threat_intelligence JSON NULL COMMENT '위협 인텔리전스 원본 JSON',
-    section_2_defense_strategy JSON NULL COMMENT '방어 전략 원본 JSON',
-    
-    -- 메타데이터 (DB 관리용)
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT 'DB에 저장된 시간',
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'DB 수정 시간',
-    
-    -- 외래키 제약
-    CONSTRAINT fk_channel_threat_analysis 
-        FOREIGN KEY (channel_id) REFERENCES youtube_channels(id) 
-        ON DELETE CASCADE ON UPDATE CASCADE,
-    
-    -- 성능 인덱스
-    INDEX idx_channel_threat (channel_id),
-    INDEX idx_threat_critical_count (critical_count DESC),
-    INDEX idx_threat_generated_at (generated_at DESC),
-    
-    -- 유니크 제약 (채널별 + 생성 시간 기준 중복 방지)
-    UNIQUE KEY uk_channel_generated (channel_id, generated_at)
-    
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT 'AI 채널 위협 분석 보고서 (generated_at 기준 관리)';
-
--- ==================================================
--- 스키마 생성 완료
--- ==================================================
-
-SELECT '스키마 생성이 완료되었습니다!' as message;
-
--- ==================================================
--- 현재 mysql 테이블 확인 
--- ==================================================
-
 
 SELECT 
     t.TABLE_NAME,

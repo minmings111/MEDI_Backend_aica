@@ -17,7 +17,7 @@ import org.springframework.validation.annotation.Validated;
  * youtube:
  * sync:
  * max-videos-per-hour: 50
- * max-videos-initial: 5
+ * max-videos-initial: 20
  * 
  * @Validated 어노테이션으로 설정값 검증을 수행합니다.
  *            잘못된 값(음수, 범위 초과) 입력 시 애플리케이션 시작 시점에 오류가 발생합니다.
@@ -51,12 +51,12 @@ public class YoutubeSyncConfigProperties {
      * 
      * 사용자가 채널을 처음 등록할 때 MySQL에 저장할 영상 개수입니다.
      * 
-     * 기본값: 5
+     * 기본값: 20
      * 범위: 1 ~ 20
      * 
      * 예시:
-     * - 채널 등록 시 최신 영상 5개만 MySQL에 저장
-     * - 이 5개 영상의 댓글은 필터링 대상이 됩니다
+     * - 채널 등록 시 최신 영상 20개만 MySQL에 저장
+     * - 이 20개 영상의 댓글은 필터링 대상이 됩니다
      */
     @Positive(message = "max-videos-initial는 양수여야 합니다")
     @Max(value = 20, message = "max-videos-initial는 20을 초과할 수 없습니다")

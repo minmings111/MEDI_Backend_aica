@@ -131,4 +131,180 @@ public class YoutubeCommentController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
         }
     }
+
+    /**
+     * 특정 비디오의 필터링된 댓글 전체 삭제
+     * DELETE /api/youtube/comments/video/{videoId}/filtered
+     * 
+     * @param videoId 비디오 ID (내부 ID)
+     * @return 삭제 결과 (성공/실패 개수)
+     */
+    @PreAuthorize("isAuthenticated()")
+    @DeleteMapping("/video/{videoId}/filtered")
+    @Operation(summary = "비디오 필터링 댓글 전체 삭제", description = "특정 비디오의 필터링된 댓글을 모두 삭제합니다. (할당량: 댓글당 50 units)")
+    public ResponseEntity<Map<String, Object>> deleteFilteredCommentsByVideo(
+            @PathVariable Integer videoId) {
+        Integer userId = authUtil.getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        try {
+            log.info("🗑️ [비디오 필터링 댓글 전체 삭제 요청] userId={}, videoId={}", userId, videoId);
+
+            Map<String, Object> result = commentDeletionService.deleteFilteredCommentsByVideoId(userId, videoId);
+
+            log.info("✅ [비디오 필터링 댓글 전체 삭제 완료] userId={}, videoId={}, 성공={}, 실패={}",
+                    userId, videoId, result.get("successCount"), result.get("failureCount"));
+
+            return ResponseEntity.ok(result);
+
+        } catch (Exception e) {
+            log.error("❌ [비디오 필터링 댓글 전체 삭제 실패] userId={}, videoId={}, error={}",
+                    userId, videoId, e.getMessage(), e);
+
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("message", "Failed to delete filtered comments");
+            errorResponse.put("error", e.getMessage());
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
+
+    /**
+     * 특정 채널의 필터링된 댓글 전체 삭제
+     * DELETE /api/youtube/comments/channel/{channelId}/filtered
+     * 
+     * @param channelId 채널 ID (내부 ID)
+     * @return 삭제 결과 (성공/실패 개수)
+     */
+    @PreAuthorize("isAuthenticated()")
+    @DeleteMapping("/channel/{channelId}/filtered")
+    @Operation(summary = "채널 필터링 댓글 전체 삭제", description = "특정 채널의 필터링된 댓글을 모두 삭제합니다. (할당량: 댓글당 50 units)")
+    public ResponseEntity<Map<String, Object>> deleteFilteredCommentsByChannel(
+            @PathVariable Integer channelId) {
+        Integer userId = authUtil.getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        try {
+            log.info("🗑️ [채널 필터링 댓글 전체 삭제 요청] userId={}, channelId={}", userId, channelId);
+
+            Map<String, Object> result = commentDeletionService.deleteFilteredCommentsByChannelId(userId, channelId);
+
+            log.info("✅ [채널 필터링 댓글 전체 삭제 완료] userId={}, channelId={}, 성공={}, 실패={}",
+                    userId, channelId, result.get("successCount"), result.get("failureCount"));
+
+            return ResponseEntity.ok(result);
+
+        } catch (Exception e) {
+            log.error("❌ [채널 필터링 댓글 전체 삭제 실패] userId={}, channelId={}, error={}",
+                    userId, channelId, e.getMessage(), e);
+
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("message", "Failed to delete filtered comments");
+            errorResponse.put("error", e.getMessage());
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
+
+    /**
+     * 비동기 비디오 필터링 댓글 전체 삭제
+     * DELETE /api/youtube/comments/video/{videoId}/filtered/async
+     * 
+     * @param videoId 비디오 ID (내부 ID)
+     * @return 삭제 요청 ID 및 총 댓글 수
+     */
+    @PreAuthorize("isAuthenticated()")
+    @DeleteMapping("/video/{videoId}/filtered/async")
+    @Operation(summary = "비동기 비디오 필터링 댓글 전체 삭제", description = "특정 비디오의 필터링된 댓글을 비동기로 삭제합니다. 즉시 requestId를 반환하며, 진행 상황은 별도 API로 조회합니다.")
+    public ResponseEntity<Map<String, Object>> requestAsyncDeletionByVideo(
+            @PathVariable Integer videoId) {
+        Integer userId = authUtil.getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        try {
+            Map<String, Object> result = commentDeletionService.requestAsyncDeletionByVideoId(userId, videoId);
+            return ResponseEntity.accepted().body(result);
+
+        } catch (Exception e) {
+            log.error("❌ [비동기 삭제 요청 실패] userId={}, videoId={}, error={}",
+                    userId, videoId, e.getMessage(), e);
+
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("message", "Failed to request async deletion");
+            errorResponse.put("error", e.getMessage());
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
+
+    /**
+     * 비동기 채널 필터링 댓글 전체 삭제
+     * DELETE /api/youtube/comments/channel/{channelId}/filtered/async
+     * 
+     * @param channelId 채널 ID (내부 ID)
+     * @return 삭제 요청 ID 및 총 댓글 수
+     */
+    @PreAuthorize("isAuthenticated()")
+    @DeleteMapping("/channel/{channelId}/filtered/async")
+    @Operation(summary = "비동기 채널 필터링 댓글 전체 삭제", description = "특정 채널의 필터링된 댓글을 비동기로 삭제합니다. 즉시 requestId를 반환하며, 진행 상황은 별도 API로 조회합니다.")
+    public ResponseEntity<Map<String, Object>> requestAsyncDeletionByChannel(
+            @PathVariable Integer channelId) {
+        Integer userId = authUtil.getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        try {
+            Map<String, Object> result = commentDeletionService.requestAsyncDeletionByChannelId(userId, channelId);
+            return ResponseEntity.accepted().body(result);
+
+        } catch (Exception e) {
+            log.error("❌ [비동기 삭제 요청 실패] userId={}, channelId={}, error={}",
+                    userId, channelId, e.getMessage(), e);
+
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("message", "Failed to request async deletion");
+            errorResponse.put("error", e.getMessage());
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
+
+    /**
+     * 삭제 작업 진행 상황 조회
+     * GET /api/youtube/comments/deletion-status/{requestId}
+     * 
+     * @param requestId 삭제 요청 ID
+     * @return 진행 상황 (총 댓글 수, 완료 수, 실패 수, 진행률)
+     */
+    @PreAuthorize("isAuthenticated()")
+    @GetMapping("/deletion-status/{requestId}")
+    @Operation(summary = "삭제 작업 진행 상황 조회", description = "비동기 삭제 작업의 진행 상황을 조회합니다.")
+    public ResponseEntity<Map<String, Object>> getJobProgress(
+            @PathVariable String requestId) {
+        try {
+            Map<String, Object> progress = commentDeletionService.getJobProgress(requestId);
+            return ResponseEntity.ok(progress);
+
+        } catch (IllegalArgumentException e) {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("message", e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+
+        } catch (Exception e) {
+            log.error("❌ [진행 상황 조회 실패] requestId={}, error={}", requestId, e.getMessage(), e);
+
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("message", "Failed to get job progress");
+            errorResponse.put("error", e.getMessage());
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
 }
