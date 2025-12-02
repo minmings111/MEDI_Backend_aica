@@ -45,19 +45,19 @@ public class YoutubeCommentDeletionService {
         // 2. OAuth 토큰 가져오기
         String accessToken = youtubeOAuthService.getValidAccessToken(userId);
 
-        // 3. YouTube API 호출
-        deleteCommentFromYoutube(accessToken, youtubeCommentId);
+        // 3. YouTube API 호출 및 결과 추적
+        String youtubeDeletionStatus = deleteCommentFromYoutubeInternal(accessToken, youtubeCommentId);
 
-        // 4. DB 업데이트 (소프트 삭제)
-        agentMapper.updateCommentStatusToDeleted(youtubeCommentId);
+        // 4. DB 업데이트 (Soft Delete)
+        agentMapper.updateCommentStatusToDeleted(youtubeCommentId, youtubeDeletionStatus);
 
         // 5. 할당량 로그 출력
-        log.info("✅ [댓글 삭제 완료] userId={}, youtubeCommentId={}, YouTube API 할당량 사용: 50 units",
-                userId, youtubeCommentId);
+        log.info("✅ [댓글 삭제 완료] userId={}, youtubeCommentId={}, status={}, YouTube API 할당량 사용: 50 units",
+                userId, youtubeCommentId, youtubeDeletionStatus);
     }
 
     /**
-     * 일괄 댓글 삭제
+     * 일괄 댓글 삭제 (댓글 ID 리스트 기반)
      */
     @Transactional
     public Map<String, Object> deleteCommentsBatch(Integer userId, List<String> youtubeCommentIds) {
@@ -95,9 +95,151 @@ public class YoutubeCommentDeletionService {
     }
 
     /**
-     * YouTube API 댓글 삭제
+     * 특정 비디오의 필터링된 댓글 전체 삭제
      */
-    private void deleteCommentFromYoutube(String accessToken, String youtubeCommentId) {
+    @Transactional
+    public Map<String, Object> deleteFilteredCommentsByVideoId(Integer userId, Integer videoId) {
+        // 1. 필터링된 댓글 조회 (status='filtered'만)
+        List<com.medi.backend.agent.dto.FilteredCommentResponse> filteredComments = agentMapper
+                .findFilteredCommentsByVideoId(videoId, userId, "filtered");
+
+        if (filteredComments.isEmpty()) {
+            log.info("ℹ️ [삭제할 댓글 없음] userId={}, videoId={}", userId, videoId);
+            return Map.of(
+                    "totalRequested", 0,
+                    "successCount", 0,
+                    "failureCount", 0,
+                    "quotaUsed", 0,
+                    "message", "삭제할 필터링된 댓글이 없습니다.");
+        }
+
+        // 2. 댓글 ID 리스트 추출
+        List<String> commentIds = filteredComments.stream()
+                .map(com.medi.backend.agent.dto.FilteredCommentResponse::getYoutubeCommentId)
+                .toList();
+
+        log.info("🗑️ [비디오 필터링 댓글 전체 삭제 시작] userId={}, videoId={}, count={}",
+                userId, videoId, commentIds.size());
+
+        // 3. 배치 삭제 실행
+        return deleteCommentsBatch(userId, commentIds);
+    }
+
+    /**
+     * 특정 채널의 필터링된 댓글 전체 삭제
+     */
+    @Transactional
+    public Map<String, Object> deleteFilteredCommentsByChannelId(Integer userId, Integer channelId) {
+        // 1. 필터링된 댓글 조회 (status='filtered'만)
+        List<com.medi.backend.agent.dto.FilteredCommentResponse> filteredComments = agentMapper
+                .findFilteredCommentsByChannelId(channelId, userId, "filtered");
+
+        if (filteredComments.isEmpty()) {
+            log.info("ℹ️ [삭제할 댓글 없음] userId={}, channelId={}", userId, channelId);
+            return Map.of(
+                    "totalRequested", 0,
+                    "successCount", 0,
+                    "failureCount", 0,
+                    "quotaUsed", 0,
+                    "message", "삭제할 필터링된 댓글이 없습니다.");
+        }
+
+        // 2. 댓글 ID 리스트 추출
+        List<String> commentIds = filteredComments.stream()
+                .map(com.medi.backend.agent.dto.FilteredCommentResponse::getYoutubeCommentId)
+                .toList();
+
+        log.info("🗑️ [채널 필터링 댓글 전체 삭제 시작] userId={}, channelId={}, count={}",
+                userId, channelId, commentIds.size());
+
+        // 3. 배치 삭제 실행
+        return deleteCommentsBatch(userId, commentIds);
+    }
+
+    /**
+     * 비동기 비디오 필터링 댓글 전체 삭제 (즉시 응답)
+     */
+    @Transactional
+    public Map<String, Object> requestAsyncDeletionByVideoId(Integer userId, Integer videoId) {
+        String requestId = java.util.UUID.randomUUID().toString();
+
+        // 1. ACTIVE 댓글을 PENDING_DELETE로 변경
+        int markedCount = agentMapper.markCommentsForDeletion(videoId, requestId);
+
+        if (markedCount == 0) {
+            log.info("ℹ️ [비동기 삭제 요청 - 댓글 없음] userId={}, videoId={}", userId, videoId);
+            return Map.of(
+                    "requestId", requestId,
+                    "totalComments", 0,
+                    "message", "삭제할 필터링된 댓글이 없습니다.");
+        }
+
+        log.info("📝 [비동기 삭제 요청] userId={}, videoId={}, requestId={}, count={}",
+                userId, videoId, requestId, markedCount);
+
+        return Map.of(
+                "requestId", requestId,
+                "totalComments", markedCount,
+                "message", "삭제 작업이 시작되었습니다. 진행 상황은 requestId로 조회하세요.");
+    }
+
+    /**
+     * 비동기 채널 필터링 댓글 전체 삭제 (즉시 응답)
+     */
+    @Transactional
+    public Map<String, Object> requestAsyncDeletionByChannelId(Integer userId, Integer channelId) {
+        String requestId = java.util.UUID.randomUUID().toString();
+
+        // 1. ACTIVE 댓글을 PENDING_DELETE로 변경
+        int markedCount = agentMapper.markChannelCommentsForDeletion(channelId, userId, requestId);
+
+        if (markedCount == 0) {
+            log.info("ℹ️ [비동기 삭제 요청 - 댓글 없음] userId={}, channelId={}", userId, channelId);
+            return Map.of(
+                    "requestId", requestId,
+                    "totalComments", 0,
+                    "message", "삭제할 필터링된 댓글이 없습니다.");
+        }
+
+        log.info("📝 [비동기 삭제 요청] userId={}, channelId={}, requestId={}, count={}",
+                userId, channelId, requestId, markedCount);
+
+        return Map.of(
+                "requestId", requestId,
+                "totalComments", markedCount,
+                "message", "삭제 작업이 시작되었습니다. 진행 상황은 requestId로 조회하세요.");
+    }
+
+    /**
+     * 삭제 작업 진행 상황 조회
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> getJobProgress(String requestId) {
+        Map<String, Object> progress = agentMapper.getDeletionJobProgress(requestId);
+
+        if (progress == null || ((Number) progress.get("totalComments")).intValue() == 0) {
+            throw new IllegalArgumentException("존재하지 않는 요청 ID입니다.");
+        }
+
+        // 진행률 계산
+        int total = ((Number) progress.get("totalComments")).intValue();
+        int completed = ((Number) progress.get("completedComments")).intValue();
+        int failed = ((Number) progress.get("failedComments")).intValue();
+        double progressPercentage = ((double) (completed + failed) / total) * 100;
+        boolean isCompleted = (completed + failed) == total;
+
+        progress.put("progressPercentage", Math.round(progressPercentage * 100.0) / 100.0);
+        progress.put("isCompleted", isCompleted);
+
+        return progress;
+    }
+
+    /**
+     * YouTube API 댓글 삭제 (내부용 - Background Worker에서도 사용)
+     * 
+     * @return YouTube 삭제 상태 (SUCCESS, NOT_FOUND)
+     */
+    public String deleteCommentFromYoutubeInternal(String accessToken, String youtubeCommentId) {
         try {
             YouTube youtube = new YouTube.Builder(
                     GoogleNetHttpTransport.newTrustedTransport(),
@@ -108,9 +250,10 @@ public class YoutubeCommentDeletionService {
             youtube.comments().delete(youtubeCommentId).execute();
 
             log.info("✅ [YouTube API 호출 성공] 댓글 삭제: commentId={}", youtubeCommentId);
+            return "SUCCESS";
 
         } catch (GoogleJsonResponseException e) {
-            handleYoutubeApiError(e, youtubeCommentId);
+            return handleYoutubeApiError(e, youtubeCommentId);
         } catch (Exception e) {
             throw new RuntimeException("YouTube API 호출 중 오류 발생: " + e.getMessage(), e);
         }
@@ -118,14 +261,16 @@ public class YoutubeCommentDeletionService {
 
     /**
      * YouTube API 오류 처리
+     * 
+     * @return YouTube 삭제 상태 (NOT_FOUND만 반환, 나머지는 예외 발생)
      */
-    private void handleYoutubeApiError(GoogleJsonResponseException e, String youtubeCommentId) {
+    private String handleYoutubeApiError(GoogleJsonResponseException e, String youtubeCommentId) {
         int statusCode = e.getStatusCode();
 
         switch (statusCode) {
             case 404:
                 log.warn("⚠️ [댓글 없음] 댓글을 찾을 수 없음 (이미 삭제됨): commentId={}", youtubeCommentId);
-                break;
+                return "NOT_FOUND"; // DB에 NOT_FOUND 상태로 기록
 
             case 403:
                 log.error("❌ [권한 없음] 댓글 삭제 권한이 없습니다: commentId={}", youtubeCommentId);

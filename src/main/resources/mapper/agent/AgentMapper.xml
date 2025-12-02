@@ -180,6 +180,7 @@
         WHERE yv.id = #{videoId}
             AND ych.user_id = #{userId}
             AND ych.deleted_at IS NULL
+            AND yc.deletion_status = 'ACTIVE'
             <if test="status != null and status != ''">
                 AND acar.status = #{status}
             </if>
@@ -234,6 +235,7 @@
         WHERE ych.id = #{channelId}
             AND ych.user_id = #{userId}
             AND ych.deleted_at IS NULL
+            AND yc.deletion_status = 'ACTIVE'
             <if test="status != null and status != ''">
                 AND acar.status = #{status}
             </if>
@@ -267,6 +269,7 @@
         INNER JOIN youtube_channels ych ON yv.channel_id = ych.id
         WHERE ych.user_id = #{userId}
             AND ych.deleted_at IS NULL
+            AND yc.deletion_status = 'ACTIVE'
             <if test="status != null and status != ''">
                 AND acar.status = #{status}
             </if>
@@ -455,17 +458,79 @@
           AND ych.deleted_at IS NULL
     </select>
     
-    <!-- 댓글 상태를 DELETED로 업데이트 (소프트 삭제) -->
+    <!-- 댓글 삭제 완료 처리 (YouTube API 성공 후 호출) -->
     <update id="updateCommentStatusToDeleted">
-        UPDATE ai_comment_analysis_result
-        SET status = 'DELETED',
-            updated_at = NOW()
-        WHERE youtube_comment_id = (
-            SELECT id 
-            FROM youtube_comments 
-            WHERE youtube_comment_id = #{youtubeCommentId}
-        )
+        UPDATE youtube_comments
+        SET deletion_status = 'DELETED',
+            deleted_at = NOW(),
+            youtube_deletion_status = #{youtubeDeletionStatus}
+        WHERE youtube_comment_id = #{youtubeCommentId}
     </update>
+    
+    <!-- 비동기 삭제: 댓글을 PENDING_DELETE 상태로 변경 -->
+    <update id="markCommentsForDeletion">
+        UPDATE youtube_comments yc
+        INNER JOIN youtube_videos yv ON yc.video_id = yv.id
+        INNER JOIN ai_comment_analysis_result acar ON yc.id = acar.youtube_comment_id
+        SET yc.deletion_status = 'PENDING_DELETE',
+            yc.deletion_requested_at = NOW(),
+            yc.deletion_request_id = #{requestId}
+        WHERE yv.id = #{videoId}
+          AND acar.status = 'filtered'
+          AND yc.deletion_status = 'ACTIVE'
+    </update>
+    
+    <!-- 비동기 삭제: 채널의 댓글을 PENDING_DELETE 상태로 변경 -->
+    <update id="markChannelCommentsForDeletion">
+        UPDATE youtube_comments yc
+        INNER JOIN youtube_videos yv ON yc.video_id = yv.id
+        INNER JOIN youtube_channels ych ON yv.channel_id = ych.id
+        INNER JOIN ai_comment_analysis_result acar ON yc.id = acar.youtube_comment_id
+        SET yc.deletion_status = 'PENDING_DELETE',
+            yc.deletion_requested_at = NOW(),
+            yc.deletion_request_id = #{requestId}
+        WHERE ych.id = #{channelId}
+          AND ych.user_id = #{userId}
+          AND acar.status = 'filtered'
+          AND yc.deletion_status = 'ACTIVE'
+    </update>
+    
+    <!-- 비동기 삭제: PENDING_DELETE 댓글 조회 (Background Worker용) -->
+    <select id="findPendingDeletionComments" resultType="java.util.Map">
+        SELECT 
+            yc.id,
+            yc.youtube_comment_id AS youtubeCommentId,
+            yc.deletion_request_id AS deletionRequestId,
+            yc.deletion_retry_count AS deletionRetryCount,
+            ych.user_id AS userId
+        FROM youtube_comments yc
+        INNER JOIN youtube_videos yv ON yc.video_id = yv.id
+        INNER JOIN youtube_channels ych ON yv.channel_id = ych.id
+        WHERE yc.deletion_status = 'PENDING_DELETE'
+          AND yc.deletion_retry_count &lt; #{maxRetries}
+          AND (yc.deletion_requested_at IS NULL OR yc.deletion_requested_at &lt;= NOW())
+        ORDER BY yc.deletion_requested_at ASC
+        LIMIT #{batchSize}
+    </select>
+    
+    <!-- 비동기 삭제: 재시도 카운트 증가 -->
+    <update id="incrementDeletionRetryCount">
+        UPDATE youtube_comments
+        SET deletion_retry_count = deletion_retry_count + 1,
+            last_deletion_error = #{errorMessage},
+            deletion_requested_at = #{nextRetryAt}
+        WHERE youtube_comment_id = #{youtubeCommentId}
+    </update>
+    
+    <!-- 비동기 삭제: 배치 삭제 진행 상황 조회 -->
+    <select id="getDeletionJobProgress" resultType="java.util.Map">
+        SELECT 
+            COUNT(*) AS totalComments,
+            SUM(CASE WHEN deletion_status = 'DELETED' THEN 1 ELSE 0 END) AS completedComments,
+            SUM(CASE WHEN youtube_deletion_status = 'FAILED' THEN 1 ELSE 0 END) AS failedComments
+        FROM youtube_comments
+        WHERE deletion_request_id = #{requestId}
+    </select>
 
 </mapper>
 
