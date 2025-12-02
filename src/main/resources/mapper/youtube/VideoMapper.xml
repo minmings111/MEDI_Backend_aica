@@ -10,7 +10,7 @@
             parameterType="int">
         SELECT
             id, channel_id, youtube_video_id, 
-            title, view_count, published_at, thumbnail_url, 
+            title, view_count, like_count, comment_count, published_at, thumbnail_url, 
             created_at, updated_at
         FROM youtube_videos
         WHERE channel_id = #{channelId}
@@ -22,7 +22,7 @@
             parameterType="int">
         SELECT
             id, channel_id, youtube_video_id, 
-            title, view_count, published_at, thumbnail_url, 
+            title, view_count, like_count, comment_count, published_at, thumbnail_url, 
             created_at, updated_at
         FROM youtube_videos
         WHERE id = #{id}
@@ -33,7 +33,7 @@
             resultType="com.medi.backend.youtube.dto.YoutubeVideoDto">
         SELECT
             v.id, v.channel_id, v.youtube_video_id, 
-            v.title, v.view_count, v.published_at, v.thumbnail_url, 
+            v.title, v.view_count, v.like_count, v.comment_count, v.published_at, v.thumbnail_url, 
             v.created_at, v.updated_at
         FROM youtube_videos v
         INNER JOIN youtube_channels c ON v.channel_id = c.id
@@ -48,7 +48,7 @@
             parameterType="int">
         SELECT
             v.id, v.channel_id, v.youtube_video_id, 
-            v.title, v.view_count, v.published_at, v.thumbnail_url, 
+            v.title, v.view_count, v.like_count, v.comment_count, v.published_at, v.thumbnail_url, 
             v.created_at, v.updated_at
         FROM youtube_videos v
         INNER JOIN youtube_channels c ON v.channel_id = c.id
@@ -61,7 +61,7 @@
             resultType="com.medi.backend.youtube.dto.YoutubeVideoDto">
         SELECT
             id, channel_id, youtube_video_id, 
-            title, view_count, published_at, thumbnail_url, 
+            title, view_count, like_count, comment_count, published_at, thumbnail_url, 
             created_at, updated_at
         FROM youtube_videos
         ORDER BY published_at DESC
