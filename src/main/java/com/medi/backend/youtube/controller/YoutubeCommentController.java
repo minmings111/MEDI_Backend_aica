@@ -40,12 +40,15 @@ public class YoutubeCommentController {
      * @param youtubeCommentId YouTube 댓글 ID (예: UgxABC123...)
      * @return 삭제 성공 응답
      */
-    @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/{youtubeCommentId}")
     @Operation(summary = "댓글 삭제", description = "YouTube 댓글을 삭제합니다. (할당량: 50 units)")
     public ResponseEntity<Map<String, Object>> deleteComment(
-            @PathVariable String youtubeCommentId) {
+            @PathVariable String youtubeCommentId,
+            @RequestParam(required = false) Integer requestUserId) {
         Integer userId = authUtil.getCurrentUserId();
+        if (userId == null) {
+            userId = requestUserId;
+        }
         if (userId == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
@@ -93,12 +96,15 @@ public class YoutubeCommentController {
      *                "UgxDEF..."] }
      * @return 삭제 결과 (성공/실패 개수)
      */
-    @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/batch")
     @Operation(summary = "일괄 댓글 삭제", description = "여러 댓글을 한 번에 삭제합니다. (할당량: 댓글당 50 units)")
     public ResponseEntity<Map<String, Object>> deleteCommentsBatch(
-            @RequestBody Map<String, List<String>> request) {
+            @RequestBody Map<String, List<String>> request,
+            @RequestParam(required = false) Integer requestUserId) {
         Integer userId = authUtil.getCurrentUserId();
+        if (userId == null) {
+            userId = requestUserId;
+        }
         if (userId == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
@@ -139,12 +145,15 @@ public class YoutubeCommentController {
      * @param videoId 비디오 ID (내부 ID)
      * @return 삭제 결과 (성공/실패 개수)
      */
-    @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/video/{videoId}/filtered")
     @Operation(summary = "비디오 필터링 댓글 전체 삭제", description = "특정 비디오의 필터링된 댓글을 모두 삭제합니다. (할당량: 댓글당 50 units)")
     public ResponseEntity<Map<String, Object>> deleteFilteredCommentsByVideo(
-            @PathVariable Integer videoId) {
+            @PathVariable Integer videoId,
+            @RequestParam(required = false) Integer requestUserId) {
         Integer userId = authUtil.getCurrentUserId();
+        if (userId == null) {
+            userId = requestUserId;
+        }
         if (userId == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
@@ -178,12 +187,15 @@ public class YoutubeCommentController {
      * @param channelId 채널 ID (내부 ID)
      * @return 삭제 결과 (성공/실패 개수)
      */
-    @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/channel/{channelId}/filtered")
     @Operation(summary = "채널 필터링 댓글 전체 삭제", description = "특정 채널의 필터링된 댓글을 모두 삭제합니다. (할당량: 댓글당 50 units)")
     public ResponseEntity<Map<String, Object>> deleteFilteredCommentsByChannel(
-            @PathVariable Integer channelId) {
+            @PathVariable Integer channelId,
+            @RequestParam(required = false) Integer requestUserId) {
         Integer userId = authUtil.getCurrentUserId();
+        if (userId == null) {
+            userId = requestUserId;
+        }
         if (userId == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
@@ -217,12 +229,15 @@ public class YoutubeCommentController {
      * @param videoId 비디오 ID (내부 ID)
      * @return 삭제 요청 ID 및 총 댓글 수
      */
-    @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/video/{videoId}/filtered/async")
     @Operation(summary = "비동기 비디오 필터링 댓글 전체 삭제", description = "특정 비디오의 필터링된 댓글을 비동기로 삭제합니다. 즉시 requestId를 반환하며, 진행 상황은 별도 API로 조회합니다.")
     public ResponseEntity<Map<String, Object>> requestAsyncDeletionByVideo(
-            @PathVariable Integer videoId) {
+            @PathVariable Integer videoId,
+            @RequestParam(required = false) Integer requestUserId) {
         Integer userId = authUtil.getCurrentUserId();
+        if (userId == null) {
+            userId = requestUserId;
+        }
         if (userId == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
@@ -250,12 +265,15 @@ public class YoutubeCommentController {
      * @param channelId 채널 ID (내부 ID)
      * @return 삭제 요청 ID 및 총 댓글 수
      */
-    @PreAuthorize("isAuthenticated()")
     @DeleteMapping("/channel/{channelId}/filtered/async")
     @Operation(summary = "비동기 채널 필터링 댓글 전체 삭제", description = "특정 채널의 필터링된 댓글을 비동기로 삭제합니다. 즉시 requestId를 반환하며, 진행 상황은 별도 API로 조회합니다.")
     public ResponseEntity<Map<String, Object>> requestAsyncDeletionByChannel(
-            @PathVariable Integer channelId) {
+            @PathVariable Integer channelId,
+            @RequestParam(required = false) Integer requestUserId) {
         Integer userId = authUtil.getCurrentUserId();
+        if (userId == null) {
+            userId = requestUserId;
+        }
         if (userId == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }

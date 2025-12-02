@@ -203,6 +203,8 @@ public class SecurityConfig {
                                                                                                                    // 분석
                                                                                                                    // 결과
                                                                                                                    // 저장
+                                                .requestMatchers("/api/youtube/comments/**").permitAll() // FastAPI 호출
+                                                                                                         // 허용
                                                 .requestMatchers("/api/youtube/connect").authenticated()
                                                 .requestMatchers("/api/youtube/oauth/callback").permitAll()
                                                 .requestMatchers("/api/youtube/token/status").authenticated()
