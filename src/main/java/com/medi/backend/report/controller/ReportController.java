@@ -120,15 +120,23 @@ public class ReportController {
             // 프론트에서 전달받은 추가 데이터를 Map으로 변환
             Map<String, Object> requestData = request.getData() != null ? request.getData() : new HashMap<>();
 
+            // ✅ YouTube channel ID로 DB channel ID 조회
+            YoutubeChannelDto channel = youtubeChannelMapper.findByYoutubeChannelId(request.getChannelId());
+            Long dbChannelId = null;
+            if (channel != null) {
+                dbChannelId = Long.valueOf(channel.getId());
+            } else {
+                log.warn("⚠️ Report 요청: 채널을 찾을 수 없음 (DB ID 없음): channelId={}", request.getChannelId());
+                // 채널이 없어도 큐에는 추가 (dbChannelId = null)
+            }
+
             // 통합된 큐에 작업 추가 (type="report" 고정)
-            redisQueueService.enqueueReport(request.getChannelId(), userId, "report", requestData);
+            redisQueueService.enqueueReport(request.getChannelId(), userId, dbChannelId, "report", requestData);
 
             Map<String, Object> response = new HashMap<>();
             response.put("message", "Report task added to queue successfully");
             response.put("channelId", request.getChannelId());
             response.put("userId", userId);
-
-            log.info("✅ 보고서 생성 요청: userId={}, channelId={}", userId, request.getChannelId());
 
             return ResponseEntity.ok(response);
         } catch (Exception e) {
