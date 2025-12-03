@@ -1,50 +1,42 @@
-# Gradle
-.gradle/
-build/
-!build/libs/*.jar
+# 민감한 설정 파일
+application.yml
+application-*.yml
+!application-prod.yml
+
+# 환경 변수
+.env
+.env.*
+!.env.example
 
 # IDE
 .idea/
 .vscode/
 *.iml
-*.ipr
-*.iws
+
+# 빌드 결과물
+build/
+target/
+out/
+bin/
+*.class
+.gradle/
+
+# 문서 및 스크립트
+docs/
+README.md
+run.bat
+run.sh
+
+# 로그
+logs/
+*.log
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
-logs/
-
-# Git
+# Git 및 GitHub
 .git/
 .gitignore
-
-# Documentation
-*.md
-!README.md
-
-# Test
-src/test/
-
-# Environment
-.env
-.env.local
-.env.*.local
-
-# Temporary files
-*.tmp
-*.bak
-*.swp
-*~
-
-# Node modules (if any)
-node_modules/
-
-# Docker
-Dockerfile
-.dockerignore
-docker-compose.yml
-
+.gitattributes
+.github/
