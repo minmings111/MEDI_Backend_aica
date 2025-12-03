@@ -17,7 +17,8 @@ import java.util.Map;
  * DB 1: Task Queue
  * - profiling_agent:tasks:queue (Profiling 작업)
  * - filtering_agent:tasks:queue (Filtering 작업)
- * - report_agent:tasks:queue (보고서 작업 통합: legal_report, content_report, threat_analysis)
+ * - report_agent:tasks:queue (보고서 작업 통합: legal_report, content_report,
+ * threat_analysis)
  * - threat_analysis_agent:tasks:queue (채널 위협 분석 보고서 작업)
  * 
  * DB 0: Form 데이터 저장
@@ -32,18 +33,17 @@ public class RedisQueueService {
     private final FilterPreferenceService filterPreferenceService;
     private static final String PROFILING_QUEUE_KEY = "profiling_agent:tasks:queue";
     private static final String FILTERING_QUEUE_KEY = "filtering_agent:tasks:queue";
-    private static final String REPORT_QUEUE_KEY = "report_agent:tasks:queue";  // 통합된 보고서 큐
-    private static final String THREAT_ANALYSIS_QUEUE_KEY = "threat_analysis_agent:tasks:queue";  // 위협 분석 큐
-    
+    private static final String REPORT_QUEUE_KEY = "report_agent:tasks:queue"; // 통합된 보고서 큐
+    private static final String THREAT_ANALYSIS_QUEUE_KEY = "threat_analysis_agent:tasks:queue"; // 위협 분석 큐
+
     // Redis 저장용 템플릿 (DB 0, 기본 Redis)
     private final StringRedisTemplate stringRedisTemplate;
 
     public RedisQueueService(
-        @Qualifier("redisQueueTemplate") StringRedisTemplate redisQueueTemplate,
-        StringRedisTemplate stringRedisTemplate,
-        ObjectMapper objectMapper,
-        FilterPreferenceService filterPreferenceService
-    ) {
+            @Qualifier("redisQueueTemplate") StringRedisTemplate redisQueueTemplate,
+            StringRedisTemplate stringRedisTemplate,
+            ObjectMapper objectMapper,
+            FilterPreferenceService filterPreferenceService) {
         this.redisQueueTemplate = redisQueueTemplate;
         this.stringRedisTemplate = stringRedisTemplate;
         this.objectMapper = objectMapper;
@@ -57,18 +57,18 @@ public class RedisQueueService {
         try {
             Map<String, Object> task = new HashMap<>();
             task.put("channelId", channelId);
-            task.put("type", "profiling");  // ⭐ 명시적으로 "profiling"
-            
+            task.put("type", "profiling"); // ⭐ 명시적으로 "profiling"
+
             if (videoIds != null && !videoIds.isEmpty()) {
                 task.put("videoIds", videoIds);
             }
             String taskJson = objectMapper.writeValueAsString(task);
-            
+
             // ⭐ DB 1의 PROFILING Queue에 추가
             redisQueueTemplate.opsForList().leftPush(PROFILING_QUEUE_KEY, taskJson);
-            
-            log.info("✅ Profiling task 추가 (DB 1): channelId={}, queue={}, type=profiling", 
-                channelId, PROFILING_QUEUE_KEY);
+
+            log.info("✅ Profiling task 추가 (DB 1): channelId={}, queue={}, type=profiling",
+                    channelId, PROFILING_QUEUE_KEY);
         } catch (Exception e) {
             log.error("❌ Profiling task 추가 실패: channelId={}", channelId, e);
             throw new RuntimeException("Failed to enqueue profiling task", e);
@@ -85,22 +85,22 @@ public class RedisQueueService {
         try {
             Map<String, Object> task = new HashMap<>();
             task.put("channelId", channelId);
-            task.put("type", "filtering");  // ⭐ 명시적으로 "filtering"
+            task.put("type", "filtering"); // ⭐ 명시적으로 "filtering"
             task.put("videoIds", videoIds);
-            
+
             // ✅ 프롬프트는 큐에 포함하지 않음
-            //    에이전트가 작업 처리 시 Redis(DB 0)에서 직접 읽음
-            //    Redis 키: channel:{channelId}:form
-            //    - 입력 폼 저장 시 Redis에 저장됨 (TTL 없음 - 영구 저장)
-            //    - 에이전트가 없으면 기본 프롬프트 사용
-            
+            // 에이전트가 작업 처리 시 Redis(DB 0)에서 직접 읽음
+            // Redis 키: channel:{channelId}:form
+            // - 입력 폼 저장 시 Redis에 저장됨 (TTL 없음 - 영구 저장)
+            // - 에이전트가 없으면 기본 프롬프트 사용
+
             String taskJson = objectMapper.writeValueAsString(task);
-            
+
             // ⭐ DB 1의 FILTERING Queue에 추가
             redisQueueTemplate.opsForList().leftPush(FILTERING_QUEUE_KEY, taskJson);
-            
-            log.info("✅ Filtering task 추가 (DB 1): channelId={}, queue={}, type=filtering, videoCount={}", 
-                channelId, FILTERING_QUEUE_KEY, videoIds.size());
+
+            log.info("✅ Filtering task 추가 (DB 1): channelId={}, queue={}, type=filtering, videoCount={}",
+                    channelId, FILTERING_QUEUE_KEY, videoIds.size());
             log.debug("💡 에이전트는 Redis(DB 0)에서 channel:{}:form 키로 프롬프트를 읽어야 합니다.", channelId);
         } catch (Exception e) {
             log.error("❌ Filtering task 추가 실패: channelId={}", channelId, e);
@@ -115,20 +115,22 @@ public class RedisQueueService {
      * - DB 작업 없이 큐에만 추가
      * - channelId와 userId를 포함하여 사용자 식별 가능
      */
-    public void enqueueReport(String channelId, Integer userId, String reportType, Map<String, Object> requestData) {
+    public void enqueueReport(String channelId, Integer userId, Long dbChannelId, String reportType,
+            Map<String, Object> requestData) {
         try {
             Map<String, Object> task = new HashMap<>();
             task.put("channelId", channelId);
             task.put("userId", userId);
-            task.put("type", reportType);  // "legal_report" 또는 "content_report"
-            
+            task.put("dbChannelId", dbChannelId); // ✅ DB Channel ID 추가
+            task.put("type", reportType); // "legal_report" 또는 "content_report"
+
             String taskJson = objectMapper.writeValueAsString(task);
-            
+
             // ⭐ DB 1의 통합 REPORT Queue에 추가
             redisQueueTemplate.opsForList().leftPush(REPORT_QUEUE_KEY, taskJson);
-            
-            log.info("✅ Report task 추가 (DB 1): channelId={}, userId={}, queue={}, type={}", 
-                channelId, userId, REPORT_QUEUE_KEY, reportType);
+
+            log.info("✅ Report task 추가 (DB 1): channelId={}, dbChannelId={}, userId={}, queue={}, type={}",
+                    channelId, dbChannelId, userId, REPORT_QUEUE_KEY, reportType);
         } catch (Exception e) {
             log.error("❌ Report task 추가 실패: channelId={}, userId={}, type={}", channelId, userId, reportType, e);
             throw new RuntimeException("Failed to enqueue report task", e);
@@ -137,20 +139,22 @@ public class RedisQueueService {
 
     /**
      * 합법 보고서 (Legal Report) 작업 추가 (하위 호환성 유지)
+     * 
      * @deprecated enqueueReport() 사용 권장
      */
     @Deprecated
     public void enqueueLegalReport(String channelId, Integer userId, Map<String, Object> requestData) {
-        enqueueReport(channelId, userId, "legal_report", requestData);
+        enqueueReport(channelId, userId, null, "legal_report", requestData);
     }
 
     /**
      * 콘텐츠 보고서 (Content Report) 작업 추가 (하위 호환성 유지)
+     * 
      * @deprecated enqueueReport() 사용 권장
      */
     @Deprecated
     public void enqueueContentReport(String channelId, Integer userId, Map<String, Object> requestData) {
-        enqueueReport(channelId, userId, "content_report", requestData);
+        enqueueReport(channelId, userId, null, "content_report", requestData);
     }
 
     /**
@@ -164,14 +168,14 @@ public class RedisQueueService {
             task.put("channelId", channelId);
             task.put("userId", userId);
             task.put("type", "threat_analysis");
-            
+
             String taskJson = objectMapper.writeValueAsString(task);
-            
+
             // ⭐ DB 1의 THREAT ANALYSIS Queue에 추가
             redisQueueTemplate.opsForList().leftPush(THREAT_ANALYSIS_QUEUE_KEY, taskJson);
-            
-            log.info("✅ Threat Analysis task 추가 (DB 1): channelId={}, userId={}, queue={}, type=threat_analysis", 
-                channelId, userId, THREAT_ANALYSIS_QUEUE_KEY);
+
+            log.info("✅ Threat Analysis task 추가 (DB 1): channelId={}, userId={}, queue={}, type=threat_analysis",
+                    channelId, userId, THREAT_ANALYSIS_QUEUE_KEY);
         } catch (Exception e) {
             log.error("❌ Threat Analysis task 추가 실패: channelId={}, userId={}", channelId, userId, e);
             throw new RuntimeException("Failed to enqueue threat analysis task", e);
@@ -183,26 +187,26 @@ public class RedisQueueService {
      */
     public Map<String, Long> getQueueStats() {
         Map<String, Long> stats = new HashMap<>();
-        
+
         Long profilingLength = redisQueueTemplate.opsForList().size(PROFILING_QUEUE_KEY);
         Long filteringLength = redisQueueTemplate.opsForList().size(FILTERING_QUEUE_KEY);
         Long reportLength = redisQueueTemplate.opsForList().size(REPORT_QUEUE_KEY);
         Long threatAnalysisLength = redisQueueTemplate.opsForList().size(THREAT_ANALYSIS_QUEUE_KEY);
-        
+
         stats.put("profiling_queue_length", profilingLength != null ? profilingLength : 0L);
         stats.put("filtering_queue_length", filteringLength != null ? filteringLength : 0L);
         stats.put("report_queue_length", reportLength != null ? reportLength : 0L);
         stats.put("threat_analysis_queue_length", threatAnalysisLength != null ? threatAnalysisLength : 0L);
-        
-        log.debug("Queue 통계: Profiling={}, Filtering={}, Report={}, ThreatAnalysis={}", 
-            stats.get("profiling_queue_length"), 
-            stats.get("filtering_queue_length"),
-            stats.get("report_queue_length"),
-            stats.get("threat_analysis_queue_length"));
-        
+
+        log.debug("Queue 통계: Profiling={}, Filtering={}, Report={}, ThreatAnalysis={}",
+                stats.get("profiling_queue_length"),
+                stats.get("filtering_queue_length"),
+                stats.get("report_queue_length"),
+                stats.get("threat_analysis_queue_length"));
+
         return stats;
     }
-    
+
     /**
      * Queue 비우기 (디버깅용)
      */
@@ -232,4 +236,3 @@ public class RedisQueueService {
         }
     }
 }
-
