@@ -20,7 +20,7 @@ spring:
   mail:
     host: smtp.gmail.com
     port: 587
-    username: medi.gwangju.ai@gmail.com
+    username: ${MAIL_USERNAME}
     password: ${MAIL_PASSWORD}
     properties:
       mail:
@@ -33,14 +33,6 @@ spring:
           timeout: 5000
           writetimeout: 5000
 
-  jpa:
-    hibernate:
-      ddl-auto: validate
-    show-sql: false
-    properties:
-      hibernate:
-        format_sql: false
-  
   data:
     redis:
       host: ${REDIS_HOST}
@@ -128,11 +120,9 @@ logging:
 # YouTube API & Sync 설정
 youtube:
   data-api:
-    # API 키 리스트는 환경변수에서 콤마로 구분된 문자열로 받아서 처리하거나, 
-    # 단일 키만 환경변수로 받고 나머지는 코드에서 처리하도록 수정 필요.
-    # 여기서는 단일 키 환경변수 사용 예시 (여러 개라면 YOUTUBE_API_KEYS로 받아서 파싱하는 로직 필요)
-    api-keys: 
-      - ${YOUTUBE_API_KEY}
+    # 콤마로 구분된 여러 개의 API 키를 받아서 리스트로 변환
+    # .env 파일: YOUTUBE_API_KEYS=Key1,Key2,Key3,Key4
+    api-keys: ${YOUTUBE_API_KEYS}
     enable-fallback: false
   sync:
     max-videos-per-hour: 50
