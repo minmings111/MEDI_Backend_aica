@@ -61,6 +61,13 @@ tasks.named('test') {
 	useJUnitPlatform()
 }
 
+// ⚠️ Docker 빌드 시 plain.jar 생성 방지
+// Spring Boot 2.5+ 부터 plain.jar와 실행 가능한 jar가 모두 생성됨
+// Docker에서 *.jar 복사 시 충돌 방지를 위해 plain.jar 생성 비활성화
+tasks.named('jar') {
+	enabled = false
+}
+
 // install the yt-dlp
 task ensureYtDlp {
 	doLast {
