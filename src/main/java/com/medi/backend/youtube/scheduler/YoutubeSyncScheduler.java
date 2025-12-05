@@ -43,7 +43,7 @@ public class YoutubeSyncScheduler {
     private static final int MAX_CONCURRENT_CHANNELS = 3;
     private final Semaphore channelSemaphore = new Semaphore(MAX_CONCURRENT_CHANNELS);
 
-    @Scheduled(cron = "0 0 * * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 0 */3 * *", zone = "Asia/Seoul")
     public void syncAllChannelsDaily() {
         Runtime runtime = Runtime.getRuntime();
         long freeMemory = runtime.freeMemory();
