@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.medi.backend.youtube.mapper.DashboardTimePatternMapper">
+    
+    <!-- ResultMap with JsonTypeHandler for time_distribution -->
+    <resultMap id="DashboardTimePatternResultMap" type="com.medi.backend.youtube.dto.DashboardTimePatternDto">
+        <id property="id" column="id"/>
+        <result property="channelId" column="channel_id"/>
+        <result property="timeDistribution" column="time_distribution" 
+                typeHandler="com.medi.backend.global.config.JsonTypeHandler"/>
+        <result property="redZoneTimeSlot" column="red_zone_time_slot"/>
+        <result property="redZoneCount" column="red_zone_count"/>
+        <result property="redZonePercentage" column="red_zone_percentage"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <!-- SELECT: 채널별 대시보드 시간대별 악플 통계 조회 -->
+    <select id="findByChannelId" resultMap="DashboardTimePatternResultMap">
+        SELECT 
+            id,
+            channel_id,
+            time_distribution,
+            red_zone_time_slot,
+            red_zone_count,
+            red_zone_percentage,
+            created_at,
+            updated_at
+        FROM dashboard_time_pattern_stats
+        WHERE channel_id = #{channelId}
+        LIMIT 1
+    </select>
+
+</mapper>
+
