@@ -84,7 +84,7 @@ mybatis:
     default-fetch-size: 100
     default-executor-type: REUSE
 
-# Actuator settings
+# Actuator settings (Docker healthcheck 호환)
 management:
   endpoints:
     web:
@@ -92,8 +92,9 @@ management:
         include: health
   endpoint:
     health:
-      show-details: when-authorized
-      roles: ADMIN
+      show-details: always  # Docker healthcheck를 위해 항상 공개
+  security:
+    enabled: false  # healthcheck 인증 비활성화
 
 # 이메일 인증 설정
 email:
