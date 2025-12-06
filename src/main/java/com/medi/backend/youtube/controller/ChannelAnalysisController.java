@@ -6,6 +6,7 @@ import com.medi.backend.youtube.dto.ChannelAnalysisResponseDto;
 import com.medi.backend.youtube.dto.YoutubeChannelDto;
 import com.medi.backend.youtube.mapper.YoutubeChannelMapper;
 import com.medi.backend.youtube.service.ChannelThreatAnalysisService;
+import com.medi.backend.youtube.service.DashboardTimePatternService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -23,6 +24,7 @@ import java.util.Map;
 public class ChannelAnalysisController {
 
     private final ChannelThreatAnalysisService analysisService;
+    private final DashboardTimePatternService dashboardTimePatternService;
     private final AuthUtil authUtil;
     private final YoutubeChannelMapper channelMapper;
 
@@ -233,6 +235,47 @@ public class ChannelAnalysisController {
 
         } catch (RuntimeException e) {
             log.error("❌ [히스토리 조회 실패] channelId={}, error={}", channelId, e.getMessage());
+
+            if (e.getMessage().contains("권한이 없습니다")) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            } else if (e.getMessage().contains("찾을 수 없습니다")) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            }
+
+            throw e;
+        }
+    }
+
+    /**
+     * 프론트엔드 API 5: 대시보드 시간대별 악플 통계 조회
+     * 
+     * 용도: OverviewTab의 "악플 집중 시간대" 그래프 데이터
+     */
+    @PreAuthorize("isAuthenticated()")
+    @GetMapping("/{channelId}/dashboard/time-patterns")
+    public ResponseEntity<Map<String, Object>> getTimePatterns(
+            @PathVariable Integer channelId) {
+        try {
+            // 1. 사용자 인증
+            Integer userId = authUtil.getCurrentUserId();
+            if (userId == null) {
+                log.warn("🚫 [인증 실패] 로그인이 필요합니다.");
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            }
+
+            log.info("📡 [시간대별 악플 통계 조회 요청] channelId={}, userId={}", channelId, userId);
+
+            // 2. 채널 소유권 검증
+            validateChannelOwnership(channelId, userId);
+
+            // 3. 서비스 호출
+            Map<String, Object> response = dashboardTimePatternService.getTimePatterns(channelId);
+
+            log.info("✅ [시간대별 악플 통계 조회 성공] channelId={}", channelId);
+            return ResponseEntity.ok(response);
+
+        } catch (RuntimeException e) {
+            log.error("❌ [시간대별 악플 통계 조회 실패] channelId={}, error={}", channelId, e.getMessage());
 
             if (e.getMessage().contains("권한이 없습니다")) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
