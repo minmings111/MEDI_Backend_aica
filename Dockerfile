@@ -29,6 +29,7 @@ RUN apt-get update && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/build/libs/*.jar app.jar
+COPY src/main/resources/서빈감각_final_filtered.json /app/data/서빈감각_final_filtered.json
 
 EXPOSE 8080
 

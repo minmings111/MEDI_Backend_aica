@@ -19,7 +19,7 @@ public class RedisDataUploader {
     private static final int REDIS_DB = 2;
     
     // JSON 파일 경로 (본인 경로에 맞게 수정)
-    private static final String JSON_FILE_PATH = "src\\main\\resources\\서빈감각_final_filtered.json";
+    private static final String JSON_FILE_PATH = "/app/data/서빈감각_final_filtered.json";
 
     public static void main(String[] args) {
         try (JedisPool jedisPool = new JedisPool(REDIS_HOST, REDIS_PORT)) {
