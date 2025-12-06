@@ -16,22 +16,18 @@ spring:
       max-lifetime: 1800000
       leak-detection-threshold: 60000
   
-  # 이메일 설정 (Gmail) - 비밀번호는 환경변수로 분리
   mail:
     host: smtp.gmail.com
     port: 587
     username: ${MAIL_USERNAME}
     password: ${MAIL_PASSWORD}
     properties:
-      mail:
-        smtp:
-          auth: true
-          starttls:
-            enable: true
-            required: true
-          connectiontimeout: 5000
-          timeout: 5000
-          writetimeout: 5000
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      mail.smtp.starttls.required: true
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
 
   data:
     redis:
@@ -52,7 +48,6 @@ spring:
           google:
             client-id: ${GOOGLE_CLIENT_ID}
             client-secret: ${GOOGLE_CLIENT_SECRET}
-            # 프로덕션 환경의 Redirect URI (Nginx를 통해 들어오므로 https 사용)
             redirect-uri: ${BASE_URL}/login/oauth2/code/google
             scope:
               - openid
@@ -61,20 +56,19 @@ spring:
             authorization-grant-type: authorization_code
             client-name: Google
 
-# 서버 설정
 server:
   port: 8080
+  forward-headers-strategy: native  # ⭐⭐⭐ 핵심! 반드시 필요!
   servlet:
     session:
       timeout: 24h
       cookie:
         name: MEDI_SESSION
         http-only: true
-        secure: false # SSL 적용 전까지는 false, 적용 후 true로 변경 권장
+        secure: true        # ⭐ HTTPS 환경이므로 true
         same-site: lax
         max-age: 86400
 
-# MyBatis 설정
 mybatis:
   mapper-locations: classpath:mapper/**/*.xml
   type-aliases-package: com.medi.backend
@@ -84,7 +78,6 @@ mybatis:
     default-fetch-size: 100
     default-executor-type: REUSE
 
-# Actuator settings (Docker healthcheck 호환)
 management:
   endpoints:
     web:
@@ -92,21 +85,16 @@ management:
         include: health
   endpoint:
     health:
-      show-details: always  # Docker healthcheck를 위해 항상 공개
-  security:
-    enabled: false  # healthcheck 인증 비활성화
+      show-details: always
 
-# 이메일 인증 설정
 email:
   verification:
     code-length: 6
     expiration-minutes: 5
 
-# CORS 설정
 cors:
-  allowed-origins: ${NEXTAUTH_URL},http://localhost:3000
-  
-# 로깅 레벨 (프로덕션은 INFO 권장, 필요시 DEBUG)
+  allowed-origins: ${NEXTAUTH_URL}
+
 logging:
   level:
     root: INFO
@@ -118,24 +106,16 @@ logging:
     max-size: 10MB
     max-history: 30
 
-# YouTube API & Sync 설정
 youtube:
   data-api:
-    # 콤마로 구분된 여러 개의 API 키를 받아서 리스트로 변환
-    # .env 파일: YOUTUBE_API_KEYS=Key1,Key2,Key3,Key4
     api-keys: ${YOUTUBE_API_KEYS}
     enable-fallback: false
   sync:
     max-videos-per-hour: 50
     max-videos-initial: 20
     enable-yt-dlp: true
-    yt-dlp-path: yt-dlp # Docker 컨테이너 내부는 Linux이므로 yt-dlp (확장자 없음)
+    yt-dlp-path: yt-dlp
     enable-parallel-transcript: true
 
-# OpenAI API
-openai:
-  api-key: ${OPENAI_API_KEY}
-
-# 챗봇 설정 (Docker 내부 통신용 주소)
 chatbot:
   api-url: http://ai:8000

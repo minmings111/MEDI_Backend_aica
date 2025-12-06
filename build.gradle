@@ -43,39 +43,40 @@ dependencies {
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	implementation 'org.springframework.boot:spring-boot-starter-mail'
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
-	// OAuth2 Client 의존성
 	implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
-
-	// Redis
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 	
-	// YouTube API 및 Google 클라이언트 의존성
+	// YouTube API
 	implementation 'com.google.apis:google-api-services-youtube:v3-rev20220926-2.0.0'
 	implementation 'com.google.api-client:google-api-client:2.2.0'
 	implementation 'com.google.oauth-client:google-oauth-client-jetty:1.34.1'
 	implementation 'com.google.http-client:google-http-client-jackson2:1.43.3'
 	
-	// build.gradle (redis_data_insert)
-
+	// Redis - Jedis
 	implementation 'redis.clients:jedis:5.1.2'
-	implementation 'com.fasterxml.jackson.core:jackson-databind:2.16.0'
+	
+	// ❌ 삭제: Spring Boot가 관리하는 Jackson 버전 사용
+	// implementation 'com.fasterxml.jackson.core:jackson-databind:2.16.0'
 }
 
 tasks.named('test') {
 	useJUnitPlatform()
 }
 
-// ⚠️ Docker 빌드 시 plain.jar 생성 방지
-// Spring Boot 2.5+ 부터 plain.jar와 실행 가능한 jar가 모두 생성됨
-// Docker에서 *.jar 복사 시 충돌 방지를 위해 plain.jar 생성 비활성화
 tasks.named('jar') {
 	enabled = false
 }
 
-// install the yt-dlp
+// ⭐ 추가: RedisDataUploader 실행을 위한 manifest 설정
+bootJar {
+	layered()
+	manifest {
+		attributes 'Main-Class': 'org.springframework.boot.loader.launch.JarLauncher'
+	}
+}
+
 task ensureYtDlp {
 	doLast {
-		// 1. yt-dlp 설치 여부 확인
 		def stdout = new ByteArrayOutputStream()
 		def stderr = new ByteArrayOutputStream()
 		def versionResult = exec {
@@ -89,7 +90,6 @@ task ensureYtDlp {
 			def version = stdout.toString().trim()
 			println "✅ yt-dlp 확인됨: ${version}"
 			
-			// 구버전 체크 (2025.11.12 이상 권장)
 			try {
 				def versionParts = version.split('\\.')
 				if (versionParts.length >= 3) {
@@ -103,17 +103,15 @@ task ensureYtDlp {
 					}
 				}
 			} catch (NumberFormatException e) {
-				// 버전 파싱 실패 시 무시 (치명적이지 않음)
 				println "⚠️ 버전 파싱 실패: ${version}"
 			} catch (Exception e) {
-				// 기타 예외도 무시
+				// 기타 예외 무시
 			}
 			return
 		}
 		
 		println "⚠️ yt-dlp가 설치되어 있지 않습니다. 자동 설치를 시도합니다..."
 		
-		// 2. pip3 → pip → pip3 --user → pip --user 순차 시도
 		def installCommands = [
 			['pip3', 'install', '--upgrade', 'yt-dlp>=2025.11.12'],
 			['pip', 'install', '--upgrade', 'yt-dlp>=2025.11.12'],
@@ -152,19 +150,14 @@ task ensureYtDlp {
 			println "   1. pip3 install yt-dlp>=2025.11.12"
 			println "   2. pip install yt-dlp>=2025.11.12"
 			println "   3. https://github.com/yt-dlp/yt-dlp/releases 에서 다운로드"
-			// 실패해도 빌드 계속 진행 (경고만)
 		}
 	}
 }
 
 compileJava.dependsOn ensureYtDlp
-bootRun.dependsOn ensureYtDlp      
-
-
-// build.gradle (redis_data_insert)
-
+bootRun.dependsOn ensureYtDlp
 
 task runUploader(type: JavaExec) {
-    classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'com.medi.backend.RedisDataUploader'
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'com.medi.backend.RedisDataUploader'
 }
