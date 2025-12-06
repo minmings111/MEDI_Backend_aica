@@ -168,22 +168,18 @@
             ych.id AS channelId,
             ych.youtube_channel_id AS youtubeChannelId,
             ych.channel_name AS channelName,
-            acar.status AS status,
-            acar.reason AS reason,
-            acar.analyzed_at AS analyzedAt,
-            acar.harmfulness_level AS harmfulnessLevel,
-            acar.detection_source AS detectionSource
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+            NULL AS status,
+            NULL AS reason,
+            NULL AS analyzedAt,
+            NULL AS harmfulnessLevel,
+            NULL AS detectionSource
+        FROM youtube_comments yc
         INNER JOIN youtube_videos yv ON yc.video_id = yv.id
         INNER JOIN youtube_channels ych ON yv.channel_id = ych.id
         WHERE yv.id = #{videoId}
             AND ych.user_id = #{userId}
             AND ych.deleted_at IS NULL
-            AND yc.deletion_status = 'ACTIVE'
-            <if test="status != null and status != ''">
-                AND acar.status = #{status}
-            </if>
+            AND (yc.deletion_status = 'ACTIVE' OR yc.deletion_status IS NULL)
         ORDER BY yc.published_at DESC
         LIMIT 200
     </select>
