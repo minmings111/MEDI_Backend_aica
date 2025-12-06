@@ -54,9 +54,6 @@ dependencies {
 	
 	// Redis - Jedis
 	implementation 'redis.clients:jedis:5.1.2'
-	
-	// ❌ 삭제: Spring Boot가 관리하는 Jackson 버전 사용
-	// implementation 'com.fasterxml.jackson.core:jackson-databind:2.16.0'
 }
 
 tasks.named('test') {
@@ -67,11 +64,10 @@ tasks.named('jar') {
 	enabled = false
 }
 
-// ⭐ 추가: RedisDataUploader 실행을 위한 manifest 설정
+// ✅ 수정: layered() → layered { }
 bootJar {
-	layered()
-	manifest {
-		attributes 'Main-Class': 'org.springframework.boot.loader.launch.JarLauncher'
+	layered {
+		enabled = true
 	}
 }
 
