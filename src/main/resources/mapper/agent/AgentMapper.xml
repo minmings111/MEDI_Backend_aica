@@ -13,27 +13,35 @@
     </select>
 
     <insert id="insertFilteredComment">
-        INSERT INTO youtube_comments (
-            video_id,
-            youtube_comment_id,
-            comment_text,
-            commenter_name,
-            published_at,
-            like_count
-        ) VALUES (
-            #{videoId},
-            #{youtubeCommentId},
-            #{commentText},
-            #{commenterName},
-            STR_TO_DATE(#{publishedAt}, '%Y-%m-%dT%H:%i:%s.%fZ'),
-            #{likeCount}
-        )
-        ON DUPLICATE KEY UPDATE
-            comment_text = VALUES(comment_text),
-            commenter_name = VALUES(commenter_name),
-            published_at = VALUES(published_at),
-            like_count = VALUES(like_count)
-    </insert>
+    INSERT INTO youtube_comments (
+        video_id,
+        youtube_comment_id,
+        comment_text,
+        commenter_name,
+        published_at,
+        like_count
+    ) VALUES (
+        #{videoId},
+        #{youtubeCommentId},
+        #{commentText},
+        #{commenterName},
+        <choose>
+            <when test="publishedAt != null and publishedAt.contains('.')">
+                STR_TO_DATE(REPLACE(#{publishedAt}, 'Z', ''), '%Y-%m-%dT%H:%i:%s.%f')
+            </when>
+            <otherwise>
+                STR_TO_DATE(REPLACE(#{publishedAt}, 'Z', ''), '%Y-%m-%dT%H:%i:%s')
+            </otherwise>
+        </choose>,
+        #{likeCount}
+    )
+    ON DUPLICATE KEY UPDATE
+        comment_text = VALUES(comment_text),
+        commenter_name = VALUES(commenter_name),
+        published_at = VALUES(published_at),
+        like_count = VALUES(like_count)
+</insert>
+
 
     <select id="findCommentIdByYoutubeCommentId" resultType="java.lang.Integer">
         SELECT id 
@@ -273,41 +281,36 @@
         LIMIT 1000
     </select>
 
-    <!-- 날짜별 필터링된 댓글 통계 조회 -->
+    <!-- 날짜별 필터링된 댓글 통계 조회 (analyzed_at 기준) -->
     <select id="findFilteredCommentStatsByDate" resultType="com.medi.backend.agent.dto.DateStat">
         SELECT 
             <choose>
                 <when test="periodType == 'hourly'">
-                    CONCAT(
-                        DATE_FORMAT(yc.created_at, '%Y-%m-%d '),
-                        LPAD(FLOOR(HOUR(yc.created_at) / 6) * 6, 2, '0'),
-                        ':00'
-                    ) AS date
+                    DATE_FORMAT(COALESCE(acar.analyzed_at, acar.created_at), '%Y-%m-%d %H:00:00') AS date
                 </when>
                 <when test="periodType == 'daily'">
-                    DATE(yc.created_at) AS date
+                    DATE(COALESCE(acar.analyzed_at, acar.created_at)) AS date
                 </when>
                 <when test="periodType == 'monthly'">
-                    DATE_FORMAT(yc.created_at, '%Y-%m') AS date
+                    DATE_FORMAT(COALESCE(acar.analyzed_at, acar.created_at), '%Y-%m') AS date
                 </when>
                 <when test="periodType == 'yearly'">
-                    YEAR(yc.created_at) AS date
+                    YEAR(COALESCE(acar.analyzed_at, acar.created_at)) AS date
                 </when>
                 <otherwise>
-                    DATE(yc.created_at) AS date
+                    DATE(COALESCE(acar.analyzed_at, acar.created_at)) AS date
                 </otherwise>
             </choose>,
             COUNT(*) AS totalCount,
-            COUNT(*) AS filteredCount,
-            0 AS suggestionCount,
-            0 AS normalCount
-        FROM youtube_comments yc
+            SUM(CASE WHEN acar.status = 'filtered' THEN 1 ELSE 0 END) AS filteredCount,
+            SUM(CASE WHEN acar.status = 'content_suggestion' THEN 1 ELSE 0 END) AS suggestionCount,
+            SUM(CASE WHEN acar.status = 'normal' THEN 1 ELSE 0 END) AS normalCount
+        FROM ai_comment_analysis_result acar
+        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
         INNER JOIN youtube_videos yv ON yc.video_id = yv.id
         INNER JOIN youtube_channels ych ON yv.channel_id = ych.id
         WHERE ych.user_id = #{userId}
             AND ych.deleted_at IS NULL
-            AND yc.created_at IS NOT NULL
-            AND (yc.deletion_status = 'ACTIVE' OR yc.deletion_status IS NULL)
             <if test="videoId != null">
                 AND yv.id = #{videoId}
             </if>
@@ -317,43 +320,39 @@
             <if test="startDate != null and startDate != ''">
                 <choose>
                     <when test="periodType == 'hourly'">
-                        AND yc.created_at &gt;= STR_TO_DATE(#{startDate}, '%Y-%m-%dT%H:%i')
+                        AND COALESCE(acar.analyzed_at, acar.created_at) &gt;= STR_TO_DATE(#{startDate}, '%Y-%m-%dT%H:%i')
                     </when>
                     <otherwise>
-                        AND DATE(yc.created_at) &gt;= #{startDate}
+                        AND DATE(COALESCE(acar.analyzed_at, acar.created_at)) &gt;= #{startDate}
                     </otherwise>
                 </choose>
             </if>
             <if test="endDate != null and endDate != ''">
                 <choose>
                     <when test="periodType == 'hourly'">
-                        AND yc.created_at &lt;= STR_TO_DATE(#{endDate}, '%Y-%m-%dT%H:%i')
+                        AND COALESCE(acar.analyzed_at, acar.created_at) &lt;= STR_TO_DATE(#{endDate}, '%Y-%m-%dT%H:%i')
                     </when>
                     <otherwise>
-                        AND DATE(yc.created_at) &lt;= #{endDate}
+                        AND DATE(COALESCE(acar.analyzed_at, acar.created_at)) &lt;= #{endDate}
                     </otherwise>
                 </choose>
             </if>
         GROUP BY 
             <choose>
                 <when test="periodType == 'hourly'">
-                    CONCAT(
-                        DATE_FORMAT(yc.created_at, '%Y-%m-%d '),
-                        LPAD(FLOOR(HOUR(yc.created_at) / 6) * 6, 2, '0'),
-                        ':00'
-                    )
+                    DATE_FORMAT(COALESCE(acar.analyzed_at, acar.created_at), '%Y-%m-%d %H:00:00')
                 </when>
                 <when test="periodType == 'daily'">
-                    DATE(yc.created_at)
+                    DATE(COALESCE(acar.analyzed_at, acar.created_at))
                 </when>
                 <when test="periodType == 'monthly'">
-                    DATE_FORMAT(yc.created_at, '%Y-%m')
+                    DATE_FORMAT(COALESCE(acar.analyzed_at, acar.created_at), '%Y-%m')
                 </when>
                 <when test="periodType == 'yearly'">
-                    YEAR(yc.created_at)
+                    YEAR(COALESCE(acar.analyzed_at, acar.created_at))
                 </when>
                 <otherwise>
-                    DATE(yc.created_at)
+                    DATE(COALESCE(acar.analyzed_at, acar.created_at))
                 </otherwise>
             </choose>
         ORDER BY date DESC
@@ -557,4 +556,3 @@
     </select>
 
 </mapper>
-
