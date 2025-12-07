@@ -12,54 +12,46 @@
             (SELECT COUNT(*) FROM youtube_videos v
              INNER JOIN youtube_channels c ON v.channel_id = c.id
              WHERE c.user_id = #{userId}) AS totalVideoCount,
-            (SELECT COUNT(*) FROM ai_comment_analysis_result acar
-             INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+            (SELECT COUNT(*) FROM youtube_comments yc
              INNER JOIN youtube_videos v ON yc.video_id = v.id
              INNER JOIN youtube_channels c ON v.channel_id = c.id
-             WHERE c.user_id = #{userId} AND acar.status = 'filtered') AS totalFilteredCount,
-            (SELECT COUNT(*) FROM ai_comment_analysis_result acar
-             INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+             WHERE c.user_id = #{userId} AND yc.deletion_status = 'ACTIVE') AS totalFilteredCount,
+            (SELECT COUNT(*) FROM youtube_comments yc
              INNER JOIN youtube_videos v ON yc.video_id = v.id
              INNER JOIN youtube_channels c ON v.channel_id = c.id
-             WHERE c.user_id = #{userId} AND acar.status = 'filtered'
-             AND acar.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)) AS last7DaysFilteredCount,
-            (SELECT COUNT(*) FROM ai_comment_analysis_result acar
-             INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+             WHERE c.user_id = #{userId} AND yc.deletion_status = 'ACTIVE'
+             AND yc.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)) AS last7DaysFilteredCount,
+            (SELECT COUNT(*) FROM youtube_comments yc
              INNER JOIN youtube_videos v ON yc.video_id = v.id
              INNER JOIN youtube_channels c ON v.channel_id = c.id
-             WHERE c.user_id = #{userId} AND acar.status = 'filtered'
-             AND DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')) AS thisMonthFilteredCount,
-            (SELECT COUNT(*) FROM ai_comment_analysis_result acar
-             INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+             WHERE c.user_id = #{userId} AND yc.deletion_status = 'ACTIVE'
+             AND DATE_FORMAT(yc.created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')) AS thisMonthFilteredCount,
+            (SELECT COUNT(*) FROM youtube_comments yc
              INNER JOIN youtube_videos v ON yc.video_id = v.id
              INNER JOIN youtube_channels c ON v.channel_id = c.id
-             WHERE c.user_id = #{userId} AND acar.status = 'filtered'
-             AND DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) AS lastMonthFilteredCount,
+             WHERE c.user_id = #{userId} AND yc.deletion_status = 'ACTIVE'
+             AND DATE_FORMAT(yc.created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) AS lastMonthFilteredCount,
             CASE
-                WHEN (SELECT COUNT(*) FROM ai_comment_analysis_result acar
-                      INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+                WHEN (SELECT COUNT(*) FROM youtube_comments yc
                       INNER JOIN youtube_videos v ON yc.video_id = v.id
                       INNER JOIN youtube_channels c ON v.channel_id = c.id
-                      WHERE c.user_id = #{userId} AND acar.status = 'filtered'
-                      AND DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) > 0
-                THEN ROUND(((SELECT COUNT(*) FROM ai_comment_analysis_result acar
-                             INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+                      WHERE c.user_id = #{userId} AND yc.deletion_status = 'ACTIVE'
+                      AND DATE_FORMAT(yc.created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) > 0
+                THEN ROUND(((SELECT COUNT(*) FROM youtube_comments yc
                              INNER JOIN youtube_videos v ON yc.video_id = v.id
                              INNER JOIN youtube_channels c ON v.channel_id = c.id
-                             WHERE c.user_id = #{userId} AND acar.status = 'filtered'
-                             AND DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')) -
-                            (SELECT COUNT(*) FROM ai_comment_analysis_result acar
-                             INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+                             WHERE c.user_id = #{userId} AND yc.deletion_status = 'ACTIVE'
+                             AND DATE_FORMAT(yc.created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')) -
+                            (SELECT COUNT(*) FROM youtube_comments yc
                              INNER JOIN youtube_videos v ON yc.video_id = v.id
                              INNER JOIN youtube_channels c ON v.channel_id = c.id
-                             WHERE c.user_id = #{userId} AND acar.status = 'filtered'
-                             AND DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) * 100.0 /
-                            (SELECT COUNT(*) FROM ai_comment_analysis_result acar
-                             INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+                             WHERE c.user_id = #{userId} AND yc.deletion_status = 'ACTIVE'
+                             AND DATE_FORMAT(yc.created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')) * 100.0 /
+                            (SELECT COUNT(*) FROM youtube_comments yc
                              INNER JOIN youtube_videos v ON yc.video_id = v.id
                              INNER JOIN youtube_channels c ON v.channel_id = c.id
-                             WHERE c.user_id = #{userId} AND acar.status = 'filtered'
-                             AND DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')), 2)
+                             WHERE c.user_id = #{userId} AND yc.deletion_status = 'ACTIVE'
+                             AND DATE_FORMAT(yc.created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')), 2)
                 ELSE 0.0
             END AS monthOverMonthGrowthRate
     </select>
@@ -67,95 +59,67 @@
     <!-- UDB-02: 총 필터링 수 (사용자별) -->
     <select id="getTotalFilteringCountByUserId" resultType="java.lang.Integer">
         SELECT COUNT(*)
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+        FROM youtube_comments yc
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
+        WHERE c.user_id = #{userId} AND yc.deletion_status = 'ACTIVE'
     </select>
 
     <!-- UDB-03: 최근 7일 필터링 수 -->
     <select id="getLast7DaysFilteringCount" resultType="java.lang.Integer">
         SELECT COUNT(*)
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+        FROM youtube_comments yc
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
-        AND acar.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+        WHERE c.user_id = #{userId} AND yc.deletion_status = 'ACTIVE'
+        AND yc.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
     </select>
 
     <!-- UDB-04: 이번 달 필터링 수 -->
     <select id="getThisMonthFilteringCount" resultType="java.lang.Integer">
         SELECT COUNT(*)
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+        FROM youtube_comments yc
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
-        AND DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')
+        WHERE c.user_id = #{userId} AND yc.deletion_status = 'ACTIVE'
+        AND DATE_FORMAT(yc.created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m')
     </select>
 
     <!-- UDB-05: 지난 달 필터링 수 -->
     <select id="getLastMonthFilteringCount" resultType="java.lang.Integer">
         SELECT COUNT(*)
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+        FROM youtube_comments yc
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
-        AND DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')
+        WHERE c.user_id = #{userId} AND yc.deletion_status = 'ACTIVE'
+        AND DATE_FORMAT(yc.created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m')
     </select>
 
-    <!-- UDB-06: 해로움 수준별 분포 (사용자별) -->
+    <!-- UDB-06: 해로움 수준별 분포 (사용자별) - youtube_comments에 해로움 수준 정보가 없어 빈 결과 반환 -->
     <select id="getHarmfulnessLevelDistributionByUserId" 
             resultType="com.medi.backend.userdashboard.dto.UserHarmfulnessLevelDistributionDto">
         SELECT 
-            acar.harmfulness_level AS harmfulnessLevel,
-            COUNT(*) AS count
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
-        INNER JOIN youtube_videos v ON yc.video_id = v.id
-        INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
-        GROUP BY acar.harmfulness_level
-        ORDER BY 
-            CASE acar.harmfulness_level
-                WHEN 'HIGH' THEN 1
-                WHEN 'MEDIUM' THEN 2
-                WHEN 'LOW' THEN 3
-                ELSE 4
-            END
+            NULL AS harmfulnessLevel,
+            0 AS count
+        WHERE 1 = 0
     </select>
 
-    <!-- UDB-07: 탐지 소스별 분포 (사용자별) -->
+    <!-- UDB-07: 탐지 소스별 분포 (사용자별) - youtube_comments에 탐지 소스 정보가 없어 빈 결과 반환 -->
     <select id="getDetectionSourceDistributionByUserId" 
             resultType="com.medi.backend.userdashboard.dto.UserDetectionSourceDistributionDto">
         SELECT 
-            acar.detection_source AS detectionSource,
-            COUNT(*) AS count
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
-        INNER JOIN youtube_videos v ON yc.video_id = v.id
-        INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
-        GROUP BY acar.detection_source
-        ORDER BY count DESC
+            NULL AS detectionSource,
+            0 AS count
+        WHERE 1 = 0
     </select>
 
-    <!-- UDB-08: 카테고리별 분포 (사용자별) -->
+    <!-- UDB-08: 카테고리별 분포 (사용자별) - youtube_comments에 카테고리 정보가 없어 빈 결과 반환 -->
     <select id="getCategoryDistributionByUserId" 
             resultType="com.medi.backend.userdashboard.dto.CategoryDistributionForUserDto">
         SELECT 
-            COALESCE(acar.detected_category, 'UNKNOWN') AS category,
-            COUNT(*) AS count
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
-        INNER JOIN youtube_videos v ON yc.video_id = v.id
-        INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
-        GROUP BY acar.detected_category
-        ORDER BY count DESC
+            'UNKNOWN' AS category,
+            0 AS count
+        WHERE 1 = 0
     </select>
 
     <!-- UDB-09: 기간별 필터링 추이 -->
@@ -187,17 +151,17 @@
             c.channel_name AS channelName,
             COUNT(*) AS totalFilteredCount,
             SUM(CASE 
-                WHEN DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') 
+                WHEN DATE_FORMAT(yc.created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') 
                 THEN 1 
                 ELSE 0 
             END) AS thisMonthFilteredCount,
             SUM(CASE 
-                WHEN DATE(acar.created_at) = CURDATE() 
+                WHEN DATE(yc.created_at) = CURDATE() 
                 THEN 1 
                 ELSE 0 
             END) AS todayFilteredCount,
             SUM(CASE 
-                WHEN YEAR(acar.created_at) = YEAR(CURDATE()) 
+                WHEN YEAR(yc.created_at) = YEAR(CURDATE()) 
                 THEN 1 
                 ELSE 0 
             END) AS thisYearFilteredCount,
@@ -205,63 +169,44 @@
              FROM youtube_comments yc2
              INNER JOIN youtube_videos v2 ON yc2.video_id = v2.id
              INNER JOIN youtube_channels c2 ON v2.channel_id = c2.id
-             WHERE c2.user_id = #{userId} AND c2.id = #{channelId}) AS totalCommentCount,
+             WHERE c2.user_id = #{userId} AND c2.id = #{channelId} AND yc2.deletion_status = 'ACTIVE') AS totalCommentCount,
             CASE 
                 WHEN (SELECT COUNT(*) 
                       FROM youtube_comments yc3
                       INNER JOIN youtube_videos v3 ON yc3.video_id = v3.id
                       INNER JOIN youtube_channels c3 ON v3.channel_id = c3.id
-                      WHERE c3.user_id = #{userId} AND c3.id = #{channelId}) > 0
+                      WHERE c3.user_id = #{userId} AND c3.id = #{channelId} AND yc3.deletion_status = 'ACTIVE') > 0
                 THEN ROUND((COUNT(*) * 100.0 / 
                       (SELECT COUNT(*) 
                        FROM youtube_comments yc4
                        INNER JOIN youtube_videos v4 ON yc4.video_id = v4.id
                        INNER JOIN youtube_channels c4 ON v4.channel_id = c4.id
-                       WHERE c4.user_id = #{userId} AND c4.id = #{channelId})), 2)
+                       WHERE c4.user_id = #{userId} AND c4.id = #{channelId} AND yc4.deletion_status = 'ACTIVE')), 2)
                 ELSE 0.0
             END AS filteringPercentage
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+        FROM youtube_comments yc
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND c.id = #{channelId} AND acar.status = 'filtered'
+        WHERE c.user_id = #{userId} AND c.id = #{channelId} AND yc.deletion_status = 'ACTIVE'
         GROUP BY c.id, c.channel_name
     </select>
 
-    <!-- UDB-11: 채널별 해로움 수준 분포 -->
+    <!-- UDB-11: 채널별 해로움 수준 분포 - youtube_comments에 해로움 수준 정보가 없어 빈 결과 반환 -->
     <select id="getChannelHarmfulnessLevelDistribution" 
             resultType="com.medi.backend.userdashboard.dto.UserHarmfulnessLevelDistributionDto">
         SELECT 
-            acar.harmfulness_level AS harmfulnessLevel,
-            COUNT(*) AS count
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
-        INNER JOIN youtube_videos v ON yc.video_id = v.id
-        INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND c.id = #{channelId} AND acar.status = 'filtered'
-        GROUP BY acar.harmfulness_level
-        ORDER BY 
-            CASE acar.harmfulness_level
-                WHEN 'HIGH' THEN 1
-                WHEN 'MEDIUM' THEN 2
-                WHEN 'LOW' THEN 3
-                ELSE 4
-            END
+            NULL AS harmfulnessLevel,
+            0 AS count
+        WHERE 1 = 0
     </select>
 
-    <!-- UDB-12: 채널별 카테고리 분포 -->
+    <!-- UDB-12: 채널별 카테고리 분포 - youtube_comments에 카테고리 정보가 없어 빈 결과 반환 -->
     <select id="getChannelCategoryDistribution" 
             resultType="com.medi.backend.userdashboard.dto.CategoryDistributionForUserDto">
         SELECT 
-            COALESCE(acar.detected_category, 'UNKNOWN') AS category,
-            COUNT(*) AS count
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
-        INNER JOIN youtube_videos v ON yc.video_id = v.id
-        INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND c.id = #{channelId} AND acar.status = 'filtered'
-        GROUP BY acar.detected_category
-        ORDER BY count DESC
+            'UNKNOWN' AS category,
+            0 AS count
+        WHERE 1 = 0
     </select>
 
     <!-- UDB-13: 비디오별 필터링 통계 -->
@@ -272,75 +217,56 @@
             v.title AS videoTitle,
             COUNT(*) AS totalFilteredCount,
             SUM(CASE 
-                WHEN DATE_FORMAT(acar.created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') 
+                WHEN DATE_FORMAT(yc.created_at, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') 
                 THEN 1 
                 ELSE 0 
             END) AS thisMonthFilteredCount,
             SUM(CASE 
-                WHEN DATE(acar.created_at) = CURDATE() 
+                WHEN DATE(yc.created_at) = CURDATE() 
                 THEN 1 
                 ELSE 0 
             END) AS todayFilteredCount,
             SUM(CASE 
-                WHEN YEAR(acar.created_at) = YEAR(CURDATE()) 
+                WHEN YEAR(yc.created_at) = YEAR(CURDATE()) 
                 THEN 1 
                 ELSE 0 
             END) AS thisYearFilteredCount,
             (SELECT COUNT(*) 
              FROM youtube_comments yc2
-             WHERE yc2.video_id = #{videoId}) AS totalCommentCount,
+             WHERE yc2.video_id = #{videoId} AND yc2.deletion_status = 'ACTIVE') AS totalCommentCount,
             CASE 
                 WHEN (SELECT COUNT(*) 
                       FROM youtube_comments yc3
-                      WHERE yc3.video_id = #{videoId}) > 0
+                      WHERE yc3.video_id = #{videoId} AND yc3.deletion_status = 'ACTIVE') > 0
                 THEN ROUND((COUNT(*) * 100.0 / 
                       (SELECT COUNT(*) 
                        FROM youtube_comments yc4
-                       WHERE yc4.video_id = #{videoId})), 2)
+                       WHERE yc4.video_id = #{videoId} AND yc4.deletion_status = 'ACTIVE')), 2)
                 ELSE 0.0
             END AS filteringPercentage
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+        FROM youtube_comments yc
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND v.id = #{videoId} AND acar.status = 'filtered'
+        WHERE c.user_id = #{userId} AND v.id = #{videoId} AND yc.deletion_status = 'ACTIVE'
         GROUP BY v.id, v.title
     </select>
 
-    <!-- UDB-14: 비디오별 해로움 수준 분포 -->
+    <!-- UDB-14: 비디오별 해로움 수준 분포 - youtube_comments에 해로움 수준 정보가 없어 빈 결과 반환 -->
     <select id="getVideoHarmfulnessLevelDistribution" 
             resultType="com.medi.backend.userdashboard.dto.UserHarmfulnessLevelDistributionDto">
         SELECT 
-            acar.harmfulness_level AS harmfulnessLevel,
-            COUNT(*) AS count
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
-        INNER JOIN youtube_videos v ON yc.video_id = v.id
-        INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND v.id = #{videoId} AND acar.status = 'filtered'
-        GROUP BY acar.harmfulness_level
-        ORDER BY 
-            CASE acar.harmfulness_level
-                WHEN 'HIGH' THEN 1
-                WHEN 'MEDIUM' THEN 2
-                WHEN 'LOW' THEN 3
-                ELSE 4
-            END
+            NULL AS harmfulnessLevel,
+            0 AS count
+        WHERE 1 = 0
     </select>
 
-    <!-- UDB-15: 비디오별 카테고리 분포 -->
+    <!-- UDB-15: 비디오별 카테고리 분포 - youtube_comments에 카테고리 정보가 없어 빈 결과 반환 -->
     <select id="getVideoCategoryDistribution" 
             resultType="com.medi.backend.userdashboard.dto.CategoryDistributionForUserDto">
         SELECT 
-            COALESCE(acar.detected_category, 'UNKNOWN') AS category,
-            COUNT(*) AS count
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
-        INNER JOIN youtube_videos v ON yc.video_id = v.id
-        INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND v.id = #{videoId} AND acar.status = 'filtered'
-        GROUP BY acar.detected_category
-        ORDER BY count DESC
+            'UNKNOWN' AS category,
+            0 AS count
+        WHERE 1 = 0
     </select>
 
     <!-- UDB-16: 채널별 필터링 수 랭킹 (TOP N) -->
@@ -351,11 +277,10 @@
             c.channel_name AS channelName,
             COUNT(*) AS filteredCount,
             ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC) AS rank
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+        FROM youtube_comments yc
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
+        WHERE c.user_id = #{userId} AND yc.deletion_status = 'ACTIVE'
         GROUP BY c.id, c.channel_name
         ORDER BY filteredCount DESC
         LIMIT #{limit}
@@ -369,11 +294,10 @@
             v.title AS videoTitle,
             COUNT(*) AS filteredCount,
             ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC) AS rank
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+        FROM youtube_comments yc
         INNER JOIN youtube_videos v ON yc.video_id = v.id
         INNER JOIN youtube_channels c ON v.channel_id = c.id
-        WHERE c.user_id = #{userId} AND acar.status = 'filtered'
+        WHERE c.user_id = #{userId} AND yc.deletion_status = 'ACTIVE'
         GROUP BY v.id, v.title
         ORDER BY filteredCount DESC
         LIMIT #{limit}

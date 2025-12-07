@@ -168,22 +168,18 @@
             ych.id AS channelId,
             ych.youtube_channel_id AS youtubeChannelId,
             ych.channel_name AS channelName,
-            acar.status AS status,
-            acar.reason AS reason,
-            acar.analyzed_at AS analyzedAt,
-            acar.harmfulness_level AS harmfulnessLevel,
-            acar.detection_source AS detectionSource
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+            NULL AS status,
+            NULL AS reason,
+            NULL AS analyzedAt,
+            NULL AS harmfulnessLevel,
+            NULL AS detectionSource
+        FROM youtube_comments yc
         INNER JOIN youtube_videos yv ON yc.video_id = yv.id
         INNER JOIN youtube_channels ych ON yv.channel_id = ych.id
         WHERE yv.id = #{videoId}
             AND ych.user_id = #{userId}
             AND ych.deleted_at IS NULL
-            AND yc.deletion_status = 'ACTIVE'
-            <if test="status != null and status != ''">
-                AND acar.status = #{status}
-            </if>
+            AND (yc.deletion_status = 'ACTIVE' OR yc.deletion_status IS NULL)
         ORDER BY yc.published_at DESC
         LIMIT 200
     </select>
@@ -281,29 +277,37 @@
     <select id="findFilteredCommentStatsByDate" resultType="com.medi.backend.agent.dto.DateStat">
         SELECT 
             <choose>
+                <when test="periodType == 'hourly'">
+                    CONCAT(
+                        DATE_FORMAT(yc.created_at, '%Y-%m-%d '),
+                        LPAD(FLOOR(HOUR(yc.created_at) / 6) * 6, 2, '0'),
+                        ':00'
+                    ) AS date
+                </when>
                 <when test="periodType == 'daily'">
-                    DATE(yc.published_at) AS date
+                    DATE(yc.created_at) AS date
                 </when>
                 <when test="periodType == 'monthly'">
-                    DATE_FORMAT(yc.published_at, '%Y-%m') AS date
+                    DATE_FORMAT(yc.created_at, '%Y-%m') AS date
                 </when>
                 <when test="periodType == 'yearly'">
-                    YEAR(yc.published_at) AS date
+                    YEAR(yc.created_at) AS date
                 </when>
                 <otherwise>
-                    DATE(yc.published_at) AS date
+                    DATE(yc.created_at) AS date
                 </otherwise>
             </choose>,
             COUNT(*) AS totalCount,
-            SUM(CASE WHEN acar.status = 'filtered' THEN 1 ELSE 0 END) AS filteredCount,
-            SUM(CASE WHEN acar.status = 'content_suggestion' THEN 1 ELSE 0 END) AS suggestionCount,
-            SUM(CASE WHEN acar.status = 'normal' THEN 1 ELSE 0 END) AS normalCount
-        FROM ai_comment_analysis_result acar
-        INNER JOIN youtube_comments yc ON acar.youtube_comment_id = yc.id
+            COUNT(*) AS filteredCount,
+            0 AS suggestionCount,
+            0 AS normalCount
+        FROM youtube_comments yc
         INNER JOIN youtube_videos yv ON yc.video_id = yv.id
         INNER JOIN youtube_channels ych ON yv.channel_id = ych.id
         WHERE ych.user_id = #{userId}
             AND ych.deleted_at IS NULL
+            AND yc.created_at IS NOT NULL
+            AND (yc.deletion_status = 'ACTIVE' OR yc.deletion_status IS NULL)
             <if test="videoId != null">
                 AND yv.id = #{videoId}
             </if>
@@ -311,24 +315,45 @@
                 AND ych.id = #{channelId}
             </if>
             <if test="startDate != null and startDate != ''">
-                AND DATE(yc.published_at) &gt;= #{startDate}
+                <choose>
+                    <when test="periodType == 'hourly'">
+                        AND yc.created_at &gt;= STR_TO_DATE(#{startDate}, '%Y-%m-%dT%H:%i')
+                    </when>
+                    <otherwise>
+                        AND DATE(yc.created_at) &gt;= #{startDate}
+                    </otherwise>
+                </choose>
             </if>
             <if test="endDate != null and endDate != ''">
-                AND DATE(yc.published_at) &lt;= #{endDate}
+                <choose>
+                    <when test="periodType == 'hourly'">
+                        AND yc.created_at &lt;= STR_TO_DATE(#{endDate}, '%Y-%m-%dT%H:%i')
+                    </when>
+                    <otherwise>
+                        AND DATE(yc.created_at) &lt;= #{endDate}
+                    </otherwise>
+                </choose>
             </if>
         GROUP BY 
             <choose>
+                <when test="periodType == 'hourly'">
+                    CONCAT(
+                        DATE_FORMAT(yc.created_at, '%Y-%m-%d '),
+                        LPAD(FLOOR(HOUR(yc.created_at) / 6) * 6, 2, '0'),
+                        ':00'
+                    )
+                </when>
                 <when test="periodType == 'daily'">
-                    DATE(yc.published_at)
+                    DATE(yc.created_at)
                 </when>
                 <when test="periodType == 'monthly'">
-                    DATE_FORMAT(yc.published_at, '%Y-%m')
+                    DATE_FORMAT(yc.created_at, '%Y-%m')
                 </when>
                 <when test="periodType == 'yearly'">
-                    YEAR(yc.published_at)
+                    YEAR(yc.created_at)
                 </when>
                 <otherwise>
-                    DATE(yc.published_at)
+                    DATE(yc.created_at)
                 </otherwise>
             </choose>
         ORDER BY date DESC

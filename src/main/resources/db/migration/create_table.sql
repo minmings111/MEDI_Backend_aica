@@ -448,6 +448,46 @@ CREATE TABLE ai_channel_threat_analysis (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT 'AI 채널 위협 분석 보고서 (generated_at 기준 관리)';
 
+-- 4-6. dashboard_time_pattern_stats 테이블 (youtube_channels 참조)
+CREATE TABLE dashboard_time_pattern_stats (
+    -- 기본 키
+    id INT AUTO_INCREMENT PRIMARY KEY,
+
+    -- 외래키 (채널 기준)
+    channel_id INT NOT NULL COMMENT 'youtube_channels FK',
+
+    -- 시간대별 악플 분포 데이터 (JSON)
+    time_distribution JSON NOT NULL COMMENT '시간대별 악플 분포 {
+        "새벽 (00-06시)": 12,
+        "오전 (06-12시)": 4,
+        "오후 (12-18시)": 12,
+        "저녁 (18-22시)": 3,
+        "심야 (22-24시)": 3
+    }',
+
+    -- 레드존 정보 (가장 위험한 시간대)
+    red_zone_time_slot VARCHAR(50) NOT NULL COMMENT '가장 위험한 시간대 (예: "새벽 (00-06시)")',
+    red_zone_count INT NOT NULL DEFAULT 0 COMMENT '레드존 시간대 악플 개수',
+    red_zone_percentage DECIMAL(5,2) NOT NULL DEFAULT 0.00 COMMENT '레드존 비율 (예: 35.3)',
+
+    -- 메타데이터 (DB 관리용)
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT 'DB에 저장된 시간',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'DB 수정 시간',
+
+    -- 외래키 제약
+    CONSTRAINT fk_dashboard_time_channel 
+        FOREIGN KEY (channel_id) REFERENCES youtube_channels(id) 
+        ON DELETE CASCADE ON UPDATE CASCADE,
+
+    -- 성능 인덱스
+    INDEX idx_channel_time (channel_id),
+
+    -- 유니크 제약 (채널당 하나의 대시보드 시간대 데이터)
+    UNIQUE KEY uk_channel_dashboard_time (channel_id)
+
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT '대시보드용 시간대별 악플 통계 (고정 데이터)';
+
 -- ==================================================
 -- 5단계: user_filter_preferences와 youtube_videos를 참조하는 테이블들
 -- ==================================================

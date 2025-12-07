@@ -13,6 +13,10 @@
         <result property="channelHandle" column="channel_handle"/>
         <result property="thumbnailUrl" column="thumbnail_url"/>
         <result property="subscriberCount" column="subscriber_count"/>
+        <result property="totalViewCount" column="total_view_count"/>
+        <result property="totalCommentCount" column="total_comment_count"/>
+        <result property="totalVideoCount" column="total_video_count"/>
+        <result property="channelCreatedAt" column="channel_created_at"/>
         <result property="createdAt" column="created_at"/>
         <result property="updatedAt" column="updated_at"/>
         <result property="lastSyncedAt" column="last_synced_at"/>
